@@ -1,5 +1,27 @@
 ---
+import Card from "../island_components/static/card.astro"
+import Hero from "../island_components/static/hero.astro"
+import { ServerStatus } from "../island_components/reactive/server_status.tsx"
 import Main from "../layouts/main.astro"
 ---
 
-<Main />
+<Main>
+    <Hero />
+    <div>
+        <ServerStatus client:only="react" />
+    </div>
+    <div class="space-y-6 p-4 md:flex md:gap-4 md:space-y-0">
+        <Card 
+            title="Get Ready"
+            description="Brush up your skills. This platform will get you ready."
+        />
+        <Card 
+            title="Review Faster"
+            description="Too much waste time? This platform helps you."
+        />
+        <Card 
+            title="Retain More"
+            description="Build muscle memory without draining your mental energy."
+        />
+    </div>
+</Main>

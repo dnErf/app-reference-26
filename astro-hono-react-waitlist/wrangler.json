@@ -1,0 +1,5 @@
+{
+    "name": "astro-hono-react-waitlist",
+    "main": "src/server/index.ts",
+    "compatibility_date": "2025-11-18"
+}

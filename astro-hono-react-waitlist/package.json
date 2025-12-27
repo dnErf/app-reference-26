@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "scripts": {
     "dev:client": "bun run --bun astro dev",
+    "dev:server": "wrangler dev",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
@@ -15,9 +16,11 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "astro": "^5.16.6",
+    "hono": "^4.11.3",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "tailwindcss": "^4.1.18"
+    "tailwindcss": "^4.1.18",
+    "wrangler": "^4.54.0"
   },
   "devDependencies": {
     "daisyui": "^5.5.14"
