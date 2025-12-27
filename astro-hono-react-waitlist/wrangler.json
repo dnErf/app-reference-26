@@ -1,5 +1,18 @@
 {
     "name": "astro-hono-react-waitlist",
     "main": "src/server/index.ts",
-    "compatibility_date": "2025-11-18"
+    "compatibility_date": "2025-11-18",
+    "assets": {
+        "directory": "./dist",
+        "binding": "assets"
+    },
+    "env": {
+        "staging": {
+            "vars": {
+                "ENVIRONMENT": "staging",
+                "CF_ACCESS_DOMAIN": "https://frend-fernando.cloudflareaccess.com",
+                "CF_POLICY_AUD": "0a56197e11506822f54d8d480d5a9ae43aea4e64b6d39ea744cd1c7c5d0bb87b"
+            }
+        }
+    }
 }
