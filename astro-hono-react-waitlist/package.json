@@ -8,6 +8,13 @@
     "dev:s": "wrangler dev",
     "deploy:s": "bun run build:c && wrangler deploy --env staging",
     "deploy:p": "bun run build:c && wrangler deploy --env production",
+    "db:c": "bunx wrangler d1 create z_waitlist_staging",
+    "db:g": "drizzle-kit generate --config=./drizzle.config.ts",
+    "db:m:local": "wrangler d1 migrations apply z_waitlist_local --local",
+    "db:m:staging": "wrangler d1 migrations apply z_waitlist_staging --remote --env staging",
+    "test:db:create": "bun run ./scripts/test-db-create.ts",
+    "test:db:destroy": "bun run ./scripts/test-db-destroy",
+    "test": "bun run test:db:create && bun test && bun run test:db:destroy",
     "preview": "astro preview",
     "astro": "astro"
   },
@@ -17,6 +24,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "astro": "^5.16.6",
+    "drizzle-orm": "^0.45.1",
     "hono": "^4.11.3",
     "jose": "^6.1.3",
     "react": "^19.2.3",
@@ -25,6 +33,10 @@
     "wrangler": "^4.54.0"
   },
   "devDependencies": {
-    "daisyui": "^5.5.14"
+    "@cloudflare/workers-types": "^4.20251228.0",
+    "@types/bun": "^1.3.5",
+    "daisyui": "^5.5.14",
+    "drizzle-kit": "^0.31.8",
+    "drizzle-seed": "^0.3.1"
   }
 }

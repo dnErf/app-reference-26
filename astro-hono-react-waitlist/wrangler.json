@@ -1,18 +1,34 @@
 {
-    "name": "astro-hono-react-waitlist",
-    "main": "src/server/index.ts",
-    "compatibility_date": "2025-11-18",
-    "assets": {
-        "directory": "./dist",
-        "binding": "assets"
-    },
-    "env": {
-        "staging": {
-            "vars": {
-                "ENVIRONMENT": "staging",
-                "CF_ACCESS_DOMAIN": "https://frend-fernando.cloudflareaccess.com",
-                "CF_POLICY_AUD": "0a56197e11506822f54d8d480d5a9ae43aea4e64b6d39ea744cd1c7c5d0bb87b"
-            }
-        }
-    }
+	"name": "astro-hono-react-waitlist",
+	"main": "src/server/index.ts",
+	"compatibility_date": "2025-11-18",
+	"assets": {
+		"directory": "./dist",
+		"binding": "assets"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "z_waitlist_local",
+			"database_id": "180a72d4a928",
+			"migrations_dir": "./src/server/db/migrations"
+		}
+	],
+	"env": {
+		"staging": {
+			"vars": {
+				"ENVIRONMENT": "staging",
+				"CF_ACCESS_DOMAIN": "https://frend-fernando.cloudflareaccess.com",
+				"CF_POLICY_AUD": "0a56197e11506822f54d8d480d5a9ae43aea4e64b6d39ea744cd1c7c5d0bb87b"
+			},
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "z_waitlist_staging",
+					"database_id": "49b54fd0-7ecb-4334-b63d-180a72d4a928",
+					"migrations_dir": "./src/server/db/migrations"
+				}
+			]
+		}
+	}
 }

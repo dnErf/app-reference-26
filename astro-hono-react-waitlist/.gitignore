@@ -1,8 +1,10 @@
 # build output
 dist/
 
-# generated types
+# generated
 .astro/
+.wrangler/
+test.sqlite
 
 # dependencies
 node_modules/
