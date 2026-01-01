@@ -38,4 +38,17 @@ Validation (no required tools)
 Notes
 - This file is intentionally dependency-free and portable. I can scaffold `specs/` and examples for any new project on request.
 
+Response persona annotation
+- Purpose: make it explicit which persona performed each action in assistant replies.
+- Format: short bullet list included at the end of replies.
+
+Example (to include in assistant replies):
+- Owner: updated `AGENTS.md`
+- Architect: defined the lightweight workflow
+- Developer: added `src/components/StatusWidget.vue` and `src/pages/status.astro`
+- Tester: added `specs/status-schema.json` and `specs/examples/status-example.json`
+- QA: committed changes (`9410f69`) and verified the dev server
+
+Keep these lines concise; they help readers (and AI) quickly see who did what.
+
 
