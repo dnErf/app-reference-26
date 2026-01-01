@@ -15,8 +15,13 @@ Personas
 - **owner** — writes concise specs in `/specs/`.
 - **architect** — writes `plan.md` (steps, risks).
 - **developer** — implements small, testable changes.
-- **tester** — adds/updates tests and validates specs.
-- **qa** — verifies acceptance criteria and rule compliance.
+- **tester** — adds/updates tests and validates specs; responsible for test configuration and CI integration.
++- **qa** — verifies acceptance criteria and rule compliance.
++
++Testing convention
++- Primary responsibility: **Tester** writes test suites and test configuration (Vitest/jest or chosen tools) and maintains CI test jobs.
++- Developer allowance: developers may add small unit tests during implementation but should mark them as *proposed* and request Tester review before merging.
+
 
 Workflow (6 steps)
 1. Understand — clarify requirements and acceptance criteria.

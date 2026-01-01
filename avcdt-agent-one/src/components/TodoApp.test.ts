@@ -1,3 +1,4 @@
+// Authored-by: developer (proposed) — Tester to review and approve
 import { render, fireEvent } from '@testing-library/vue'
 import TodoApp from './TodoApp.vue'
 
