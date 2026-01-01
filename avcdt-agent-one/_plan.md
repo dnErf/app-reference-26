@@ -9,7 +9,7 @@ Steps:
 2. Implement: create a Vue component `src/components/TodoApp.vue` that stores todos in `localStorage`.
 3. Test: **Tester** writes test suites and test configuration (Vitest) and ensures the tests cover add/toggle/remove/persistence; developers may add proposed unit tests but must request Tester review before merging.
 4. Page: add `src/pages/todo.astro` to load the component with `client:load`.
-5. QA: manually open `/todo` and verify create/toggle/remove persist. Use `_qa.md` to confirm all review items.
+5. QA: after Tester marks tests as approved and CI passes, QA will immediately run the `_qa.md` checklist and approve/merge if all items pass. QA does not need a separate prompt to start this step.
 6. Commit: stage and commit changes with a concise message. QA may approve and merge once checklist is complete.
 
 Acceptance criteria:

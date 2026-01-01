@@ -1,16 +1,18 @@
 # QA Review Checklist
 
-This checklist is owned by **QA**. QA may approve and merge changes once the checklist items are satisfied — no additional approval needed unless explicitly requested.
+This checklist is owned by **QA**. QA runs the checklist after Tester marks tests as approved and CI passes — no extra prompt required. If checklist items pass, QA may approve and merge the change.
 
-- [ ] Specs present and valid (owner/tester) — `specs/<name>.json` and `specs/examples/` exist
-- [ ] _Plan updated (`_plan.md`)_
-- [ ] Implementation done (developer)
-- [ ] Tests added and passing (tester)
-- [ ] Tester reviewed and marked tests as approved
-- [ ] Manual QA verification (core flows) performed
-- [ ] Accessibility/basic UX checked
-- [ ] Documentation/AGENTS.md updated if needed
+Checklist (QA to run)
+- [ ] Specs present and valid (`specs/<name>.json` and `specs/examples/`)
+- [ ] `_plan.md` updated
+- [ ] Implementation matches plan
+- [ ] Tests are present and passing
+- [ ] Tester confirmed tests (mark in PR) — tests approved
+- [ ] Manual QA verification of core flows (browser)
+- [ ] Accessibility/basic UX check
+- [ ] Docs updated if needed
 
 Notes:
-- If a change risks production, QA may request further review from the owner/architect.
-- QA is empowered to approve and merge when checklist is complete.
+- If any check fails or the change is risky for production, QA will request the necessary review from owner/architect.
+- QA is empowered to approve and merge when the checklist is complete.
+
