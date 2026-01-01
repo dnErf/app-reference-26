@@ -21,6 +21,11 @@ Personas
 +Testing convention
 +- Primary responsibility: **Tester** writes test suites and test configuration (Vitest/jest or chosen tools) and maintains CI test jobs.
 +- Developer allowance: developers may add small unit tests during implementation but should mark them as *proposed* and request Tester review before merging.
+QA ownership
+- **QA** owns the review checklist (`QA-CHECKLIST.md`) and is responsible for final verification and approval for merge.
+- QA may approve and merge changes once the checklist items are satisfied; no additional approver is required unless QA requests one.
+- The checklist is authoritative and should be followed for every feature or fix that changes behavior or public surface.
+- Location: `QA-CHECKLIST.md` at repository root.
 
 
 Workflow (6 steps)
