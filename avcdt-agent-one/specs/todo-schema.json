@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/todo.schema.json",
+  "title": "TodoList",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "id": { "type": "number" },
+      "text": { "type": "string" },
+      "done": { "type": "boolean" }
+    },
+    "required": ["id", "text", "done"],
+    "additionalProperties": false
+  }
+}
