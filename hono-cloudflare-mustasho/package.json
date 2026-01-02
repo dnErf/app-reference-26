@@ -1,0 +1,33 @@
+{
+  "name": "cdt-cloudflare",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Cloudflare Data Transformer (CDT)",
+  "main": "lib/index.js",
+  "bin": {
+    "cdt": "bin/cli.js"
+  },
+  "scripts": {
+    "test": "node test.js",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "lint": "eslint lib/ bin/ --ext .js",
+    "build": "echo 'No build step needed'",
+    "docs": "jsdoc -d docs lib/"
+  },
+  "dependencies": {
+    "handlebars": "^4.7.8",
+    "minimist": "^1.2.8",
+    "hono": "^4.0.0",
+    "drizzle-orm": "^0.30.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0",
+    "@cloudflare/workers-types": "^4.20231218.0",
+    "eslint": "^8.0.0",
+    "jsdoc": "^4.0.2"
+  },
+  "keywords": ["cloudflare", "data", "transformation", "dbt", "sqlmesh"],
+  "author": "dnErf",
+  "license": "MIT"
+}
