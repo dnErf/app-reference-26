@@ -1,0 +1,28 @@
+{
+	"name": "mini-dbt",
+	"main": "src/worker/index.tsx",
+	"compatibility_date": "2024-09-23",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "mini-dbt-db",
+			"database_id": "72357786-2bb2-4d68-b8d9-d9c04022aef2" // Replace with actual D1 database ID from 'wrangler d1 create'
+		},
+		{
+			"binding": "mini_dbt_db",
+			"database_name": "mini-dbt-db",
+			"database_id": "72357786-2bb2-4d68-b8d9-d9c04022aef2"
+		}
+	],
+	"vars": {
+		"DEFAULT_MODEL": "example"
+	},
+	"triggers": {
+		"crons": [
+			"0 0 * * *"
+		]
+	}
+}

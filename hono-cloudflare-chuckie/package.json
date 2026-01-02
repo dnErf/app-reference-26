@@ -1,0 +1,31 @@
+{
+  "name": "hono-cloudflare-chuckie",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev --local --compatibility-flags nodejs_compat",
+    "build": "node scripts/precompile-templates.js",
+    "precompile-templates": "node scripts/precompile-templates.js",
+    "start": "wrangler dev",
+    "deploy": "wrangler publish",
+    "test": "vitest",
+    "lint": "eslint . --ext .ts,.tsx,.js",
+    "migrate:dev": "drizzle-kit migrate --config drizzle.config.ts",
+    "drizzle:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:seed": "pnpm exec wrangler d1 execute mini-dbt-db --local --file=scripts/seed.sql"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.2026.0",
+    "@types/node": "^25.0.0",
+    "@types/nunjucks": "^3.2.6",
+    "drizzle-kit": "^0.31.8",
+    "drizzle-orm": "^0.31.0",
+    "eslint": "^9.0.0",
+    "vitest": "^4.0.0",
+    "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "hono": "^4.0.0",
+    "nunjucks": "^3.2.4"
+  }
+}

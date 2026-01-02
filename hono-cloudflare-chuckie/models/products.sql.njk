@@ -1,0 +1,4 @@
+-- models/products.sql.njk
+-- name: products
+
+SELECT id, name, price, category, created_at FROM products_table WHERE price >= {{ var('min_price', 0) }};

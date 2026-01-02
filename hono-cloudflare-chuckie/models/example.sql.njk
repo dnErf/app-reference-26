@@ -1,0 +1,11 @@
+-- models/example.sql.njk
+-- name: example
+
+SELECT
+  id,
+  name,
+  created_at
+FROM (
+  {{ ref('raw_users') }}
+) as users
+WHERE created_at >= '{{ var('start_date', '2020-01-01') }}';

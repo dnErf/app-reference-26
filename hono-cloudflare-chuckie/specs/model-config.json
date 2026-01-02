@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/model-config.schema.json",
+  "title": "ModelConfig",
+  "type": "object",
+  "properties": {
+    "defaultModel": {
+      "type": "string",
+      "description": "Default model to use for agent clients",
+      "enum": ["raptor-mini-preview", "gpt-4o", "gpt-4", "gpt-3.5-turbo"]
+    },
+    "allowRuntimeUpload": {
+      "type": "boolean",
+      "description": "Whether runtime template uploads are allowed",
+      "default": false
+    },
+    "d1Database": {
+      "type": "string",
+      "description": "Name of the D1 database binding for materialization",
+      "default": "DB"
+    },
+    "variables": {
+      "type": "object",
+      "description": "Key-value pairs for variable resolution in templates",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "required": ["defaultModel"],
+  "additionalProperties": false
+}

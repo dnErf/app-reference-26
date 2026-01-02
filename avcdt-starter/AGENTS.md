@@ -58,3 +58,36 @@ strictly use pnpm or astro
 - build: `pnpm buil`
 - add package: `pnpm add {package name}`
 - astro plugin `pnpm astro add {plugin}`
+
+---
+
+# AGENTS WORKFLOW GUIDELINES
+
+## principles
+- conscious and concise changes only
+- no unrelated refactors
+
+## commits
+- `type: description` (ft, fx, up, ch, ci, docs)
+
+## roles
+- **owner**
+    - specs(`specs/`)
+    - create and review checklist (`_qa.md`) and approval
+- **developer**
+    - plan (`_plan.md`)
+    - implementation
+    - tests
+    - ci
+
+## workflow
+1. understand - confirm acceptance criteria
+2. spec - if medium+ complexity, add/update `specs/*.json`
+3. plan - create/update `_plan.md`
+4. implement - code
+5. test - test implementation
+6. qa - run `_qa.md` and approve
+
+## specs
+- prefer JSON schema in `specs/`
+
