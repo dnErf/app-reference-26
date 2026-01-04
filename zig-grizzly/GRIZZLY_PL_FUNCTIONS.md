@@ -226,6 +226,77 @@ FROM products p
 JOIN users u ON p.user_id = u.id;
 ```
 
+## Method Receivers and Dot Notation
+
+Grizzly PL supports method-style function calls using dot notation, where the object before the dot becomes the first parameter of the function. This provides a more object-oriented syntax for function calls:
+
+```sql
+-- Traditional function call
+SELECT length(items) FROM orders;
+
+-- Method-style call (equivalent)
+SELECT items.length() FROM orders;
+
+-- With additional parameters
+SELECT array.filter(item -> item.price > 100.0) FROM orders;
+SELECT text.uppercase() FROM users;
+```
+
+### Receiver Functions
+
+When defining functions that operate on specific types, you can design them to work naturally with dot notation:
+
+```sql
+CREATE FUNCTION length(arr ARRAY) RETURNS int64 {
+    // Returns the length of an array
+    arr |> count()
+}
+
+CREATE FUNCTION uppercase(text TEXT) RETURNS TEXT {
+    // Converts text to uppercase
+    text |> transform(str -> str.to_upper())
+}
+
+CREATE FUNCTION filter(arr ARRAY, predicate FUNCTION) RETURNS ARRAY {
+    // Filters array elements using a predicate function
+    arr |> where(predicate)
+}
+```
+
+### Built-in Receiver Support
+
+Many built-in functions support receiver syntax:
+
+```sql
+-- Array operations
+SELECT orders.items.length() FROM orders;
+SELECT products.tags.filter(tag -> tag != 'deprecated') FROM products;
+
+-- String operations
+SELECT users.name.uppercase() FROM users;
+SELECT posts.content.substring(0, 100) FROM posts;
+
+-- JSON operations
+SELECT user_data.get('email') FROM users;
+SELECT config.set('theme', 'dark') FROM settings;
+```
+
+### Chaining with Receivers
+
+Dot notation combines seamlessly with pipe operations for fluent data transformations:
+
+```sql
+-- Complex data processing
+SELECT orders
+    .filter(order -> order.status == 'completed')
+    .map(order -> {
+        id: order.id,
+        total: order.items.sum(item -> item.price * item.quantity),
+        customer: order.customer
+    })
+FROM orders;
+```
+
 ## Usage in Templates
 
 Functions work in CREATE MODEL templates for dynamic SQL generation:
