@@ -57,6 +57,7 @@ pub const type_registry = @import("type_registry.zig");
 // Sprint 14: PL-Grizzly - SQL Templating & Stored Procedures
 pub const expression = @import("expression.zig");
 pub const template = @import("template.zig");
+pub const function = @import("function.zig");
 
 // Re-export commonly used types
 pub const DataType = types.DataType;
@@ -119,6 +120,10 @@ pub const TemplateEngine = template.TemplateEngine;
 pub const ExprNode = expression.ExprNode;
 pub const BinaryOp = expression.BinaryOp;
 pub const ExpressionParser = expression.ExpressionParser;
+pub const FunctionRegistry = function.FunctionRegistry;
+pub const Function = function.Function;
+pub const FunctionBody = function.FunctionBody;
+pub const Parameter = function.Parameter;
 
 test {
     std.testing.refAllDecls(@This());

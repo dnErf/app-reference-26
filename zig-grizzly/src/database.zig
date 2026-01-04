@@ -38,6 +38,7 @@ pub const Database = struct {
     type_registry: TypeRegistry,
     audit_log: ?*audit_mod.AuditLog,
     attached_databases: std.StringHashMap(*Database),
+    attached_function_libraries: std.StringHashMap(*FunctionRegistry),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) !Database {
@@ -55,6 +56,7 @@ pub const Database = struct {
             .type_registry = TypeRegistry.init(allocator),
             .audit_log = null,
             .attached_databases = std.StringHashMap(*Database).init(allocator),
+            .attached_function_libraries = std.StringHashMap(*FunctionRegistry).init(allocator),
             .allocator = allocator,
         };
     }
@@ -74,6 +76,7 @@ pub const Database = struct {
         self.scheduler.deinit();
         self.type_registry.deinit();
         self.attached_databases.deinit();
+        self.attached_function_libraries.deinit();
         self.allocator.free(self.name);
     }
 
@@ -738,6 +741,39 @@ pub const Database = struct {
     pub fn listAttachedDatabases(self: *Database, allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
         var list = try std.ArrayList([]const u8).initCapacity(allocator, 0);
         var it = self.attached_databases.keyIterator();
+        while (it.next()) |key| {
+            try list.append(allocator, try allocator.dupe(u8, key.*));
+        }
+        return list;
+    }
+
+    /// Attach a function library
+    pub fn attachFunctionLibrary(self: *Database, alias: []const u8, library: *FunctionRegistry) !void {
+        if (self.attached_function_libraries.contains(alias)) {
+            return error.FunctionLibraryAlreadyAttached;
+        }
+        try self.attached_function_libraries.put(try self.allocator.dupe(u8, alias), library);
+    }
+
+    /// Detach a function library by alias
+    pub fn detachFunctionLibrary(self: *Database, alias: []const u8) !void {
+        if (!self.attached_function_libraries.contains(alias)) {
+            return error.FunctionLibraryNotAttached;
+        }
+        const key = self.attached_function_libraries.getKey(alias).?;
+        self.allocator.free(key);
+        _ = self.attached_function_libraries.remove(alias);
+    }
+
+    /// Get an attached function library by alias
+    pub fn getAttachedFunctionLibrary(self: *Database, alias: []const u8) ?*FunctionRegistry {
+        return self.attached_function_libraries.get(alias);
+    }
+
+    /// List all attached function library aliases
+    pub fn listAttachedFunctionLibraries(self: *Database, allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
+        var list = try std.ArrayList([]const u8).initCapacity(allocator, 0);
+        var it = self.attached_function_libraries.keyIterator();
         while (it.next()) |key| {
             try list.append(allocator, try allocator.dupe(u8, key.*));
         }

@@ -2,8 +2,11 @@ const std = @import("std");
 const types = @import("types.zig");
 const function_mod = @import("function.zig");
 const pattern_mod = @import("pattern.zig");
+const database_mod = @import("database.zig");
 pub const Value = types.Value;
 const FunctionRegistry = function_mod.FunctionRegistry;
+const Function = function_mod.Function;
+const Database = database_mod.Database;
 const MatchCase = pattern_mod.MatchCase;
 
 /// Expression evaluation engine for PL-Grizzly
@@ -11,12 +14,14 @@ pub const ExpressionEngine = struct {
     allocator: std.mem.Allocator,
     variables: std.StringHashMap(Value),
     functions: ?*FunctionRegistry,
+    database: ?*Database,
 
     pub fn init(allocator: std.mem.Allocator) ExpressionEngine {
         return ExpressionEngine{
             .allocator = allocator,
             .variables = std.StringHashMap(Value).init(allocator),
             .functions = null,
+            .database = null,
         };
     }
 
@@ -25,6 +30,16 @@ pub const ExpressionEngine = struct {
             .allocator = allocator,
             .variables = std.StringHashMap(Value).init(allocator),
             .functions = functions,
+            .database = null,
+        };
+    }
+
+    pub fn initWithDatabase(allocator: std.mem.Allocator, functions: *FunctionRegistry, database: *Database) ExpressionEngine {
+        return ExpressionEngine{
+            .allocator = allocator,
+            .variables = std.StringHashMap(Value).init(allocator),
+            .functions = functions,
+            .database = database,
         };
     }
 
@@ -158,7 +173,27 @@ pub const ExpressionEngine = struct {
         const args_str = expression[paren_start.? + 1 .. paren_end.?];
 
         // Get the function
-        const function = self.functions.?.getFunction(func_name) orelse return null;
+        var function: ?*Function = null;
+
+        // First check main function registry
+        if (self.functions) |funcs| {
+            function = funcs.getFunction(func_name);
+        }
+
+        // If not found and we have a database, check attached function libraries
+        if (function == null and self.database != null) {
+            var it = self.database.?.attached_function_libraries.iterator();
+            while (it.next()) |entry| {
+                if (entry.value_ptr.*.getFunction(func_name)) |func| {
+                    function = func;
+                    break;
+                }
+            }
+        }
+
+        if (function == null) return null;
+
+        const func = function.?; // Unwrap the optional
 
         // Parse arguments
         var args = try std.ArrayList(Value).initCapacity(self.allocator, 0);
@@ -212,7 +247,7 @@ pub const ExpressionEngine = struct {
         }
 
         // Execute the function
-        const result = try function.execute(args.items, self);
+        const result = try func.execute(args.items, self);
         return result;
     }
 
@@ -529,6 +564,13 @@ pub const ExpressionEngine = struct {
                 if (left != .boolean or right != .boolean) return error.InvalidOperandTypes;
                 return Value{ .boolean = left.boolean or right.boolean };
             },
+            .concat => {
+                if (left == .string and right == .string) {
+                    const concatenated = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ left.string, right.string });
+                    return Value{ .string = concatenated };
+                }
+                return error.InvalidOperandTypes;
+            },
         };
     }
 };
@@ -777,6 +819,7 @@ pub const BinaryOp = enum {
     greater_equal,
     @"and",
     @"or",
+    concat,
 };
 
 /// Simple expression parser (basic implementation)
@@ -1228,7 +1271,7 @@ pub const ExpressionParser = struct {
         if (std.mem.startsWith(u8, trimmed, ">=")) return .greater_equal;
         if (std.mem.startsWith(u8, trimmed, ">")) return .greater;
         if (std.mem.startsWith(u8, trimmed, "&&")) return .@"and";
-        if (std.mem.startsWith(u8, trimmed, "||")) return .@"or";
+        if (std.mem.startsWith(u8, trimmed, "||")) return .concat;
         return null;
     }
 
@@ -1240,7 +1283,7 @@ pub const ExpressionParser = struct {
             .@"and" => 2,
             .equal, .not_equal => 3,
             .less, .less_equal, .greater, .greater_equal => 4,
-            .add, .subtract => 5,
+            .add, .subtract, .concat => 5,
             .multiply, .divide => 6,
         };
     }
@@ -1250,7 +1293,7 @@ pub const ExpressionParser = struct {
         _ = self; // unused
         return switch (op) {
             .add, .subtract, .multiply, .divide, .less, .greater => 1,
-            .equal, .not_equal, .less_equal, .greater_equal, .@"and", .@"or" => 2,
+            .equal, .not_equal, .less_equal, .greater_equal, .@"and", .@"or", .concat => 2,
         };
     }
 

@@ -1,0 +1,233 @@
+const std = @import("std");
+const FunctionRegistry = @import("function.zig").FunctionRegistry;
+const Function = @import("function.zig").Function;
+const FunctionBody = @import("function.zig").FunctionBody;
+const Parameter = @import("function.zig").Parameter;
+const DataType = @import("types.zig").DataType;
+const Tokenizer = @import("query.zig").Tokenizer;
+const QueryEngine = @import("query.zig").QueryEngine;
+
+/// Parse a SQL file and extract function definitions into a function registry
+pub fn parseSqlFile(allocator: std.mem.Allocator, file_path: []const u8) !*FunctionRegistry {
+    // Read the file
+    const file = try std.fs.cwd().openFile(file_path, .{});
+    defer file.close();
+
+    const file_size = try file.getEndPos();
+    const content = try allocator.alloc(u8, file_size);
+    defer allocator.free(content);
+
+    _ = try file.readAll(content);
+
+    // Create a function registry
+    const registry = try allocator.create(FunctionRegistry);
+    registry.* = FunctionRegistry.init(allocator);
+    errdefer {
+        registry.deinit();
+        allocator.destroy(registry);
+    }
+
+    // Parse the SQL content
+    var tokenizer = Tokenizer.init(content);
+
+    while (true) {
+        const token = (try tokenizer.next()) orelse {
+            std.debug.print("Reached end of file\n", .{});
+            break;
+        };
+        
+        std.debug.print("Token: {s}\n", .{token.value});
+        
+        // Look for CREATE FUNCTION statements
+        if (token.type == .create) {
+            std.debug.print("Found CREATE, parsing function...\n", .{});
+            try parseCreateFunction(&tokenizer, registry);
+            std.debug.print("Function parsing completed\n", .{});
+        } else {
+            // Skip other statements
+            std.debug.print("Skipping non-CREATE token\n", .{});
+            try skipStatement(&tokenizer);
+        }
+    }
+
+    std.debug.print("Finished parsing SQL file\n", .{});
+
+    return registry;
+}
+
+/// Parse a CREATE FUNCTION statement
+fn parseCreateFunction(tokenizer: *Tokenizer, registry: *FunctionRegistry) !void {
+    // CREATE has already been consumed, expect FUNCTION
+    const func_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+    if (func_token.type != .function) return error.ExpectedFunction;
+
+    // Get function name
+    const name_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+    if (name_token.type != .identifier) return error.ExpectedFunctionName;
+    const function_name = name_token.value;
+
+    // Parse parameters
+    var parameters = try std.ArrayList(Parameter).initCapacity(registry.allocator, 0);
+    defer parameters.deinit(registry.allocator);
+
+    const lparen_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+    if (lparen_token.type != .lparen) return error.ExpectedLeftParen;
+
+    // Parse parameter list
+    while (true) {
+        const next_token = (try tokenizer.peekToken()) orelse return error.UnexpectedEndOfQuery;
+        if (next_token.type == .rparen) {
+            _ = try tokenizer.next(); // consume rparen
+            break;
+        }
+
+        // Parse parameter name
+        const param_name_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (param_name_token.type != .identifier) return error.ExpectedParameterName;
+
+        // Parse parameter type
+        const param_type_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        const param_type = try parseDataType(param_type_token.value);
+
+        // Add parameter
+        const parameter = try Parameter.init(registry.allocator, param_name_token.value, param_type);
+        try parameters.append(registry.allocator, parameter);
+
+        // Check for comma or rparen
+        const separator_token = (try tokenizer.peekToken()) orelse return error.UnexpectedEndOfQuery;
+        if (separator_token.type == .comma) {
+            _ = try tokenizer.next(); // consume comma
+        } else if (separator_token.type == .rparen) {
+            _ = try tokenizer.next(); // consume rparen
+            break;
+        } else {
+            return error.ExpectedCommaOrRightParen;
+        }
+    }
+
+    // Expect RETURNS
+    const returns_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+    if (returns_token.type != .returns) return error.ExpectedReturns;
+
+    // Parse return type
+    const return_type_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+    const return_type = try parseDataType(return_type_token.value);
+
+    // Expect {
+    const lbrace_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+    if (lbrace_token.type != .lbrace) return error.ExpectedLeftBrace;
+
+    // Parse function body expression until }
+    var expression_tokens = try std.ArrayList([]const u8).initCapacity(registry.allocator, 8);
+    defer {
+        for (expression_tokens.items) |token_value| {
+            registry.allocator.free(token_value);
+        }
+        expression_tokens.deinit(registry.allocator);
+    }
+
+    while (true) {
+        const token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type == .rbrace) break;
+        
+        // Duplicate the token value, adding quotes for string literals
+        var token_value: []const u8 = undefined;
+        if (token.type == .string_literal) {
+            // Add single quotes around string literals
+            token_value = try std.fmt.allocPrint(registry.allocator, "'{s}'", .{token.value});
+        } else {
+            token_value = try registry.allocator.dupe(u8, token.value);
+        }
+        try expression_tokens.append(registry.allocator, token_value);
+    }
+
+    // Join tokens with spaces to reconstruct expression
+    var expression_builder = try std.ArrayList(u8).initCapacity(registry.allocator, 64);
+    defer expression_builder.deinit(registry.allocator);
+    
+    for (expression_tokens.items, 0..) |token_value, i| {
+        if (i > 0) try expression_builder.appendSlice(registry.allocator, " ");
+        try expression_builder.appendSlice(registry.allocator, token_value);
+    }
+
+    const function_body = FunctionBody{ .expression = try expression_builder.toOwnedSlice(registry.allocator) };
+
+    std.debug.print("Parsed function body: '{s}'\n", .{function_body.expression});
+
+    // Create the function
+    const function = try registry.allocator.create(Function);
+    function.* = try Function.init(
+        registry.allocator,
+        function_name,
+        try parameters.toOwnedSlice(registry.allocator),
+        return_type,
+        function_body,
+        .runtime,
+    );
+
+    std.debug.print("Registering function '{s}'...\n", .{function_name});
+
+    // Register the function
+    try registry.registerFunction(function);
+
+    std.debug.print("Function '{s}' registered successfully\n", .{function_name});
+}
+
+/// Skip a statement until semicolon
+fn skipStatement(tokenizer: *Tokenizer) !void {
+    while (true) {
+        const token = (try tokenizer.next()) orelse return;
+        if (token.type == .semicolon) return;
+    }
+}
+
+/// Parse a data type from string
+fn parseDataType(type_str: []const u8) !DataType {
+    if (std.mem.eql(u8, type_str, "INT") or std.mem.eql(u8, type_str, "INTEGER")) {
+        return .int32;
+    } else if (std.mem.eql(u8, type_str, "BIGINT")) {
+        return .int64;
+    } else if (std.mem.eql(u8, type_str, "FLOAT")) {
+        return .float32;
+    } else if (std.mem.eql(u8, type_str, "DOUBLE") or std.mem.eql(u8, type_str, "REAL")) {
+        return .float64;
+    } else if (std.mem.eql(u8, type_str, "BOOL") or std.mem.eql(u8, type_str, "BOOLEAN")) {
+        return .boolean;
+    } else if (std.mem.eql(u8, type_str, "TEXT") or std.mem.eql(u8, type_str, "VARCHAR") or std.mem.eql(u8, type_str, "STRING")) {
+        return .string;
+    } else if (std.mem.eql(u8, type_str, "TIMESTAMP")) {
+        return .timestamp;
+    } else {
+        return error.UnknownDataType;
+    }
+}
+
+test "parse SQL file with functions" {
+    const allocator = std.testing.allocator;
+
+    // Create a temporary SQL file
+    const sql_content =
+        \\CREATE FUNCTION calculate_discount(price REAL, tier TEXT) RETURNS REAL AS 'price * 0.9';
+        \\CREATE FUNCTION greet(name TEXT) RETURNS TEXT AS 'Hello ' || name;
+    ;
+
+    const temp_file = "test_functions.sql";
+    const file = try std.fs.cwd().createFile(temp_file, .{});
+    defer std.fs.cwd().deleteFile(temp_file) catch {};
+    try file.writeAll(sql_content);
+    file.close();
+
+    // Parse the file
+    const registry = try parseSqlFile(allocator, temp_file);
+    defer {
+        registry.deinit();
+        allocator.destroy(registry);
+    }
+
+    // Check that functions were parsed
+    const discount_func = registry.getFunction("calculate_discount");
+    try std.testing.expect(discount_func != null);
+
+    const greet_func = registry.getFunction("greet");
+    try std.testing.expect(greet_func != null);
+}

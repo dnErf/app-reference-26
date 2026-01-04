@@ -10,16 +10,16 @@
 `type: description` where type is: ft, fx, up, ch, ci, docs
 
 ## Roles
-- **Owner**: Specs (`specs/`), QA checklist (`.agents/_qa.md`), approval
+- **Owner**: Specs (`/.agents/specs/`), QA checklist (`.agents/_qa.md`), approval, document (`.agents/sprints/SPRINT_<theme>.md`)
 - **Developer**: Planning (`.agents/_plan.md`), implementation, CI/testing
 
 ## Workflow
 1. **Understand** - Confirm acceptance criteria
-2. **Spec** - For medium+ complexity, add/update `specs/*.json`
+2. **Spec** - For medium+ complexity, add/update `/.agents/specs/*.json`
 3. **Plan** - Create/update `.agents/_plan.md`
 4. **Implement** - Write code
 5. **QA** - Run tests: `zig test src/root.zig` (baseline) + feature-specific tests
-6. **Document** - Update `.agents/SPRINT_<theme>.md` and link from README
+6. **Document** - Update `.agents/sprints/SPRINT_<theme>.md` and link from README
 
 ## Error Handling Protocol
 When encountering compilation or runtime errors:
@@ -243,7 +243,7 @@ CREATE FUNCTION sync_process(data JSON) RETURNS JSON AS SYNC {
 - ✅ Zero dependencies maintained
 
 **Status**: Sprint 15 Complete ✅ - Advanced PL-Grizzly features fully implemented
-**Next Phase**: Sprint 16 - TBD (future advanced features)
+**Next Phase**: Sprint 17 - Cross-File Function Sharing
 **Achievement**: User-defined functions can be called directly in SELECT statements with full SQL integration
 
 ## Performance Results

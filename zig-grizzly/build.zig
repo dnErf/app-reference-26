@@ -180,6 +180,28 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(test_pipe_exe);
 
+    const attach_test_exe = b.addExecutable(.{
+        .name = "zig_grizzly_attach_test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test_attach.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "zig_grizzly", .module = mod }},
+        }),
+    });
+    b.installArtifact(attach_test_exe);
+
+    const attach_no_semicolon_test_exe = b.addExecutable(.{
+        .name = "zig_grizzly_attach_no_semicolon_test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test_attach_no_semicolon.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "zig_grizzly", .module = mod }},
+        }),
+    });
+    b.installArtifact(attach_no_semicolon_test_exe);
+
     // This creates a top level step. Top level steps have a name and can be
     // invoked by name when running `zig build` (e.g. `zig build run`).
     // This will evaluate the `run` step rather than the default step.
@@ -252,6 +274,22 @@ pub fn build(b: *std.Build) void {
     run_create_type_step.dependOn(&run_create_type_cmd.step);
     if (b.args) |args| {
         run_create_type_cmd.addArgs(args);
+    }
+
+    const run_attach_test_step = b.step("run-attach-test", "Run ATTACH SQL test");
+    const run_attach_test_cmd = b.addRunArtifact(attach_test_exe);
+    run_attach_test_cmd.step.dependOn(b.getInstallStep());
+    run_attach_test_step.dependOn(&run_attach_test_cmd.step);
+    if (b.args) |args| {
+        run_attach_test_cmd.addArgs(args);
+    }
+
+    const run_attach_no_semicolon_test_step = b.step("run-attach-no-semicolon-test", "Run ATTACH SQL test without semicolon");
+    const run_attach_no_semicolon_test_cmd = b.addRunArtifact(attach_no_semicolon_test_exe);
+    run_attach_no_semicolon_test_cmd.step.dependOn(b.getInstallStep());
+    run_attach_no_semicolon_test_step.dependOn(&run_attach_no_semicolon_test_cmd.step);
+    if (b.args) |args| {
+        run_attach_no_semicolon_test_cmd.addArgs(args);
     }
 
     // Creates an executable that will run `test` blocks from the provided module.

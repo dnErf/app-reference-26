@@ -196,6 +196,7 @@ const TokenType = enum {
     sync,
     async,
     pipe,
+    concat,
     lbracket,
     rbracket,
 };
@@ -286,7 +287,10 @@ pub const Tokenizer = struct {
         }
         if (ch == '|') {
             self.pos += 1;
-            if (self.pos < self.input.len and self.input[self.pos] == '>') {
+            if (self.pos < self.input.len and self.input[self.pos] == '|') {
+                self.pos += 1;
+                return Token{ .type = .concat, .value = self.input[start..self.pos] };
+            } else if (self.pos < self.input.len and self.input[self.pos] == '>') {
                 self.pos += 1;
                 return Token{ .type = .pipe, .value = self.input[start..self.pos] };
             }
@@ -477,6 +481,24 @@ pub const QueryEngine = struct {
 
     pub fn attachAuditLog(self: *QueryEngine, log: *audit_mod.AuditLog) void {
         self.audit_log = log;
+    }
+
+    /// Get a function by name, checking both main registry and attached function libraries
+    pub fn getFunction(self: *QueryEngine, name: []const u8) ?*Function {
+        // First check main function registry
+        if (self.function_registry.getFunction(name)) |func| {
+            return func;
+        }
+
+        // Then check attached function libraries
+        var it = self.db.attached_function_libraries.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.*.getFunction(name)) |func| {
+                return func;
+            }
+        }
+
+        return null;
     }
 
     pub fn attachFormatRegistry(self: *QueryEngine, registry: *format_mod.FormatRegistry) void {
@@ -701,7 +723,7 @@ pub const QueryEngine = struct {
             }
 
             // Create expression engine and evaluate the function
-            var expr_engine = expression_mod.ExpressionEngine.initWithFunctions(self.allocator, self.function_registry);
+            var expr_engine = expression_mod.ExpressionEngine.initWithDatabase(self.allocator, self.function_registry, self.db);
             defer expr_engine.deinit();
 
             // For now, assume single argument that's a literal
@@ -1619,7 +1641,7 @@ pub const QueryEngine = struct {
                     },
                     .function_call => |fc| {
                         // For function calls, create a computed column
-                        const func = self.function_registry.getFunction(fc.name) orelse return error.FunctionNotFound;
+                        const func = self.getFunction(fc.name) orelse return error.FunctionNotFound;
                         try result_columns.append(self.allocator, .{
                             .name = try self.allocator.dupe(u8, fc.name), // Use function name as column name for now
                             .data_type = func.return_type,
@@ -1647,7 +1669,7 @@ pub const QueryEngine = struct {
                         },
                         .function_call => |fc| {
                             // Evaluate function call
-                            const func = self.function_registry.getFunction(fc.name).?;
+                            const func = self.getFunction(fc.name).?;
 
                             // Get argument values
                             var args = try std.ArrayList(Value).initCapacity(self.allocator, fc.args.len);
@@ -1665,7 +1687,7 @@ pub const QueryEngine = struct {
                             }
 
                             // Create expression engine for function execution
-                            var expr_engine = expression_mod.ExpressionEngine.initWithFunctions(self.allocator, self.function_registry);
+                            var expr_engine = expression_mod.ExpressionEngine.initWithDatabase(self.allocator, self.function_registry, self.db);
                             defer expr_engine.deinit();
 
                             // Execute function
@@ -3451,16 +3473,26 @@ pub const QueryEngine = struct {
     }
 
     fn executeAttach(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
-        // Expect DATABASE keyword
-        var token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
-        if (token.type != .identifier) return error.ExpectedDatabase;
+        // Check if next token is DATABASE keyword
+        const first_token = (try tokenizer.peekToken()) orelse return error.UnexpectedEndOfQuery;
 
-        var lower_buf: [32]u8 = undefined;
-        const db_lowercase = std.ascii.lowerString(&lower_buf, token.value);
-        if (!std.mem.eql(u8, db_lowercase, "database")) return error.ExpectedDatabase;
+        if (first_token.type == .identifier) {
+            var lower_buf: [32]u8 = undefined;
+            const lower_token = std.ascii.lowerString(&lower_buf, first_token.value);
+            if (std.mem.eql(u8, lower_token, "database")) {
+                // Skip DATABASE keyword
+                _ = try tokenizer.next();
+                return try self.executeAttachDatabase(tokenizer);
+            }
+        }
 
+        // Otherwise, treat as SQL file attachment
+        return try self.executeAttachSql(tokenizer);
+    }
+
+    fn executeAttachDatabase(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
         // Expect file path as string literal
-        token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        var token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
         if (token.type != .string_literal) {
             return error.ExpectedFilePath;
         }
@@ -3505,17 +3537,83 @@ pub const QueryEngine = struct {
         };
     }
 
-    fn executeDetach(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
-        // Expect DATABASE keyword
+    fn executeAttachSql(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
+        // Expect file path as string literal
         var token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
-        if (token.type != .identifier) return error.ExpectedDatabase;
+        if (token.type != .string_literal) {
+            return error.ExpectedFilePath;
+        }
 
-        var lower_buf: [32]u8 = undefined;
-        const db_lowercase = std.ascii.lowerString(&lower_buf, token.value);
-        if (!std.mem.eql(u8, db_lowercase, "database")) return error.ExpectedDatabase;
+        const file_path = token.value;
+
+        // Expect AS keyword
+        token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .as) return error.ExpectedAs;
 
         // Expect alias
         token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .identifier) {
+            return error.ExpectedAlias;
+        }
+
+        const alias = token.value;
+
+        // Check for optional semicolon
+        const semicolon_token = try tokenizer.next();
+        if (semicolon_token) |t| {
+            if (t.type != .semicolon) {
+                return error.UnexpectedToken;
+            }
+        }
+
+        // Parse the SQL file and extract functions
+        const attach_sql = @import("attach_sql.zig");
+        std.debug.print("Calling parseSqlFile...\n", .{});
+        const function_library = try attach_sql.parseSqlFile(self.allocator, file_path);
+        std.debug.print("parseSqlFile completed\n", .{});
+        errdefer {
+            function_library.deinit();
+            self.allocator.destroy(function_library);
+        }
+
+        std.debug.print("Attaching function library...\n", .{});
+
+        // Attach the function library
+        try self.db.attachFunctionLibrary(alias, function_library);
+
+        std.debug.print("Function library attached\n", .{});
+
+        var message = std.ArrayList(u8){};
+        defer message.deinit(self.allocator);
+
+        try message.writer(self.allocator).print("Function library attached as '{s}' from {s}", .{ alias, file_path });
+
+        return QueryResult{
+            .message = try message.toOwnedSlice(self.allocator),
+        };
+    }
+
+    fn executeDetach(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
+        // Check if next token is DATABASE keyword
+        const first_token = (try tokenizer.peekToken()) orelse return error.UnexpectedEndOfQuery;
+
+        if (first_token.type == .identifier) {
+            var lower_buf: [32]u8 = undefined;
+            const lower_token = std.ascii.lowerString(&lower_buf, first_token.value);
+            if (std.mem.eql(u8, lower_token, "database")) {
+                // Skip DATABASE keyword
+                _ = try tokenizer.next();
+                return try self.executeDetachDatabase(tokenizer);
+            }
+        }
+
+        // Otherwise, treat as function library detachment
+        return try self.executeDetachFunctionLibrary(tokenizer);
+    }
+
+    fn executeDetachDatabase(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
+        // Expect alias
+        const token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
         if (token.type != .identifier) {
             return error.ExpectedAlias;
         }
@@ -3537,6 +3635,36 @@ pub const QueryEngine = struct {
         defer message.deinit(self.allocator);
 
         try message.writer(self.allocator).print("Database '{s}' detached", .{alias});
+
+        return QueryResult{
+            .message = try message.toOwnedSlice(self.allocator),
+        };
+    }
+
+    fn executeDetachFunctionLibrary(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
+        // Expect alias
+        const token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .identifier) {
+            return error.ExpectedAlias;
+        }
+
+        const alias = token.value;
+
+        // Check for optional semicolon
+        const semicolon_token = try tokenizer.next();
+        if (semicolon_token) |t| {
+            if (t.type != .semicolon) {
+                return error.UnexpectedToken;
+            }
+        }
+
+        // Detach the function library
+        try self.db.detachFunctionLibrary(alias);
+
+        var message = std.ArrayList(u8){};
+        defer message.deinit(self.allocator);
+
+        try message.writer(self.allocator).print("Function library '{s}' detached", .{alias});
 
         return QueryResult{
             .message = try message.toOwnedSlice(self.allocator),
