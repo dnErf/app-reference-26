@@ -12,6 +12,8 @@ const cte_mod = @import("cte.zig");
 const json_format = @import("formats/json.zig");
 const sorting_mod = @import("sorting.zig");
 const lakehouse_mod = @import("lakehouse.zig");
+const function_mod = @import("function.zig");
+const pattern_mod = @import("pattern.zig");
 
 const Value = types.Value;
 const DataType = types.DataType;
@@ -27,6 +29,13 @@ const Optimizer = query_plan.Optimizer;
 const JoinType = query_plan.JoinType;
 const Sorter = sorting_mod.Sorter;
 const Lakehouse = lakehouse_mod.Lakehouse;
+const Function = function_mod.Function;
+const FunctionRegistry = function_mod.FunctionRegistry;
+const Parameter = function_mod.Parameter;
+const FunctionBody = function_mod.FunctionBody;
+const ExecutionContext = function_mod.ExecutionContext;
+const Pattern = pattern_mod.Pattern;
+const MatchCase = function_mod.MatchCase;
 
 const JoinClause = struct {
     join_type: JoinType,
@@ -42,6 +51,43 @@ pub const SortDirection = enum {
 };
 
 pub const AggFunction = enum { sum, avg, count, min, max };
+
+/// Parse a column specification from a string
+pub fn parseColumnSpec(allocator: std.mem.Allocator, str: []const u8) !query_plan.ColumnSpec {
+    const trimmed = std.mem.trim(u8, str, " \t\n");
+    if (std.mem.indexOf(u8, trimmed, "(")) |open_paren| {
+        if (!std.mem.endsWith(u8, trimmed, ")")) return error.InvalidFunctionCall;
+        const name = trimmed[0..open_paren];
+        const args_str = trimmed[open_paren + 1 .. trimmed.len - 1];
+        var args = std.ArrayList(query_plan.ColumnSpec).init(allocator);
+        errdefer args.deinit();
+        if (args_str.len > 0) {
+            var arg_it = std.mem.split(u8, args_str, ",");
+            while (arg_it.next()) |arg| {
+                const arg_trimmed = std.mem.trim(u8, arg, " \t\n");
+                try args.append(.{ .column = try allocator.dupe(u8, arg_trimmed) });
+            }
+        }
+        return query_plan.ColumnSpec{ .function_call = .{ .name = try allocator.dupe(u8, name), .args = try args.toOwnedSlice() } };
+    } else {
+        return query_plan.ColumnSpec{ .column = try allocator.dupe(u8, trimmed) };
+    }
+}
+
+/// Clone a ColumnSpec, duplicating all owned strings
+pub fn cloneColumnSpec(allocator: std.mem.Allocator, spec: query_plan.ColumnSpec) !query_plan.ColumnSpec {
+    switch (spec) {
+        .column => |col| return .{ .column = try allocator.dupe(u8, col) },
+        .function_call => |fc| {
+            var args = std.ArrayList(query_plan.ColumnSpec).init(allocator);
+            errdefer args.deinit();
+            for (fc.args) |arg| {
+                try args.append(try cloneColumnSpec(allocator, arg));
+            }
+            return .{ .function_call = .{ .name = try allocator.dupe(u8, fc.name), .args = try args.toOwnedSlice() } };
+        },
+    }
+}
 
 pub const OrderByColumn = struct {
     column_name: []const u8,
@@ -95,6 +141,8 @@ const TokenType = enum {
     semicolon,
     lparen,
     rparen,
+    lbrace,
+    rbrace,
     star,
     dot,
     eq,
@@ -137,6 +185,13 @@ const TokenType = enum {
     struct_,
     describe,
     types,
+    function,
+    returns,
+    match,
+    end,
+    arrow,
+    sync,
+    async,
 };
 
 const Token = struct {
@@ -180,6 +235,14 @@ pub const Tokenizer = struct {
             self.pos += 1;
             return Token{ .type = .rparen, .value = self.input[start..self.pos] };
         }
+        if (ch == '{') {
+            self.pos += 1;
+            return Token{ .type = .lbrace, .value = self.input[start..self.pos] };
+        }
+        if (ch == '}') {
+            self.pos += 1;
+            return Token{ .type = .rbrace, .value = self.input[start..self.pos] };
+        }
         if (ch == '*') {
             self.pos += 1;
             return Token{ .type = .star, .value = self.input[start..self.pos] };
@@ -214,6 +277,19 @@ pub const Tokenizer = struct {
                 }
             }
             return Token{ .type = .lt, .value = self.input[start..self.pos] };
+        }
+        if (ch == '-') {
+            self.pos += 1;
+            if (self.pos < self.input.len and self.input[self.pos] == '>') {
+                self.pos += 1;
+                return Token{ .type = .arrow, .value = self.input[start..self.pos] };
+            }
+            // If not ->, it might be a negative number, back up
+            self.pos = start;
+            if (self.pos + 1 < self.input.len and std.ascii.isDigit(self.input[self.pos + 1])) {
+                return self.readNumber();
+            }
+            return Token{ .type = .identifier, .value = self.input[start .. self.pos + 1] };
         }
 
         // String literals
@@ -350,6 +426,13 @@ pub const Tokenizer = struct {
         if (std.mem.eql(u8, lowercase, "struct")) return .struct_;
         if (std.mem.eql(u8, lowercase, "describe")) return .describe;
         if (std.mem.eql(u8, lowercase, "types")) return .types;
+        if (std.mem.eql(u8, lowercase, "function")) return .function;
+        if (std.mem.eql(u8, lowercase, "returns")) return .returns;
+        if (std.mem.eql(u8, lowercase, "match")) return .match;
+        if (std.mem.eql(u8, lowercase, "end")) return .end;
+        if (std.mem.eql(u8, lowercase, "->")) return .arrow;
+        if (std.mem.eql(u8, lowercase, "sync")) return .sync;
+        if (std.mem.eql(u8, lowercase, "async")) return .async;
         if (std.mem.eql(u8, lowercase, "databases")) return .databases;
         if (std.mem.eql(u8, lowercase, "use")) return .use;
         if (std.mem.eql(u8, lowercase, "validate")) return .validate;
@@ -368,22 +451,14 @@ pub const Tokenizer = struct {
 pub const QueryEngine = struct {
     db: *Database,
     allocator: std.mem.Allocator,
-    optimizer: Optimizer,
-    audit_log: ?*audit_mod.AuditLog = null,
-    format_registry: ?*format_mod.FormatRegistry = null,
+    function_registry: *FunctionRegistry,
 
-    pub fn init(allocator: std.mem.Allocator, db: *Database) QueryEngine {
+    pub fn init(allocator: std.mem.Allocator, db: *Database, function_registry: *FunctionRegistry) QueryEngine {
         return .{
             .db = db,
             .allocator = allocator,
-            .optimizer = Optimizer.init(allocator),
-            .audit_log = null,
-            .format_registry = null,
+            .function_registry = function_registry,
         };
-    }
-
-    pub fn deinit(self: *QueryEngine) void {
-        self.optimizer.deinit();
     }
 
     pub fn attachAuditLog(self: *QueryEngine, log: *audit_mod.AuditLog) void {
@@ -440,8 +515,13 @@ pub const QueryEngine = struct {
             if (token.type != .select) return error.ExpectedSelectAfterWith;
         }
 
-        var columns = std.ArrayList([]const u8){};
-        defer columns.deinit(self.allocator);
+        var columns = std.ArrayList(query_plan.ColumnSpec).init(self.allocator);
+        defer {
+            for (columns.items) |*col| {
+                col.deinit(self.allocator);
+            }
+            columns.deinit();
+        }
 
         // Parse column list (supports simple aggregates like SUM(col), COUNT(*))
         token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
@@ -449,7 +529,7 @@ pub const QueryEngine = struct {
         var agg_spec: ?AggSpec = null;
 
         if (token.type == .star) {
-            try columns.append(self.allocator, token.value);
+            try columns.append(ColumnSpec{ .column = try self.allocator.dupe(u8, token.value) });
             token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
         } else {
             while (token.type == .identifier) {
@@ -1229,7 +1309,7 @@ pub const QueryEngine = struct {
         self: *QueryEngine,
         table: *Table,
         table_name: []const u8,
-        selected_columns: [][]const u8,
+        selected_columns: []query_plan.ColumnSpec,
         where_expr: ?*Expr,
         join_clause: ?JoinClause,
     ) !QueryPlan {
@@ -1266,7 +1346,24 @@ pub const QueryEngine = struct {
 
         if (selected_columns.len > 0) {
             const project = try PlanNode.init(self.allocator, .project);
-            project.columns = selected_columns;
+            // Duplicate the column specs for the plan node
+            var dup_cols = try self.allocator.alloc(query_plan.ColumnSpec, selected_columns.len);
+            for (selected_columns, 0..) |col, i| {
+                dup_cols[i] = switch (col) {
+                    .column => |name| query_plan.ColumnSpec{ .column = try self.allocator.dupe(u8, name) },
+                    .function_call => |fc| {
+                        var args = try self.allocator.alloc(query_plan.ColumnSpec, fc.args.len);
+                        for (fc.args, 0..) |arg, j| {
+                            args[j] = switch (arg) {
+                                .column => |arg_name| query_plan.ColumnSpec{ .column = try self.allocator.dupe(u8, arg_name) },
+                                .function_call => return error.NotImplemented,
+                            };
+                        }
+                        query_plan.ColumnSpec{ .function_call = .{ .name = try self.allocator.dupe(u8, fc.name), .args = args } };
+                    }
+                };
+            project.columns = dup_cols;
+            project.owns_columns = true;
             project.child = current;
             project.estimated_rows = current.estimated_rows;
             current = project;
@@ -1279,9 +1376,8 @@ pub const QueryEngine = struct {
         self: *QueryEngine,
         root: *PlanNode,
         where_expr_slot: *?*Expr,
-        default_columns: [][]const u8,
+        unused: [][]const u8,
     ) !QueryResult {
-        _ = default_columns;
         const table_result = try self.executePlanNode(root, where_expr_slot);
         return QueryResult{ .table = table_result };
     }
@@ -1379,12 +1475,22 @@ pub const QueryEngine = struct {
         if (node.columns) |cols| {
             std.debug.print("Allocating projected table\n", .{});
 
+            // Extract column names from ColumnSpec
+            var col_names = try std.ArrayList([]const u8).initCapacity(self.allocator, cols.len);
+            defer col_names.deinit();
+            for (cols) |col| {
+                switch (col) {
+                    .column => |name| try col_names.append(name),
+                    .function_call => return error.FunctionCallsNotSupportedYet,
+                }
+            }
+
             // Expand SELECT * to all column names
-            var actual_cols = cols;
+            var actual_cols = col_names.items;
             var expanded_col_names: ?[][]const u8 = null;
             defer if (expanded_col_names) |names| self.allocator.free(names);
 
-            if (cols.len == 1 and std.mem.eql(u8, cols[0], "*")) {
+            if (col_names.items.len == 1 and std.mem.eql(u8, col_names.items[0], "*")) {
                 expanded_col_names = try self.allocator.alloc([]const u8, child_table.schema.columns.len);
                 for (child_table.schema.columns, 0..) |col, i| {
                     expanded_col_names.?[i] = col.name;
@@ -2142,7 +2248,7 @@ pub const QueryEngine = struct {
     }
 
     fn executeCreate(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
-        // Check what we're creating: TABLE, VIEW, MATERIALIZED VIEW, MODEL, INCREMENTAL MODEL, or SCHEDULE
+        // Check what we're creating: TABLE, VIEW, MATERIALIZED VIEW, MODEL, INCREMENTAL MODEL, SCHEDULE, TYPE, or FUNCTION
         var token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
 
         if (token.type == .table) {
@@ -2165,6 +2271,8 @@ pub const QueryEngine = struct {
             return try self.executeCreateSchedule(tokenizer);
         } else if (token.type == .type_) {
             return try self.executeCreateType(tokenizer);
+        } else if (token.type == .function) {
+            return try self.executeCreateFunction(tokenizer);
         } else {
             return error.ExpectedTableOrView;
         }
@@ -2571,6 +2679,271 @@ pub const QueryEngine = struct {
         try self.db.createTypeAlias(alias_name, target_type);
 
         return QueryResult{ .message = "Type alias created successfully" };
+    }
+
+    fn executeCreateFunction(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
+        // Get function name
+        var token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .identifier) {
+            return error.ExpectedFunctionName;
+        }
+        const func_name = token.value;
+
+        // Parse parameters: (param1 type1, param2 type2, ...)
+        token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .lparen) {
+            return error.ExpectedLParen;
+        }
+
+        var parameters = try std.ArrayList(Parameter).initCapacity(self.allocator, 0);
+        defer parameters.deinit(self.allocator);
+
+        // Check if there are parameters
+        token = (try tokenizer.peekToken()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .rparen) {
+            while (true) {
+                // Parameter name
+                token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+                if (token.type != .identifier) {
+                    return error.ExpectedParameterName;
+                }
+                const param_name = token.value;
+
+                // Parameter type
+                token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+                if (token.type != .identifier) {
+                    return error.ExpectedParameterType;
+                }
+                const param_type_str = token.value;
+                const param_type = parseDataType(param_type_str);
+
+                const param = try Parameter.init(self.allocator, param_name, param_type);
+                try parameters.append(self.allocator, param);
+
+                // Check for comma or closing paren
+                token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+                if (token.type == .rparen) break;
+                if (token.type != .comma) {
+                    return error.ExpectedCommaOrRParen;
+                }
+            }
+        } else {
+            // Consume the rparen
+            _ = try tokenizer.next();
+        }
+
+        // Expect RETURNS
+        token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .returns) {
+            return error.ExpectedReturns;
+        }
+
+        // Return type
+        token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .identifier) {
+            return error.ExpectedReturnType;
+        }
+        const return_type_str = token.value;
+        const return_type = parseDataType(return_type_str);
+
+        // Check for optional AS SYNC/ASYNC
+        var context = ExecutionContext.runtime;
+        token = (try tokenizer.peekToken()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type == .as) {
+            _ = try tokenizer.next(); // consume AS
+            token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+            if (token.type == .sync) {
+                context = .runtime;
+            } else if (token.type == .async) {
+                context = .compile_time;
+            } else {
+                return error.ExpectedSyncOrAsync;
+            }
+        }
+
+        // Expect opening brace
+        token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .lbrace) {
+            return error.ExpectedLBrace;
+        }
+
+        // Parse function body
+        var body = try self.parseFunctionBody(tokenizer);
+        errdefer body.deinit(self.allocator);
+
+        // Expect closing brace
+        token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .rbrace) {
+            return error.ExpectedRBrace;
+        }
+
+        // Create the function
+        var function = try self.allocator.create(Function);
+        function.* = try Function.init(
+            self.allocator,
+            func_name,
+            parameters.items,
+            return_type,
+            body,
+            context,
+        );
+        errdefer function.deinit();
+
+        // Register the function
+        try self.db.functions.registerFunction(function);
+
+        return QueryResult{ .message = "Function created successfully" };
+    }
+
+    fn parseFunctionBody(self: *QueryEngine, tokenizer: *Tokenizer) !FunctionBody {
+        // Check if this is a match expression
+        const token = (try tokenizer.peekToken()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type == .match) {
+            return try self.parseMatchBody(tokenizer);
+        } else {
+            // Simple expression body
+            const expr = try self.parseExpression(tokenizer);
+            return FunctionBody{ .expression = expr };
+        }
+    }
+
+    fn parseMatchBody(self: *QueryEngine, tokenizer: *Tokenizer) !FunctionBody {
+        // Consume MATCH
+        _ = try tokenizer.next();
+
+        // Parse value expression
+        const value_expr = try self.parseExpression(tokenizer);
+
+        // Expect WITH
+        var token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .with) {
+            return error.ExpectedWith;
+        }
+
+        var cases = try std.ArrayList(MatchCase).initCapacity(self.allocator, 0);
+        errdefer {
+            for (cases.items) |*case_| {
+                case_.deinit(self.allocator);
+            }
+            cases.deinit(self.allocator);
+        }
+
+        while (true) {
+            // Parse pattern
+            const pattern = try self.parsePattern(tokenizer);
+
+            // Expect ->
+            token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+            if (token.type != .arrow) {
+                return error.ExpectedArrow;
+            }
+
+            // Parse expression
+            const expr = try self.parseExpression(tokenizer);
+
+            const match_case = MatchCase.init(pattern, expr);
+            try cases.append(self.allocator, match_case);
+
+            // Check for comma (more cases) or END
+            token = (try tokenizer.peekToken()) orelse return error.UnexpectedEndOfQuery;
+            if (token.type == .end) {
+                _ = try tokenizer.next(); // consume END
+                break;
+            }
+            if (token.type != .comma) {
+                return error.ExpectedCommaOrEnd;
+            }
+            _ = try tokenizer.next(); // consume comma
+        }
+
+        return FunctionBody{
+            .match = .{
+                .value_expr = value_expr,
+                .cases = try cases.toOwnedSlice(self.allocator),
+            },
+        };
+    }
+
+    fn parsePattern(self: *QueryEngine, tokenizer: *Tokenizer) !Pattern {
+        var token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+
+        if (token.type == .identifier) {
+            if (std.mem.eql(u8, token.value, "_")) {
+                return Pattern.initWildcard();
+            } else {
+                // Check if this is a string literal pattern
+                if (token.value.len >= 2 and token.value[0] == '"' and token.value[token.value.len - 1] == '"') {
+                    const str_content = token.value[1 .. token.value.len - 1];
+                    const str_copy = try self.allocator.dupe(u8, str_content);
+                    const value = Value{ .string = str_copy };
+                    return try Pattern.initLiteral(self.allocator, value);
+                } else if (token.value.len >= 2 and token.value[0] == '\'' and token.value[token.value.len - 1] == '\'') {
+                    const str_content = token.value[1 .. token.value.len - 1];
+                    const str_copy = try self.allocator.dupe(u8, str_content);
+                    const value = Value{ .string = str_copy };
+                    return try Pattern.initLiteral(self.allocator, value);
+                } else if (std.fmt.parseFloat(f64, token.value) catch null) |num| {
+                    const value = Value{ .float64 = num };
+                    return try Pattern.initLiteral(self.allocator, value);
+                } else if (std.fmt.parseInt(i64, token.value, 10) catch null) |num| {
+                    const value = Value{ .int64 = num };
+                    return try Pattern.initLiteral(self.allocator, value);
+                } else {
+                    // Variable pattern
+                    return try Pattern.initVariable(self.allocator, token.value);
+                }
+            }
+        } else if (token.type == .string_literal) {
+            // Remove quotes
+            const value_str = token.value;
+            const unquoted = if (value_str.len >= 2 and ((value_str[0] == '"' and value_str[value_str.len - 1] == '"') or (value_str[0] == '\'' and value_str[value_str.len - 1] == '\'')))
+                value_str[1 .. value_str.len - 1]
+            else
+                value_str;
+            const str_copy = try self.allocator.dupe(u8, unquoted);
+            const value = Value{ .string = str_copy };
+            return try Pattern.initLiteral(self.allocator, value);
+        }
+
+        return error.InvalidPattern;
+    }
+
+    fn parseExpression(self: *QueryEngine, tokenizer: *Tokenizer) ![]const u8 {
+        // For now, parse until we hit a keyword that ends the expression
+        // This is a simplified implementation
+        var result = try std.ArrayList(u8).initCapacity(self.allocator, 0);
+        errdefer result.deinit(self.allocator);
+
+        var paren_depth: usize = 0;
+        var brace_depth: usize = 0;
+
+        while (true) {
+            const token = (try tokenizer.peekToken()) orelse break;
+
+            switch (token.type) {
+                .lparen => paren_depth += 1,
+                .rparen => {
+                    if (paren_depth == 0) break;
+                    paren_depth -= 1;
+                },
+                .lbrace => brace_depth += 1,
+                .rbrace => {
+                    if (brace_depth == 0) break;
+                    brace_depth -= 1;
+                },
+                .comma => if (paren_depth == 0 and brace_depth == 0) break,
+                .with => if (paren_depth == 0 and brace_depth == 0) break,
+                .end => if (paren_depth == 0 and brace_depth == 0) break,
+                .arrow => if (paren_depth == 0 and brace_depth == 0) break,
+                else => {},
+            }
+
+            // Add token to result
+            try result.appendSlice(self.allocator, token.value);
+            _ = try tokenizer.next();
+        }
+
+        return try result.toOwnedSlice(self.allocator);
     }
 
     fn parseTypeRef(self: *QueryEngine, type_str: []const u8) !@import("types_custom.zig").TypeRef {

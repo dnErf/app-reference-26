@@ -67,17 +67,12 @@ Grizzly DB combines the best features of DuckDB (small footprint, efficient stor
 - **Statistics**: Height, key counts, and density tracking for observability
 - **Persistence**: Index definitions saved/loaded with the lakehouse format
 
-### 🧩 Composite Hash Indexes
-- **Multi-column equality**: Hash-based indexes cover predicates such as `user_id = ? AND region = ?`
-- **Optimizer aware**: Composite metadata feeds the cost model so the planner can swap scans for hash lookups
-- **On-write maintenance**: Inserts automatically update every composite index, keeping them transactionally consistent
-
-### � Data Transformation Platform (Current Sprint)
-- **CTAS**: `CREATE TABLE AS SELECT` for materializing query results
-- **Models**: `CREATE MODEL` and `CREATE INCREMENTAL MODEL` for dbt-style data transformations
-- **Dependency Tracking**: Automatic lineage analysis between models
-- **Model Registry**: Metadata management for transformations
-- **Audit Logging**: All transformation operations tracked
+### 🧩 PL-Grizzly - Functional Programming Language
+- **CREATE FUNCTION**: User-defined functions with pattern matching
+- **Dual Execution Modes**: Runtime execution in SELECT queries + compile-time expansion in templates
+- **Async by Default**: Non-blocking execution with optional SYNC override
+- **Expression Language**: Variables, conditionals, and functional composition
+- **Template Integration**: `{function_call(args)}` syntax for dynamic SQL generation
 
 ### 💾 Database Persistence ✅ COMPLETE
 - **SAVE DATABASE**: Export current database to `.griz` file with optional compression

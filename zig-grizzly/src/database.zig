@@ -10,6 +10,7 @@ const dag_mod = @import("dag.zig");
 const dependency_mod = @import("dependency.zig");
 const scheduler_mod = @import("scheduler.zig");
 const type_registry_mod = @import("type_registry.zig");
+const function_mod = @import("function.zig");
 
 const Value = types.Value;
 const Table = table_mod.Table;
@@ -21,6 +22,7 @@ const DependencyGraph = dag_mod.DependencyGraph;
 const DependencyAnalyzer = dependency_mod.DependencyAnalyzer;
 const Scheduler = scheduler_mod.Scheduler;
 const TypeRegistry = type_registry_mod.TypeRegistry;
+const FunctionRegistry = function_mod.FunctionRegistry;
 
 /// Database manages multiple tables
 pub const Database = struct {
@@ -29,6 +31,7 @@ pub const Database = struct {
     views: ViewRegistry,
     materialized_views: MaterializedViewManager,
     models: ModelRegistry,
+    functions: FunctionRegistry,
     dependency_graph: DependencyGraph,
     dependency_analyzer: DependencyAnalyzer,
     scheduler: Scheduler,
@@ -45,6 +48,7 @@ pub const Database = struct {
             .views = ViewRegistry.init(allocator),
             .materialized_views = MaterializedViewManager.init(allocator),
             .models = ModelRegistry.init(allocator),
+            .functions = FunctionRegistry.init(allocator),
             .dependency_graph = DependencyGraph.init(allocator),
             .dependency_analyzer = DependencyAnalyzer.init(allocator),
             .scheduler = try Scheduler.init(allocator),
@@ -65,6 +69,7 @@ pub const Database = struct {
         self.views.deinit();
         self.materialized_views.deinit();
         self.models.deinit();
+        self.functions.deinit();
         self.dependency_graph.deinit();
         self.scheduler.deinit();
         self.type_registry.deinit();

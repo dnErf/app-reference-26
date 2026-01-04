@@ -194,10 +194,10 @@ scripts/             # Utility scripts
 - [x] Conditional logic (if/else expressions)
 - [x] Let bindings for variable assignment
 - [x] SQL parser integration for CREATE MODEL templating
-- [ ] **Phase 2 PENDING**: Add CREATE FUNCTION syntax for runtime and compile-time functions
-- [ ] Pattern matching and pipes
-- [ ] Async-by-default execution model
-- [ ] Advanced function system with dual execution modes
+- [x] **Phase 2 COMPLETE**: Add CREATE FUNCTION syntax for runtime and compile-time functions
+- [x] Pattern matching and pipes
+- [x] Async-by-default execution model
+- [x] Advanced function system with dual execution modes
 
 ### Key Features to Implement
 - **Dual Functionality**: SQL templating (dbt alternative) + stored procedures
@@ -207,6 +207,25 @@ scripts/             # Utility scripts
 - **Async Execution**: All functions async by default with opt-in sync
 - **Pattern Matching**: Advanced data transformation capabilities
 
+```sql
+-- Async by default (non-blocking)
+CREATE FUNCTION process_data(data JSON) RETURNS JSON {
+  let result = expensive_computation(data);
+  result
+}
+
+CREATE FUNCTION process_data(data JSON) RETURNS JSON AS ASYNC {
+  let result = expensive_computation(data);
+  result
+}
+
+-- Explicit synchronous execution
+CREATE FUNCTION sync_process(data JSON) RETURNS JSON AS SYNC {
+  let result = expensive_computation(data);
+  result
+}
+```
+
 ### Technical Foundation Ready ✅
 - ✅ Extended type system (Sprint 13 complete)
 - ✅ SQL parser with custom syntax support
@@ -214,8 +233,8 @@ scripts/             # Utility scripts
 - ✅ Query engine extensibility
 - ✅ Zero dependencies maintained
 
-**Status**: Sprint 14 Phase 1 Complete ✅ - Expression Language Foundation implemented
-**Next Phase**: Sprint 14 Phase 2 - Function System (CREATE FUNCTION, pattern matching, dual execution modes)
+**Status**: Sprint 14 Phase 2 Complete ✅ - Function System implemented with CREATE FUNCTION, pattern matching, and dual execution modes
+**Next Phase**: Sprint 14 Phase 3 - Template Integration (function calls in SELECT, compile-time expansion)
 **Spec**: See `.agents/specs/sprint14-pl-grizzly.json` for detailed specification
 **Roadmap**: See `.agents/_roadmap.md` for Sprint 14 technical details
 

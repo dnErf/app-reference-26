@@ -8,6 +8,28 @@ const Value = types.Value;
 const DataType = types.DataType;
 const Expr = where_mod.Expr;
 
+/// Column specification for SELECT clauses
+pub const ColumnSpec = union(enum) {
+    column: []const u8, // Simple column name
+    function_call: struct {
+        name: []const u8,
+        args: []ColumnSpec, // Arguments can be columns or nested function calls
+    },
+
+    pub fn deinit(self: *ColumnSpec, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .column => {},
+            .function_call => |*fc| {
+                allocator.free(fc.name);
+                for (fc.args) |*arg| {
+                    arg.deinit(allocator);
+                }
+                allocator.free(fc.args);
+            },
+        }
+    }
+};
+
 /// Logical query plan operators
 pub const PlanNodeType = enum {
     scan, // Full table scan
@@ -39,7 +61,7 @@ pub const PlanNode = struct {
 
     // Common fields
     table_name: ?[]const u8 = null,
-    columns: ?[][]const u8 = null, // For project/select
+    columns: ?[]ColumnSpec = null, // For project/select
     owns_columns: bool = false,
 
     // Filter specific
@@ -95,6 +117,9 @@ pub const PlanNode = struct {
     pub fn deinit(self: *PlanNode) void {
         if (self.columns) |cols| {
             if (self.owns_columns) {
+                for (cols) |*col| {
+                    col.deinit(self.allocator);
+                }
                 self.allocator.free(cols);
             }
         }

@@ -14,6 +14,13 @@ pub const TemplateEngine = struct {
         };
     }
 
+    pub fn initWithFunctions(allocator: std.mem.Allocator, functions: *const @import("function.zig").FunctionRegistry) TemplateEngine {
+        return TemplateEngine{
+            .allocator = allocator,
+            .expression_engine = ExpressionEngine.initWithFunctions(allocator, functions),
+        };
+    }
+
     pub fn deinit(self: *TemplateEngine) void {
         self.expression_engine.deinit();
     }
@@ -59,12 +66,14 @@ pub const TemplateEngine = struct {
                 if (std.mem.startsWith(u8, trimmed_expr, "if ")) {
                     const sql = try self.compileIfExpression(trimmed_expr);
                     try result.appendSlice(self.allocator, sql);
+                    self.allocator.free(sql);
                 } else if (std.mem.startsWith(u8, trimmed_expr, "let ")) {
                     try self.compileLetExpression(trimmed_expr);
                 } else {
                     // Simple variable or expression
                     const value = try self.expression_engine.evaluate(trimmed_expr);
                     try self.appendValueToSql(&result, value);
+                    @constCast(&value).deinit(self.allocator);
                 }
 
                 i = j;
@@ -162,6 +171,7 @@ pub const TemplateEngine = struct {
 
         const value = try self.expression_engine.evaluate(value_expr);
         try self.expression_engine.setVariable(var_name, value);
+        @constCast(&value).deinit(self.allocator);
     }
 
     /// Append a value to SQL output

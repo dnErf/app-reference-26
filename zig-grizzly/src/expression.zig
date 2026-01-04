@@ -1,16 +1,28 @@
 const std = @import("std");
 const types = @import("types.zig");
+const function_mod = @import("function.zig");
 pub const Value = types.Value;
+const FunctionRegistry = function_mod.FunctionRegistry;
 
 /// Expression evaluation engine for PL-Grizzly
 pub const ExpressionEngine = struct {
     allocator: std.mem.Allocator,
     variables: std.StringHashMap(Value),
+    functions: ?*FunctionRegistry,
 
     pub fn init(allocator: std.mem.Allocator) ExpressionEngine {
         return ExpressionEngine{
             .allocator = allocator,
             .variables = std.StringHashMap(Value).init(allocator),
+            .functions = null,
+        };
+    }
+
+    pub fn initWithFunctions(allocator: std.mem.Allocator, functions: *FunctionRegistry) ExpressionEngine {
+        return ExpressionEngine{
+            .allocator = allocator,
+            .variables = std.StringHashMap(Value).init(allocator),
+            .functions = functions,
         };
     }
 
@@ -49,11 +61,20 @@ pub const ExpressionEngine = struct {
     }
 
     /// Evaluate a simple expression (for now just variable lookup)
-    pub fn evaluate(self: *ExpressionEngine, expression: []const u8) !Value {
+    pub fn evaluate(self: *ExpressionEngine, expression: []const u8) (std.mem.Allocator.Error || std.fmt.ParseIntError || error{ InvalidExpression, UndefinedVariable, InvalidArgumentCount, InvalidArgumentType, NoPatternMatched })!Value {
+        // Check for function calls first
+        if (self.tryEvaluateFunctionCall(expression)) |maybe_result| {
+            if (maybe_result) |result| {
+                return result;
+            }
+        } else |err| {
+            return err;
+        }
+
         // For now, just support variable lookup
         // TODO: Add full expression parsing
         if (self.getVariable(expression)) |value| {
-            return value;
+            return try value.clone(self.allocator);
         }
 
         // Try to parse as literal
@@ -90,9 +111,101 @@ pub const ExpressionEngine = struct {
         return error.InvalidExpression;
     }
 
+    /// Try to evaluate a function call expression like "func_name(arg1, arg2)"
+    pub fn tryEvaluateFunctionCall(self: *ExpressionEngine, expression: []const u8) !?Value {
+        if (self.functions == null) return null;
+
+        // Look for function call pattern: name(args)
+        var paren_start: ?usize = null;
+        var paren_end: ?usize = null;
+        var paren_count: usize = 0;
+
+        for (expression, 0..) |char, i| {
+            switch (char) {
+                '(' => {
+                    if (paren_start == null) paren_start = i;
+                    paren_count += 1;
+                },
+                ')' => {
+                    paren_count -= 1;
+                    if (paren_count == 0) {
+                        paren_end = i;
+                        break;
+                    }
+                },
+                else => {},
+            }
+        }
+
+        if (paren_start == null or paren_end == null) return null;
+
+        // Extract function name and arguments
+        const func_name = std.mem.trim(u8, expression[0..paren_start.?], &std.ascii.whitespace);
+        const args_str = expression[paren_start.? + 1 .. paren_end.?];
+
+        // Get the function
+        const function = self.functions.?.getFunction(func_name) orelse return null;
+
+        // Parse arguments
+        var args = try std.ArrayList(Value).initCapacity(self.allocator, 0);
+        defer args.deinit(self.allocator);
+
+        if (args_str.len > 0) {
+            // Simple argument parsing (comma-separated)
+            var arg_start: usize = 0;
+            var in_string = false;
+            var string_char: u8 = 0;
+            var paren_depth: usize = 0;
+
+            for (args_str, 0..) |char, i| {
+                switch (char) {
+                    '"', '\'' => {
+                        if (!in_string) {
+                            in_string = true;
+                            string_char = char;
+                        } else if (char == string_char) {
+                            in_string = false;
+                            string_char = 0;
+                        }
+                    },
+                    '(' => {
+                        if (!in_string) paren_depth += 1;
+                    },
+                    ')' => {
+                        if (!in_string) paren_depth -= 1;
+                    },
+                    ',' => {
+                        if (!in_string and paren_depth == 0) {
+                            // End of argument
+                            const arg_expr = std.mem.trim(u8, args_str[arg_start..i], &std.ascii.whitespace);
+                            if (arg_expr.len > 0) {
+                                const arg_value = try self.evaluate(arg_expr);
+                                try args.append(self.allocator, arg_value);
+                            }
+                            arg_start = i + 1;
+                        }
+                    },
+                    else => {},
+                }
+            }
+
+            // Last argument
+            const last_arg = std.mem.trim(u8, args_str[arg_start..], &std.ascii.whitespace);
+            if (last_arg.len > 0) {
+                const arg_value = try self.evaluate(last_arg);
+                try args.append(self.allocator, arg_value);
+            }
+        }
+
+        // Execute the function
+        const result = try function.execute(args.items, self);
+        return result;
+    }
+
     /// Evaluate a conditional expression
     pub fn evaluateIf(self: *ExpressionEngine, condition: []const u8, then_expr: []const u8, else_expr: []const u8) !Value {
         const cond_value = try self.evaluate(condition);
+        defer cond_value.deinit(self.allocator);
         const condition_result = switch (cond_value) {
             .boolean => |b| b,
             .integer => |i| i != 0,
@@ -142,6 +255,7 @@ pub const ExpressionEngine = struct {
                         .boolean => |b| try result.appendSlice(self.allocator, if (b) "true" else "false"),
                         else => return error.UnsupportedValueType,
                     }
+                    @constCast(&value).deinit(self.allocator);
 
                     i = j + 1;
                     continue;
@@ -292,10 +406,9 @@ test "ExpressionEngine template evaluation" {
     var engine = ExpressionEngine.init(std.testing.allocator);
     defer engine.deinit();
 
-    try engine.setVariable("table_name", Value{ .string = "users" });
     try engine.setVariable("active_only", Value{ .boolean = true });
 
-    const template = "SELECT * FROM {table_name} WHERE active = {active_only}";
+    const template = "SELECT * FROM users WHERE active = {active_only}";
     const result = try engine.evaluateTemplate(template);
     defer std.testing.allocator.free(result);
 
