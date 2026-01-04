@@ -2,7 +2,7 @@
 
 ## Overview
 
-Grizzly PL (Programming Language) provides a powerful functional programming system integrated with SQL. Functions can be used both at runtime (in queries) and compile-time (in templates), supporting both synchronous and asynchronous execution.
+Grizzly PL (Programming Language) provides a powerful functional programming system integrated with SQL. Functions support advanced features including pattern matching, try/catch exception handling, binary operations with full operator precedence, and pipe-based function chaining. Functions can be used both at runtime (in queries) and compile-time (in templates), supporting both synchronous and asynchronous execution.
 
 ## Function Definition Syntax
 
@@ -100,22 +100,70 @@ Advanced control flow using pattern matching:
 
 ```sql
 CREATE FUNCTION calculate_discount(price FLOAT, tier TEXT) RETURNS FLOAT {
-    match tier with
-        : 'gold' -> price * 0.8
-        : 'silver' -> price * 0.9
-        : 'bronze' -> price * 0.95
-        : _ -> price
-    end
+    match tier {
+        "gold" => price * 0.8,
+        "silver" => price * 0.9,
+        "bronze" => price * 0.95,
+        _ => price
+    }
 }
 
 CREATE FUNCTION classify_score(score int32) RETURNS TEXT {
-    match score with
-        : 90..100 -> 'A'
-        : 80..89 -> 'B'
-        : 70..79 -> 'C'
-        : 60..69 -> 'D'
-        : _ -> 'F'
-    end
+    match score {
+        90..100 => "A",
+        80..89 => "B",
+        70..79 => "C",
+        60..69 => "D",
+        _ => "F"
+    }
+}
+```
+
+### Try/Catch Exception Handling
+Error handling with try/catch expressions:
+
+```sql
+CREATE FUNCTION safe_divide(x FLOAT, y FLOAT) RETURNS FLOAT {
+    try x / y catch 0.0
+}
+
+CREATE FUNCTION process_data(data JSON) RETURNS JSON {
+    try {
+        expensive_computation(data)
+    } catch {
+        { error: "Processing failed", input: data }
+    }
+}
+```
+
+### Binary Operations
+Full operator precedence with arithmetic, comparison, and logical operators:
+
+```sql
+CREATE FUNCTION complex_calculation(a int64, b int64, c FLOAT) RETURNS FLOAT {
+    if a > b && c < 100.0 {
+        (a + b) * c / 2.0
+    } else {
+        0.0
+    }
+}
+
+CREATE FUNCTION validate_input(value int64, min_val int64, max_val int64) RETURNS BOOLEAN {
+    value >= min_val && value <= max_val
+}
+```
+
+### Pipe Operations
+Function chaining with the pipe operator:
+
+```sql
+CREATE FUNCTION process_orders(orders JSON) RETURNS JSON {
+    orders
+    |> filter(order -> order.status == "completed")
+    |> map(order -> {
+        id: order.id,
+        total: order.items |> sum(item -> item.price * item.quantity)
+    })
 }
 ```
 
@@ -126,12 +174,10 @@ Using `let` bindings for local variables:
 CREATE FUNCTION process_user(user JSON) RETURNS JSON {
     let name = user.name;
     let age = user.age;
-    let category = if age >= 18 then 'adult' else 'minor' end;
 
     {
         name: name,
         age: age,
-        category: category,
         processed_at: now()
     }
 }
@@ -174,7 +220,11 @@ CREATE MODEL user_summary AS {
 ### Recursive Functions
 ```sql
 CREATE FUNCTION factorial(n int64) RETURNS int64 {
-    if n <= 1 then 1 else n * factorial(n - 1) end
+    match n {
+        0 => 1,
+        1 => 1,
+        _ => n * factorial(n - 1)
+    }
 }
 ```
 
@@ -200,11 +250,27 @@ CREATE FUNCTION process_orders(orders JSON) RETURNS JSON {
 
 ## Error Handling
 
-Functions can return errors using the error handling system:
+Functions support comprehensive error handling with try/catch expressions:
 
 ```sql
 CREATE FUNCTION safe_divide(x FLOAT, y FLOAT) RETURNS FLOAT {
-    if y = 0 then error('Division by zero') else x / y end
+    try x / y catch 0.0
+}
+
+CREATE FUNCTION process_with_fallback(data JSON) RETURNS JSON {
+    try {
+        expensive_operation(data)
+    } catch {
+        { status: "error", message: "Operation failed", data: data }
+    }
+}
+```
+
+Functions can also return errors using the error handling system:
+
+```sql
+CREATE FUNCTION validate_input(value int64) RETURNS int64 {
+    if value < 0 then error('Value must be non-negative') else value end
 }
 ```
 
@@ -241,10 +307,10 @@ DESCRIBE FUNCTION function_name;
 ### Data Validation Function
 ```sql
 CREATE FUNCTION validate_email(email TEXT) RETURNS BOOLEAN {
-    match email with
-        : /.*@.*\..*/ -> true
-        : _ -> false
-    end
+    match email {
+        /.*@.*\..*/ => true,
+        _ => false
+    }
 }
 ```
 
@@ -266,7 +332,10 @@ CREATE FUNCTION build_where_clause(filters JSON) RETURNS TEXT {
         filter.field + ' ' + filter.operator + ' ' + filter.value
     ) |> join(' AND ');
 
-    if conditions != '' then 'WHERE ' + conditions else '' end
+    match conditions {
+        "" => "",
+        _ => 'WHERE ' + conditions
+    }
 }
 ```
 

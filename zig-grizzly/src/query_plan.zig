@@ -18,7 +18,9 @@ pub const ColumnSpec = union(enum) {
 
     pub fn deinit(self: *ColumnSpec, allocator: std.mem.Allocator) void {
         switch (self.*) {
-            .column => {},
+            .column => |name| {
+                allocator.free(name);
+            },
             .function_call => |*fc| {
                 allocator.free(fc.name);
                 for (fc.args) |*arg| {

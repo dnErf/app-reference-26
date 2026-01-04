@@ -67,11 +67,14 @@ Grizzly DB combines the best features of DuckDB (small footprint, efficient stor
 - **Statistics**: Height, key counts, and density tracking for observability
 - **Persistence**: Index definitions saved/loaded with the lakehouse format
 
-### 🧩 PL-Grizzly - Functional Programming Language
+### 🧩 PL-Grizzly - Functional Programming Language ✅ FOUNDATION COMPLETE
 - **CREATE FUNCTION**: User-defined functions with pattern matching
 - **Dual Execution Modes**: Runtime execution in SELECT queries + compile-time expansion in templates
 - **Async by Default**: Non-blocking execution with optional SYNC override
 - **Expression Language**: Variables, conditionals, and functional composition
+- **Smart Pipes**: `|>` operator for functional programming chains
+- **Method Receivers**: `[object] method()` syntax for object-oriented style
+- **Built-in Functions**: `filter`, `map`, `sum`, `length` for data transformation
 - **Template Integration**: `{function_call(args)}` syntax for dynamic SQL generation
 
 ### 💾 Database Persistence ✅ COMPLETE

@@ -194,6 +194,9 @@ const TokenType = enum {
     arrow,
     sync,
     async,
+    pipe,
+    lbracket,
+    rbracket,
 };
 
 const Token = struct {
@@ -280,18 +283,21 @@ pub const Tokenizer = struct {
             }
             return Token{ .type = .lt, .value = self.input[start..self.pos] };
         }
-        if (ch == '-') {
+        if (ch == '|') {
             self.pos += 1;
             if (self.pos < self.input.len and self.input[self.pos] == '>') {
                 self.pos += 1;
-                return Token{ .type = .arrow, .value = self.input[start..self.pos] };
+                return Token{ .type = .pipe, .value = self.input[start..self.pos] };
             }
-            // If not ->, it might be a negative number, back up
-            self.pos = start;
-            if (self.pos + 1 < self.input.len and std.ascii.isDigit(self.input[self.pos + 1])) {
-                return self.readNumber();
-            }
-            return Token{ .type = .identifier, .value = self.input[start .. self.pos + 1] };
+            return error.UnexpectedCharacter; // Single | not supported
+        }
+        if (ch == '[') {
+            self.pos += 1;
+            return Token{ .type = .lbracket, .value = self.input[start..self.pos] };
+        }
+        if (ch == ']') {
+            self.pos += 1;
+            return Token{ .type = .rbracket, .value = self.input[start..self.pos] };
         }
 
         // String literals
@@ -542,55 +548,110 @@ pub const QueryEngine = struct {
                 const peek_pos = tokenizer.pos;
                 const next_tok = try tokenizer.next() orelse return error.UnexpectedEndOfQuery;
                 if (next_tok.type == .lparen) {
-                    // It's a function call
+                    // It's a function call - check if it's a built-in aggregate or user-defined function
                     var lower_buf: [16]u8 = undefined;
                     const func_name_lc = std.ascii.lowerString(&lower_buf, token.value);
                     var func: ?AggFunction = null;
+                    var is_aggregate = false;
+
+                    // Check for built-in aggregates first
                     if (std.mem.eql(u8, func_name_lc, "sum")) {
                         func = .sum;
+                        is_aggregate = true;
                     } else if (std.mem.eql(u8, func_name_lc, "avg")) {
                         func = .avg;
+                        is_aggregate = true;
                     } else if (std.mem.eql(u8, func_name_lc, "count")) {
                         func = .count;
+                        is_aggregate = true;
                     } else if (std.mem.eql(u8, func_name_lc, "min")) {
                         func = .min;
+                        is_aggregate = true;
                     } else if (std.mem.eql(u8, func_name_lc, "max")) {
                         func = .max;
+                        is_aggregate = true;
                     } else {
-                        return error.UnsupportedQuery;
-                    }
+                        // Check if it's a user-defined function
+                        if (self.db.functions.getFunction(token.value)) |_| {
+                            // Parse user-defined function call
+                            const func_name = try self.allocator.dupe(u8, token.value);
+                            errdefer self.allocator.free(func_name);
 
-                    // Parse inner token: identifier or star
-                    const inner = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
-                    var colname: []const u8 = "";
-                    var is_star = false;
-                    if (inner.type == .star) {
-                        is_star = true;
-                    } else if (inner.type == .identifier) {
-                        colname = inner.value;
-                    } else {
-                        return error.UnexpectedToken;
-                    }
-
-                    const rparen = (try tokenizer.next()) orelse return error.ExpectedRParen;
-                    if (rparen.type != .rparen) return error.ExpectedRParen;
-
-                    agg_spec = AggSpec{ .func = func.?, .col = colname, .is_star = is_star };
-
-                    // Ensure aggregation column is present in projection so the aggregate
-                    // node can access it even if it's not part of the final selected columns
-                    if (!is_star and colname.len > 0) {
-                        var exists = false;
-                        for (columns.items) |existing| {
-                            if (existing == .column and std.mem.eql(u8, existing.column, colname)) {
-                                exists = true;
-                                break;
+                            var args = try std.ArrayList(query_plan.ColumnSpec).initCapacity(self.allocator, 0);
+                            errdefer {
+                                for (args.items) |*arg| {
+                                    arg.deinit(self.allocator);
+                                }
+                                args.deinit(self.allocator);
                             }
+
+                            // We've already consumed the lparen with next_tok, so parse arguments directly
+
+                            // Parse arguments
+                            while (true) {
+                                const arg_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+                                if (arg_token.type == .rparen) break;
+
+                                if (arg_token.type == .identifier) {
+                                    // For now, treat as column argument
+                                    try args.append(self.allocator, query_plan.ColumnSpec{ .column = try self.allocator.dupe(u8, arg_token.value) });
+                                } else if (arg_token.type == .number) {
+                                    // For literals, store as string for now
+                                    try args.append(self.allocator, query_plan.ColumnSpec{ .column = try self.allocator.dupe(u8, arg_token.value) });
+                                } else {
+                                    return error.UnsupportedFunctionArgument;
+                                }
+
+                                // Check for comma or closing paren
+                                const next_arg_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+                                if (next_arg_token.type == .rparen) break;
+                                if (next_arg_token.type != .comma) {
+                                    return error.ExpectedCommaOrRParen;
+                                }
+                            }
+
+                            try columns.append(self.allocator, query_plan.ColumnSpec{ .function_call = .{ .name = func_name, .args = try args.toOwnedSlice(self.allocator) } });
+                            // args array is now owned by the ColumnSpec, but we need to clean up the temporary array
+                            args.deinit(self.allocator);
+                            token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+                        } else {
+                            return error.UnsupportedQuery;
                         }
-                        if (!exists) try columns.append(self.allocator, query_plan.ColumnSpec{ .column = try self.allocator.dupe(u8, colname) });
                     }
 
-                    token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+                    if (is_aggregate) {
+                        // Parse inner token: identifier or star
+                        const inner = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+                        var colname: []const u8 = "";
+                        var is_star = false;
+                        if (inner.type == .star) {
+                            is_star = true;
+                        } else if (inner.type == .identifier) {
+                            colname = inner.value;
+                        } else {
+                            return error.UnexpectedToken;
+                        }
+
+                        const rparen = (try tokenizer.next()) orelse return error.ExpectedRParen;
+                        if (rparen.type != .rparen) return error.ExpectedRParen;
+
+                        agg_spec = AggSpec{ .func = func.?, .col = colname, .is_star = is_star };
+
+                        // Ensure aggregation column is present in projection so the aggregate
+                        // node can access it even if it's not part of the final selected columns
+                        if (!is_star and colname.len > 0) {
+                            var exists = false;
+                            for (columns.items) |existing| {
+                                if (existing == .column and std.mem.eql(u8, existing.column, colname)) {
+                                    exists = true;
+                                    break;
+                                }
+                            }
+                            if (!exists) try columns.append(self.allocator, query_plan.ColumnSpec{ .column = try self.allocator.dupe(u8, colname) });
+                        }
+
+                        token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+                    }
                 } else {
                     // Not a function; backtrack and treat as column
                     tokenizer.pos = peek_pos;
@@ -606,20 +667,78 @@ pub const QueryEngine = struct {
             }
         }
 
-        if (token.type != .from) {
-            return error.ExpectedFrom;
+        // Check if there's a FROM clause
+        var has_from = false;
+        var table_name_or_path: []const u8 = "";
+        var is_file_path = false;
+
+        if (token.type == .from) {
+            has_from = true;
+            token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+
+            // Check if this is a file path (string literal) or table name (identifier)
+            is_file_path = token.type == .string_literal;
+
+            if (!is_file_path and token.type != .identifier) {
+                return error.ExpectedTableName;
+            }
+
+            table_name_or_path = token.value;
         }
 
-        token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        // Handle expression-only queries (no FROM clause)
+        if (!has_from) {
+            // For now, only support single function call expressions
+            if (columns.items.len != 1) {
+                return error.ExpressionOnlyQueriesMustHaveSingleColumn;
+            }
 
-        // Check if this is a file path (string literal) or table name (identifier)
-        const is_file_path = token.type == .string_literal;
+            const col_spec = columns.items[0];
+            if (col_spec != .function_call) {
+                return error.ExpressionOnlyQueriesMustBeFunctionCalls;
+            }
 
-        if (!is_file_path and token.type != .identifier) {
-            return error.ExpectedTableName;
+            // Create expression engine and evaluate the function
+            var expr_engine = expression_mod.ExpressionEngine.initWithFunctions(self.allocator, self.function_registry);
+            defer expr_engine.deinit();
+
+            // For now, assume single argument that's a literal
+            if (col_spec.function_call.args.len != 1) {
+                return error.FunctionCallsInExpressionsMustHaveSingleArg;
+            }
+
+            const arg_spec = col_spec.function_call.args[0];
+            if (arg_spec != .column) {
+                return error.FunctionArgsMustBeColumnsForNow;
+            }
+
+            // Parse the argument as a literal value
+            var arg_value = try self.parseLiteralValue(arg_spec.column);
+            defer arg_value.deinit(self.allocator);
+
+            // Execute the function
+            const func = self.db.functions.getFunction(col_spec.function_call.name) orelse return error.FunctionNotFound;
+            var args = [_]types.Value{arg_value};
+            var result_value = try func.execute(&args, &expr_engine);
+            defer result_value.deinit(self.allocator);
+
+            // Create a result table with the single value
+            var schema_def = try self.allocator.alloc(Schema.ColumnDef, 1);
+            defer self.allocator.free(schema_def);
+            schema_def[0] = Schema.ColumnDef{ .name = "result", .data_type = @as(DataType, result_value) };
+
+            var result_table = try Table.init(self.allocator, "expression_result", schema_def);
+            errdefer result_table.deinit();
+
+            var row_values = try self.allocator.alloc(types.Value, 1);
+            defer self.allocator.free(row_values);
+            row_values[0] = try result_value.clone(self.allocator);
+            errdefer row_values[0].deinit(self.allocator);
+
+            try result_table.insertRow(row_values);
+
+            return QueryResult{ .table = result_table };
         }
-
-        const table_name_or_path = token.value;
 
         // Load from file if it's a file path
         var temp_table: ?*Table = null;
@@ -2737,6 +2856,35 @@ pub const QueryEngine = struct {
         return QueryResult{ .message = "Type alias created successfully" };
     }
 
+    fn parseLiteralValue(self: *QueryEngine, str: []const u8) !types.Value {
+        // Try to parse as integer
+        if (std.fmt.parseInt(i64, str, 10)) |int_val| {
+            return types.Value{ .int64 = int_val };
+        } else |_| {}
+
+        // Try to parse as float
+        if (std.fmt.parseFloat(f64, str)) |float_val| {
+            return types.Value{ .float64 = float_val };
+        } else |_| {}
+
+        // Try to parse as boolean
+        if (std.mem.eql(u8, str, "true")) {
+            return types.Value{ .boolean = true };
+        }
+        if (std.mem.eql(u8, str, "false")) {
+            return types.Value{ .boolean = false };
+        }
+
+        // Try to parse as string (if quoted)
+        if (str.len >= 2 and str[0] == '"' and str[str.len - 1] == '"') {
+            const content = str[1 .. str.len - 1];
+            const duped = try self.allocator.dupe(u8, content);
+            return types.Value{ .string = duped };
+        }
+
+        return error.InvalidLiteralValue;
+    }
+
     fn executeCreateFunction(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
         // Get function name
         var token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
@@ -2744,8 +2892,6 @@ pub const QueryEngine = struct {
             return error.ExpectedFunctionName;
         }
         const func_name = token.value;
-
-        // Parse parameters: (param1 type1, param2 type2, ...)
         token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
         if (token.type != .lparen) {
             return error.ExpectedLParen;
@@ -2847,6 +2993,11 @@ pub const QueryEngine = struct {
 
         // Register the function
         try self.db.functions.registerFunction(function);
+
+        // Clean up the parameter copies (the function now owns cloned copies)
+        for (parameters.items) |*param| {
+            param.deinit(self.allocator);
+        }
 
         return QueryResult{ .message = "Function created successfully" };
     }
