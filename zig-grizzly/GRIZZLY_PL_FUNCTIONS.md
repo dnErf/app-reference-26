@@ -15,7 +15,7 @@ CREATE FUNCTION function_name(parameter_name parameter_type) RETURNS return_type
 
 ### Complete Syntax
 ```sql
-CREATE FUNCTION function_name(param1 type1, param2 type2, ...) RETURNS return_type [AS ASYNC|SYNC] {
+CREATE FUNCTION function_name(param1 type1, param2 type2, ...) RETURNS return_type [THROWS exception_type] [AS ASYNC|SYNC] {
     function_body
 }
 ```
@@ -51,6 +51,27 @@ Functions can return any supported Grizzly data type:
 - **Date/Time**: `DATE`, `TIME`, `TIMESTAMP`
 - **Binary**: `BLOB`, `BYTEA`
 - **Complex**: `JSON`, `ARRAY`, custom types via `CREATE TYPE`
+
+## Exception Types
+
+Functions can declare exceptions they may throw using the `THROWS` clause:
+
+```sql
+-- Define custom exception types
+CREATE TYPE ValidationError AS EXCEPTION ("Data validation failed");
+CREATE TYPE NetworkError AS EXCEPTION ("Network operation failed");
+
+-- Function that can throw exceptions
+CREATE FUNCTION validate_user(user JSON) RETURNS BOOLEAN THROWS ValidationError {
+    if user.age < 0 {
+        throw ValidationError("Age cannot be negative")
+    }
+    if user.name == "" {
+        throw ValidationError("Name cannot be empty")
+    }
+    true
+}
+```
 
 ## Execution Context
 
@@ -120,7 +141,7 @@ CREATE FUNCTION classify_score(score int32) RETURNS TEXT {
 ```
 
 ### Try/Catch Exception Handling
-Error handling with try/catch expressions:
+Error handling with Zig-style try/catch expressions:
 
 ```sql
 CREATE FUNCTION safe_divide(x FLOAT, y FLOAT) RETURNS FLOAT {
@@ -128,11 +149,16 @@ CREATE FUNCTION safe_divide(x FLOAT, y FLOAT) RETURNS FLOAT {
 }
 
 CREATE FUNCTION process_data(data JSON) RETURNS JSON {
-    try {
-        expensive_computation(data)
-    } catch {
+    try expensive_computation(data) catch {
         { error: "Processing failed", input: data }
     }
+}
+
+CREATE FUNCTION validate_input(value int64) RETURNS BOOLEAN THROWS ValidationError {
+    if value < 0 {
+        throw ValidationError("Value must be non-negative")
+    }
+    value >= 0
 }
 ```
 
@@ -250,17 +276,35 @@ CREATE FUNCTION process_orders(orders JSON) RETURNS JSON {
 
 ## Error Handling
 
-Functions support comprehensive error handling with try/catch expressions:
+Functions support comprehensive error handling with Zig-style try/catch expressions and custom exception types:
 
+### Basic Try/Catch
 ```sql
 CREATE FUNCTION safe_divide(x FLOAT, y FLOAT) RETURNS FLOAT {
     try x / y catch 0.0
 }
+```
 
+### Exception Types and THROWS Declarations
+```sql
+CREATE TYPE ValidationError AS EXCEPTION ("Data validation failed");
+CREATE TYPE NetworkError AS EXCEPTION ("Network operation failed");
+
+CREATE FUNCTION validate_user(user JSON) RETURNS BOOLEAN THROWS ValidationError {
+    if user.age < 0 {
+        throw ValidationError("Age cannot be negative")
+    }
+    if user.name == "" {
+        throw ValidationError("Name cannot be empty")
+    }
+    true
+}
+```
+
+### Complex Error Handling
+```sql
 CREATE FUNCTION process_with_fallback(data JSON) RETURNS JSON {
-    try {
-        expensive_operation(data)
-    } catch {
+    try expensive_operation(data) catch {
         { status: "error", message: "Operation failed", data: data }
     }
 }

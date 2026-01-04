@@ -130,6 +130,10 @@ fn hashValue(value: Value) !u64 {
             // Custom types not supported for cardinality estimation yet
             return error.CustomTypeNotSupported;
         },
+        .exception => |_| {
+            // Exceptions not supported for cardinality estimation
+            return error.ExceptionTypeNotSupported;
+        },
     }
 
     return hasher.final();

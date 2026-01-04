@@ -408,6 +408,10 @@ fn decompressRaw(allocator: std.mem.Allocator, column: *Column, data: []const u8
                 // Custom types not supported for decompression yet
                 return error.CustomTypeNotSupported;
             },
+            .exception => {
+                // Exception types not supported for decompression
+                return error.ExceptionTypeNotSupported;
+            },
         };
         try column.append(value);
     }

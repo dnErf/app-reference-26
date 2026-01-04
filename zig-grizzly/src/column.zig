@@ -102,6 +102,10 @@ pub const Column = struct {
                 // This is a placeholder - custom types may need special column handling
                 return error.CustomTypeNotSupported;
             },
+            .exception => |_| {
+                // Exceptions cannot be stored in columns
+                return error.ExceptionTypeNotSupported;
+            },
         }
         self.len += 1;
     }
@@ -127,6 +131,10 @@ pub const Column = struct {
             .custom => {
                 // Custom types not yet supported in columns
                 return error.CustomTypeNotSupported;
+            },
+            .exception => {
+                // Exceptions cannot be stored in columns
+                return error.ExceptionTypeNotSupported;
             },
         };
     }
@@ -390,6 +398,10 @@ pub const Column = struct {
             .custom => |_| {
                 // Custom types not supported for cardinality tracking yet
                 return error.CustomTypeNotSupported;
+            },
+            .exception => |_| {
+                // Exception types not supported for cardinality tracking
+                return error.ExceptionTypeNotSupported;
             },
         }
 

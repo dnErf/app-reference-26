@@ -185,6 +185,7 @@ const TokenType = enum {
     enum_,
     type_,
     struct_,
+    exception,
     describe,
     types,
     function,
@@ -432,6 +433,7 @@ pub const Tokenizer = struct {
         if (std.mem.eql(u8, lowercase, "detach")) return .detach;
         if (std.mem.eql(u8, lowercase, "enum")) return .enum_;
         if (std.mem.eql(u8, lowercase, "struct")) return .struct_;
+        if (std.mem.eql(u8, lowercase, "exception")) return .exception;
         if (std.mem.eql(u8, lowercase, "describe")) return .describe;
         if (std.mem.eql(u8, lowercase, "types")) return .types;
         if (std.mem.eql(u8, lowercase, "function")) return .function;
@@ -2184,6 +2186,7 @@ pub const QueryEngine = struct {
                     .timestamp => Value{ .timestamp = 0 },
                     .vector => Value{ .vector = .{ .values = &[_]f32{} } },
                     .custom => return error.CustomTypeNotSupported, // Custom types not supported for LEFT JOIN yet
+                    .exception => return error.ExceptionTypeNotSupported, // Exception types not supported for LEFT JOIN
                 };
             }
 
@@ -2743,11 +2746,13 @@ pub const QueryEngine = struct {
             return try self.executeCreateEnumType(type_name, tokenizer);
         } else if (token.type == .struct_) {
             return try self.executeCreateStructType(type_name, tokenizer);
+        } else if (token.type == .exception) {
+            return try self.executeCreateExceptionType(type_name, tokenizer);
         } else if (token.type == .identifier) {
             // This is a type alias: CREATE TYPE alias AS target_type
             return try self.executeCreateTypeAlias(type_name, token.value);
         } else {
-            return error.ExpectedEnumOrStructOrIdentifier;
+            return error.ExpectedEnumOrStructOrExceptionOrIdentifier;
         }
     }
 
@@ -2847,6 +2852,36 @@ pub const QueryEngine = struct {
         fields.deinit(self.allocator);
 
         return QueryResult{ .message = "Type created successfully" };
+    }
+
+    fn executeCreateExceptionType(self: *QueryEngine, type_name: []const u8, tokenizer: *Tokenizer) !QueryResult {
+        // Parse exception message: ("message")
+        var token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .lparen) {
+            return error.ExpectedLParen;
+        }
+
+        token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .string_literal) {
+            return error.ExpectedStringLiteral;
+        }
+
+        // Remove quotes from string literal
+        const message = token.value;
+        const unquoted = if (message.len >= 2 and ((message[0] == '"' and message[message.len - 1] == '"') or (message[0] == '\'' and message[message.len - 1] == '\'')))
+            message[1 .. message.len - 1]
+        else
+            message;
+
+        token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .rparen) {
+            return error.ExpectedRParen;
+        }
+
+        // Create the exception type
+        try self.db.createExceptionType(type_name, unquoted);
+
+        return QueryResult{ .message = "Exception type created successfully" };
     }
 
     fn executeCreateTypeAlias(self: *QueryEngine, alias_name: []const u8, target_type: []const u8) !QueryResult {

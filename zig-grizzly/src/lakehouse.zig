@@ -618,6 +618,7 @@ pub const Lakehouse = struct {
                 },
                 .vector => return error.UnsupportedOperation,
                 .custom => return error.UnsupportedOperation,
+                .exception => return error.UnsupportedOperation,
             };
             try col.append(value);
         }

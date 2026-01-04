@@ -663,6 +663,10 @@ fn valuesEqual(a: Value, b: Value) bool {
             // For now, custom values are compared by their type only
             return @as(std.meta.Tag(@import("types_custom.zig").CustomValue), cv) == @as(std.meta.Tag(@import("types_custom.zig").CustomValue), b.custom);
         },
+        .exception => |ev| {
+            const bev = b.exception;
+            return std.mem.eql(u8, ev.type_name, bev.type_name) and std.mem.eql(u8, ev.message, bev.message);
+        },
     };
 }
 

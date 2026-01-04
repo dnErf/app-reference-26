@@ -128,6 +128,10 @@ fn valuesEqual(a: Value, b: Value) bool {
             // TODO: Implement proper custom value comparison
             return @as(std.meta.Tag(CustomValue), cv) == @as(std.meta.Tag(CustomValue), b.custom);
         },
+        .exception => |ev| {
+            const bev = b.exception;
+            return std.mem.eql(u8, ev.type_name, bev.type_name) and std.mem.eql(u8, ev.message, bev.message);
+        },
     };
 }
 

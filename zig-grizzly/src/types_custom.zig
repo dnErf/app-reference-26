@@ -4,12 +4,14 @@ const std = @import("std");
 pub const CustomType = union(enum) {
     enum_type: EnumType,
     struct_type: StructType,
+    exception_type: ExceptionType,
     alias: TypeAlias,
 
     pub fn name(self: CustomType) []const u8 {
         return switch (self) {
             .enum_type => |et| et.name,
             .struct_type => |st| st.name,
+            .exception_type => |et| et.name,
             .alias => |a| a.alias,
         };
     }
@@ -18,6 +20,7 @@ pub const CustomType = union(enum) {
         switch (self.*) {
             .enum_type => |*et| et.deinit(allocator),
             .struct_type => |*st| st.deinit(allocator),
+            .exception_type => |*et| et.deinit(allocator),
             .alias => {}, // No dynamic allocation
         }
     }
@@ -26,6 +29,7 @@ pub const CustomType = union(enum) {
         return switch (self) {
             .enum_type => |et| CustomType{ .enum_type = try et.clone(allocator) },
             .struct_type => |st| CustomType{ .struct_type = try st.clone(allocator) },
+            .exception_type => |et| CustomType{ .exception_type = try et.clone(allocator) },
             .alias => |a| CustomType{ .alias = a },
         };
     }
@@ -168,6 +172,36 @@ pub const StructType = struct {
     }
 };
 
+/// Exception type definition
+pub const ExceptionType = struct {
+    name: []const u8,
+    message: []const u8,
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator, name: []const u8, message: []const u8) !ExceptionType {
+        const name_copy = try allocator.dupe(u8, name);
+        errdefer allocator.free(name_copy);
+
+        const message_copy = try allocator.dupe(u8, message);
+        errdefer allocator.free(message_copy);
+
+        return ExceptionType{
+            .name = name_copy,
+            .message = message_copy,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *ExceptionType, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        allocator.free(self.message);
+    }
+
+    pub fn clone(self: ExceptionType, allocator: std.mem.Allocator) !ExceptionType {
+        return try ExceptionType.init(allocator, self.name, self.message);
+    }
+};
+
 /// Type alias definition
 pub const TypeAlias = struct {
     alias: []const u8,
@@ -212,11 +246,13 @@ pub const TypeRef = union(enum) {
 pub const CustomValue = union(enum) {
     enum_value: EnumValue,
     struct_value: StructValue,
+    exception_value: ExceptionValue,
 
     pub fn deinit(self: *CustomValue, allocator: std.mem.Allocator) void {
         switch (self.*) {
             .enum_value => |*ev| ev.deinit(allocator),
             .struct_value => |*sv| sv.deinit(allocator),
+            .exception_value => |*ev| ev.deinit(allocator),
         }
     }
 
@@ -224,6 +260,7 @@ pub const CustomValue = union(enum) {
         return switch (self) {
             .enum_value => |ev| CustomValue{ .enum_value = try ev.clone(allocator) },
             .struct_value => |sv| CustomValue{ .struct_value = try sv.clone(allocator) },
+            .exception_value => |ev| CustomValue{ .exception_value = try ev.clone(allocator) },
         };
     }
 };
@@ -312,6 +349,34 @@ pub const StructValue = struct {
 
     pub fn getField(self: StructValue, field_name: []const u8) ?Value {
         return self.fields.get(field_name);
+    }
+};
+
+/// Exception value storage
+pub const ExceptionValue = struct {
+    type_name: []const u8,
+    message: []const u8,
+
+    pub fn init(allocator: std.mem.Allocator, type_name: []const u8, message: []const u8) !ExceptionValue {
+        const type_name_copy = try allocator.dupe(u8, type_name);
+        errdefer allocator.free(type_name_copy);
+
+        const message_copy = try allocator.dupe(u8, message);
+        errdefer allocator.free(message_copy);
+
+        return ExceptionValue{
+            .type_name = type_name_copy,
+            .message = message_copy,
+        };
+    }
+
+    pub fn deinit(self: *ExceptionValue, allocator: std.mem.Allocator) void {
+        allocator.free(self.type_name);
+        allocator.free(self.message);
+    }
+
+    pub fn clone(self: ExceptionValue, allocator: std.mem.Allocator) !ExceptionValue {
+        return try ExceptionValue.init(allocator, self.type_name, self.message);
     }
 };
 

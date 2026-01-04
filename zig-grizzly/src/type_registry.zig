@@ -2,6 +2,7 @@ const std = @import("std");
 const CustomType = @import("types_custom.zig").CustomType;
 const EnumType = @import("types_custom.zig").EnumType;
 const StructType = @import("types_custom.zig").StructType;
+const ExceptionType = @import("types_custom.zig").ExceptionType;
 const TypeAlias = @import("types_custom.zig").TypeAlias;
 
 /// Global type registry for managing custom types
@@ -113,6 +114,26 @@ pub const TypeRegistry = struct {
         errdefer self.allocator.free(name_copy);
 
         try self.types.put(name_copy, CustomType{ .struct_type = struct_type });
+    }
+
+    /// Create a new exception type
+    pub fn createException(self: *TypeRegistry, name: []const u8, message: []const u8) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        // Check if type already exists
+        if (self.types.contains(name)) {
+            return error.TypeAlreadyExists;
+        }
+
+        // Create the exception type
+        var exception_type = try ExceptionType.init(self.allocator, name, message);
+        errdefer exception_type.deinit(self.allocator);
+
+        const name_copy = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(name_copy);
+
+        try self.types.put(name_copy, CustomType{ .exception_type = exception_type });
     }
 
     /// Create a type alias

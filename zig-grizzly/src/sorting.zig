@@ -125,6 +125,7 @@ pub const Sorter = struct {
                 break :blk std.math.order(value_a.vector.values[0], value_b.vector.values[0]);
             },
             .custom => .eq, // Custom types not comparable for sorting, treat as equal
+            .exception => .eq, // Exception types not comparable for sorting, treat as equal
         };
     }
 

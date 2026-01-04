@@ -169,6 +169,7 @@ pub const Function = struct {
             .timestamp => expected_type == .timestamp,
             .vector => expected_type == .vector,
             .custom => expected_type == .custom,
+            .exception => expected_type == .exception,
         };
     }
 };

@@ -121,6 +121,7 @@ pub const IncrementalEngine = struct {
                 .timestamp => |val| try condition_buf.writer(allocator).print("{}", .{val}),
                 .vector => try condition_buf.writer(allocator).print("'vector'", .{}), // Not supported for partitioning
                 .custom => try condition_buf.writer(allocator).print("'custom'", .{}), // Not supported for partitioning
+                .exception => try condition_buf.writer(allocator).print("'exception'", .{}), // Not supported for partitioning
             }
         } else {
             // First run - no WHERE clause needed, process all data
@@ -207,6 +208,7 @@ pub const IncrementalEngine = struct {
             .boolean => return if (a.boolean and !b.boolean) true else false,
             .vector => return false, // vectors not comparable for partitioning
             .custom => return null, // custom types not comparable for partitioning
+            .exception => return null, // exception types not comparable for partitioning
         }
     }
 };

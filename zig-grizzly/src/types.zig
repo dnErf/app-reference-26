@@ -12,6 +12,7 @@ pub const DataType = enum {
     timestamp,
     vector,
     custom,
+    exception,
 
     pub fn size(self: DataType) usize {
         return switch (self) {
@@ -24,6 +25,7 @@ pub const DataType = enum {
             .timestamp => @sizeOf(i64),
             .vector => @sizeOf(VectorValue),
             .custom => @sizeOf(CustomValue),
+            .exception => @sizeOf(ExceptionValue),
         };
     }
 
@@ -38,6 +40,7 @@ pub const DataType = enum {
             .timestamp => "timestamp",
             .vector => "vector",
             .custom => "custom",
+            .exception => "exception",
         };
     }
 };
@@ -47,6 +50,30 @@ pub const VectorValue = struct {
 
     pub fn len(self: VectorValue) usize {
         return self.values.len;
+    }
+};
+
+pub const ExceptionValue = struct {
+    type_name: []const u8,
+    message: []const u8,
+
+    pub fn init(allocator: std.mem.Allocator, type_name: []const u8, message: []const u8) !ExceptionValue {
+        return ExceptionValue{
+            .type_name = try allocator.dupe(u8, type_name),
+            .message = try allocator.dupe(u8, message),
+        };
+    }
+
+    pub fn deinit(self: *ExceptionValue, allocator: std.mem.Allocator) void {
+        allocator.free(self.type_name);
+        allocator.free(self.message);
+    }
+
+    pub fn clone(self: ExceptionValue, allocator: std.mem.Allocator) !ExceptionValue {
+        return ExceptionValue{
+            .type_name = try allocator.dupe(u8, self.type_name),
+            .message = try allocator.dupe(u8, self.message),
+        };
     }
 };
 
@@ -61,6 +88,7 @@ pub const Value = union(DataType) {
     timestamp: i64,
     vector: VectorValue,
     custom: CustomValue,
+    exception: ExceptionValue,
 
     pub fn format(
         self: Value,
@@ -101,6 +129,7 @@ pub const Value = union(DataType) {
                     },
                 }
             },
+            .exception => |ev| try writer.print("Exception({s}: {s})", .{ ev.type_name, ev.message }),
         }
     }
 
@@ -134,7 +163,17 @@ pub const Value = union(DataType) {
                         }
                         break :blk2 true;
                     },
+                    .exception_value => |ev| blk2: {
+                        const other_ev = other_cv.exception_value;
+                        break :blk2 std.mem.eql(u8, ev.type_name, other_ev.type_name) and
+                            std.mem.eql(u8, ev.message, other_ev.message);
+                    },
                 };
+            },
+            .exception => |ev| blk: {
+                const other_ev = other.exception;
+                break :blk std.mem.eql(u8, ev.type_name, other_ev.type_name) and
+                    std.mem.eql(u8, ev.message, other_ev.message);
             },
         };
     }
@@ -196,8 +235,10 @@ pub const Value = union(DataType) {
                         }
                         break :blk2 false; // All keys equal
                     },
+                    .exception_value => false, // Exception values are not comparable
                 };
             },
+            .exception => false, // Exceptions are not comparable
         };
     }
 
@@ -253,7 +294,15 @@ pub const Value = union(DataType) {
                             }
                         }
                     },
+                    .exception_value => |ev| {
+                        hasher.update(ev.type_name);
+                        hasher.update(ev.message);
+                    },
                 }
+            },
+            .exception => |ev| {
+                hasher.update(ev.type_name);
+                hasher.update(ev.message);
             },
         }
         return hasher.final();
@@ -265,6 +314,7 @@ pub const Value = union(DataType) {
             .string => |s| allocator.free(s),
             .vector => |v| allocator.free(v.values),
             .custom => |*cv| cv.deinit(allocator),
+            .exception => |*ev| ev.deinit(allocator),
             else => {}, // Other types don't own memory
         }
     }
@@ -284,6 +334,7 @@ pub const Value = union(DataType) {
                 break :blk Value{ .vector = VectorValue{ .values = values_copy } };
             },
             .custom => |cv| Value{ .custom = try cv.clone(allocator) },
+            .exception => |ev| Value{ .exception = try ev.clone(allocator) },
         };
     }
 };

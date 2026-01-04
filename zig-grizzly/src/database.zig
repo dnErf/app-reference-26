@@ -582,6 +582,14 @@ pub const Database = struct {
         }
     }
 
+    /// Create an exception type
+    pub fn createExceptionType(self: *Database, type_name: []const u8, message: []const u8) !void {
+        try self.type_registry.createException(type_name, message);
+        if (self.audit_log) |log| {
+            try log.log(.create_type, type_name, "Created exception type", 0, null);
+        }
+    }
+
     /// Create a type alias
     pub fn createTypeAlias(self: *Database, alias: []const u8, target_type: []const u8) !void {
         try self.type_registry.createAlias(alias, target_type);
@@ -638,6 +646,10 @@ pub const Database = struct {
                 .alias => {
                     // Should not happen for custom types
                     try result.writer(allocator).print("Kind: ALIAS\n", .{});
+                },
+                .exception_type => |et| {
+                    try result.writer(allocator).print("Kind: EXCEPTION\n", .{});
+                    try result.writer(allocator).print("Message: {s}\n", .{et.message});
                 },
             }
 

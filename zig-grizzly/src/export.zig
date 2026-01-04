@@ -136,6 +136,10 @@ pub fn exportBinary(table: Table, writer: anytype) !void {
                     // Custom types not supported for binary export yet
                     return error.CustomTypeNotSupported;
                 },
+                .exception => {
+                    // Exception types not supported for binary export
+                    return error.ExceptionTypeNotSupported;
+                },
             }
         }
     }
