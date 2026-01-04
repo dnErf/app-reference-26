@@ -33,10 +33,10 @@ types
 - carefully read and breakdown the github issues or user request fully. if unclear, ask or reply for clarification
 
 2. **spec**
-- as `owner`, create or update files in `/specs/` orderly and named after the feature. you may include user needs, edge cases, acceptance criteria
+- as `owner`, create or update files in `/.agents/specs/` orderly and named after the feature. you may include user needs, edge cases, acceptance criteria
 
 3. **plan**
-- as `architect`, create or update `plan.md` in the root with the following:
+- as `architect`, create or update `/.agents/plan.md` in the root with the following:
     - high-level architecture decisions, tech choices and rationale
     - numbered step-by-step implementation tasks
     - potential risks
@@ -67,27 +67,55 @@ strictly use pnpm or astro
 - conscious and concise changes only
 - no unrelated refactors
 
+# required agent behavior (must)
+- at start: read `AGENTS.md`.
+- create a TASK-ID and save a checkpoint to `.agents/checkpoints/<task-id>.json` before any external call or long step.
+- include a continuation header in status messages (TASK-ID, STATUS, STEP, NEXT_STEPS, ARTIFACTS).
+
+## checkpoint JSON (minimal)
+```json
+{
+  "task_id": "2f4a1e5a-20260103T1030Z",
+  "status": "paused",
+  "step": "run unit tests",
+  "next_steps": ["restore venv", "run pytest tests/payment"],
+  "artifacts": [".artifacts/2f4a1e5a/tests-log.txt"],
+  "notes": "Rate-limited; retry after 5m"
+}
+```
+
+## example continuation header
+```
+TASK-ID: 2f4a1e5a-...  
+STATUS: paused  
+STEP: run unit tests  
+NEXT_STEPS:
+- restore venv; run `pytest tests/payment`  
+ARTIFACTS:
+- .artifacts/2f4a1e5a/tests-log.txt
+```
+
 ## commits
 - `type: description` (ft, fx, up, ch, ci, docs)
 
 ## roles
 - **owner**
-    - specs(`specs/`)
-    - create and review checklist (`_qa.md`) and approval
+    - specs(`/.agents/specs/`)
+    - create and review checklist (`/.agents/_qa.md`) and approval
 - **developer**
-    - plan (`_plan.md`)
+    - plan (`/.agents/_plan.md`)
     - implementation
     - tests
     - ci
 
 ## workflow
 1. understand - confirm acceptance criteria
-2. spec - if medium+ complexity, add/update `specs/*.json`
-3. plan - create/update `_plan.md`
+2. spec - if medium+ complexity, add/update `/.agents/specs/*.json`
+3. plan - create/update `/.agents/_plan.md`
 4. implement - code
 5. test - test implementation
-6. qa - run `_qa.md` and approve
+6. qa - run `/.agents/_qa.md` and approve
 
 ## specs
-- prefer JSON schema in `specs/`
+- prefer JSON schema in `/.agents/specs/`
 

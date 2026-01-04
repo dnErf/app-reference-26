@@ -1,0 +1,35 @@
+# Zig build artifacts
+zig-cache/
+zig-out/
+.zig-cache/
+
+# AI checkpoint (temporary resume state)
+.ai_checkpoint.json
+.ai_checkpoint.json.tmp
+
+# Test artifacts
+*.griz
+*.lakehouse/
+test_*.griz
+test_*.db
+incremental.griz
+compact.griz
+
+# Compiled binaries
+simple
+ceo_demo
+
+# Editor files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Log files
+*.log
+audit_log.json
+query_trace.json
+users_export.json
+
+.agents/
+.dump/

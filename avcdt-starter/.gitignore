@@ -1,6 +1,8 @@
 # build output
 dist/
-# generated types
+
+# generated
+.agents/
 .astro/
 
 # dependencies
