@@ -11,8 +11,7 @@ pub fn main() !void {
     defer db.deinit();
 
     // Create query engine
-    var engine = zig_grizzly.QueryEngine.init(allocator, &db);
-    defer engine.deinit();
+    var engine = zig_grizzly.QueryEngine.init(allocator, &db, &db.functions);
 
     // Test CREATE TYPE ENUM
     std.debug.print("Testing CREATE TYPE ENUM...\n", .{});

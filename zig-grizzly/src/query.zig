@@ -14,6 +14,7 @@ const sorting_mod = @import("sorting.zig");
 const lakehouse_mod = @import("lakehouse.zig");
 const function_mod = @import("function.zig");
 const pattern_mod = @import("pattern.zig");
+const expression_mod = @import("expression.zig");
 
 const Value = types.Value;
 const DataType = types.DataType;
@@ -36,6 +37,7 @@ const FunctionBody = function_mod.FunctionBody;
 const ExecutionContext = function_mod.ExecutionContext;
 const Pattern = pattern_mod.Pattern;
 const MatchCase = function_mod.MatchCase;
+const ExpressionEngine = expression_mod.ExpressionEngine;
 
 const JoinClause = struct {
     join_type: JoinType,
@@ -59,7 +61,7 @@ pub fn parseColumnSpec(allocator: std.mem.Allocator, str: []const u8) !query_pla
         if (!std.mem.endsWith(u8, trimmed, ")")) return error.InvalidFunctionCall;
         const name = trimmed[0..open_paren];
         const args_str = trimmed[open_paren + 1 .. trimmed.len - 1];
-        var args = std.ArrayList(query_plan.ColumnSpec).init(allocator);
+        var args = try std.ArrayList(query_plan.ColumnSpec).initCapacity(allocator, 0);
         errdefer args.deinit();
         if (args_str.len > 0) {
             var arg_it = std.mem.split(u8, args_str, ",");
@@ -79,7 +81,7 @@ pub fn cloneColumnSpec(allocator: std.mem.Allocator, spec: query_plan.ColumnSpec
     switch (spec) {
         .column => |col| return .{ .column = try allocator.dupe(u8, col) },
         .function_call => |fc| {
-            var args = std.ArrayList(query_plan.ColumnSpec).init(allocator);
+            var args = try std.ArrayList(query_plan.ColumnSpec).initCapacity(allocator, 0);
             errdefer args.deinit();
             for (fc.args) |arg| {
                 try args.append(try cloneColumnSpec(allocator, arg));
@@ -452,18 +454,21 @@ pub const QueryEngine = struct {
     db: *Database,
     allocator: std.mem.Allocator,
     function_registry: *FunctionRegistry,
+    format_registry: ?*format_mod.FormatRegistry,
+    audit_log: ?*audit_mod.AuditLog,
 
     pub fn init(allocator: std.mem.Allocator, db: *Database, function_registry: *FunctionRegistry) QueryEngine {
         return .{
             .db = db,
             .allocator = allocator,
             .function_registry = function_registry,
+            .format_registry = null,
+            .audit_log = null,
         };
     }
 
     pub fn attachAuditLog(self: *QueryEngine, log: *audit_mod.AuditLog) void {
         self.audit_log = log;
-        self.optimizer.setDecisionLogger(log);
     }
 
     pub fn attachFormatRegistry(self: *QueryEngine, registry: *format_mod.FormatRegistry) void {
@@ -515,12 +520,12 @@ pub const QueryEngine = struct {
             if (token.type != .select) return error.ExpectedSelectAfterWith;
         }
 
-        var columns = std.ArrayList(query_plan.ColumnSpec).init(self.allocator);
+        var columns = try std.ArrayList(query_plan.ColumnSpec).initCapacity(self.allocator, 0);
         defer {
             for (columns.items) |*col| {
                 col.deinit(self.allocator);
             }
-            columns.deinit();
+            columns.deinit(self.allocator);
         }
 
         // Parse column list (supports simple aggregates like SUM(col), COUNT(*))
@@ -529,7 +534,7 @@ pub const QueryEngine = struct {
         var agg_spec: ?AggSpec = null;
 
         if (token.type == .star) {
-            try columns.append(ColumnSpec{ .column = try self.allocator.dupe(u8, token.value) });
+            try columns.append(self.allocator, query_plan.ColumnSpec{ .column = try self.allocator.dupe(u8, token.value) });
             token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
         } else {
             while (token.type == .identifier) {
@@ -577,19 +582,19 @@ pub const QueryEngine = struct {
                     if (!is_star and colname.len > 0) {
                         var exists = false;
                         for (columns.items) |existing| {
-                            if (std.mem.eql(u8, existing, colname)) {
+                            if (existing == .column and std.mem.eql(u8, existing.column, colname)) {
                                 exists = true;
                                 break;
                             }
                         }
-                        if (!exists) try columns.append(self.allocator, colname);
+                        if (!exists) try columns.append(self.allocator, query_plan.ColumnSpec{ .column = try self.allocator.dupe(u8, colname) });
                     }
 
                     token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
                 } else {
                     // Not a function; backtrack and treat as column
                     tokenizer.pos = peek_pos;
-                    try columns.append(self.allocator, token.value);
+                    try columns.append(self.allocator, query_plan.ColumnSpec{ .column = try self.allocator.dupe(u8, token.value) });
                     token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
                 }
 
@@ -804,10 +809,10 @@ pub const QueryEngine = struct {
             plan.root = limit_node;
         }
 
-        try self.optimizer.registerTable(table);
-        try self.optimizer.optimize(&plan);
+        // try self.optimizer.registerTable(table);
+        // try self.optimizer.optimize(&plan);
 
-        var result = try self.executePlan(plan.root, &where_expr, columns.items);
+        var result = try self.executePlan(plan.root, &where_expr, &[_][]const u8{});
 
         // Apply ORDER BY if present (mutates result.table in place)
         if (order_by_clause) |*order_by| {
@@ -1351,7 +1356,7 @@ pub const QueryEngine = struct {
             for (selected_columns, 0..) |col, i| {
                 dup_cols[i] = switch (col) {
                     .column => |name| query_plan.ColumnSpec{ .column = try self.allocator.dupe(u8, name) },
-                    .function_call => |fc| {
+                    .function_call => |fc| blk: {
                         var args = try self.allocator.alloc(query_plan.ColumnSpec, fc.args.len);
                         for (fc.args, 0..) |arg, j| {
                             args[j] = switch (arg) {
@@ -1359,9 +1364,10 @@ pub const QueryEngine = struct {
                                 .function_call => return error.NotImplemented,
                             };
                         }
-                        query_plan.ColumnSpec{ .function_call = .{ .name = try self.allocator.dupe(u8, fc.name), .args = args } };
-                    }
+                        break :blk query_plan.ColumnSpec{ .function_call = .{ .name = try self.allocator.dupe(u8, fc.name), .args = args } };
+                    },
                 };
+            }
             project.columns = dup_cols;
             project.owns_columns = true;
             project.child = current;
@@ -1376,8 +1382,9 @@ pub const QueryEngine = struct {
         self: *QueryEngine,
         root: *PlanNode,
         where_expr_slot: *?*Expr,
-        unused: [][]const u8,
+        default_columns: [][]const u8,
     ) !QueryResult {
+        _ = default_columns;
         const table_result = try self.executePlanNode(root, where_expr_slot);
         return QueryResult{ .table = table_result };
     }
@@ -1392,10 +1399,10 @@ pub const QueryEngine = struct {
             .index_scan => try self.materializeIndexScan(node),
             .filter => try self.applyFilterNode(node, where_expr_slot),
             .project => try self.applyProjectNode(node, where_expr_slot),
-            .join => try self.applyJoinNode(node, where_expr_slot),
-            .limit => try self.applyLimitNode(node, where_expr_slot),
-            .sort => try self.applySortNode(node, where_expr_slot),
             .aggregate => try self.applyAggregateNode(node, where_expr_slot),
+            .sort => try self.applySortNode(node, where_expr_slot),
+            .limit => try self.applyLimitNode(node, where_expr_slot),
+            .join => try self.applyJoinNode(node, where_expr_slot),
         };
     }
 
@@ -1475,34 +1482,83 @@ pub const QueryEngine = struct {
         if (node.columns) |cols| {
             std.debug.print("Allocating projected table\n", .{});
 
-            // Extract column names from ColumnSpec
-            var col_names = try std.ArrayList([]const u8).initCapacity(self.allocator, cols.len);
-            defer col_names.deinit();
+            // Handle both column selections and function calls
+            var result_columns = try std.ArrayList(Schema.ColumnDef).initCapacity(self.allocator, 0);
+            defer result_columns.deinit(self.allocator);
+
+            var column_specs = try std.ArrayList(query_plan.ColumnSpec).initCapacity(self.allocator, 0);
+            defer column_specs.deinit(self.allocator);
+
             for (cols) |col| {
                 switch (col) {
-                    .column => |name| try col_names.append(name),
-                    .function_call => return error.FunctionCallsNotSupportedYet,
+                    .column => |name| {
+                        const idx = child_table.schema.findColumn(name) orelse return error.ColumnNotFound;
+                        try result_columns.append(self.allocator, child_table.schema.columns[idx]);
+                        try column_specs.append(self.allocator, col);
+                    },
+                    .function_call => |fc| {
+                        // For function calls, create a computed column
+                        const func = self.function_registry.getFunction(fc.name) orelse return error.FunctionNotFound;
+                        try result_columns.append(self.allocator, .{
+                            .name = try self.allocator.dupe(u8, fc.name), // Use function name as column name for now
+                            .data_type = func.return_type,
+                        });
+                        try column_specs.append(self.allocator, col);
+                    },
                 }
             }
 
-            // Expand SELECT * to all column names
-            var actual_cols = col_names.items;
-            var expanded_col_names: ?[][]const u8 = null;
-            defer if (expanded_col_names) |names| self.allocator.free(names);
+            var result = try Table.init(self.allocator, "projected", result_columns.items);
+            errdefer result.deinit();
 
-            if (col_names.items.len == 1 and std.mem.eql(u8, col_names.items[0], "*")) {
-                expanded_col_names = try self.allocator.alloc([]const u8, child_table.schema.columns.len);
-                for (child_table.schema.columns, 0..) |col, i| {
-                    expanded_col_names.?[i] = col.name;
+            // Process each row
+            var row: usize = 0;
+            while (row < child_table.row_count) : (row += 1) {
+                var row_values = try std.ArrayList(Value).initCapacity(self.allocator, result_columns.items.len);
+                defer row_values.deinit(self.allocator);
+
+                for (column_specs.items) |spec| {
+                    switch (spec) {
+                        .column => |name| {
+                            const col_idx = child_table.schema.findColumn(name).?;
+                            const value = try child_table.getCell(row, col_idx);
+                            try row_values.append(self.allocator, try value.clone(self.allocator));
+                        },
+                        .function_call => |fc| {
+                            // Evaluate function call
+                            const func = self.function_registry.getFunction(fc.name).?;
+
+                            // Get argument values
+                            var args = try std.ArrayList(Value).initCapacity(self.allocator, fc.args.len);
+                            defer args.deinit(self.allocator);
+
+                            for (fc.args) |arg_spec| {
+                                switch (arg_spec) {
+                                    .column => |arg_name| {
+                                        const arg_col_idx = child_table.schema.findColumn(arg_name) orelse return error.ColumnNotFound;
+                                        const arg_value = try child_table.getCell(row, arg_col_idx);
+                                        try args.append(self.allocator, try arg_value.clone(self.allocator));
+                                    },
+                                    .function_call => return error.NestedFunctionCallsNotSupported,
+                                }
+                            }
+
+                            // Create expression engine for function execution
+                            var expr_engine = expression_mod.ExpressionEngine.initWithFunctions(self.allocator, self.function_registry);
+                            defer expr_engine.deinit();
+
+                            // Execute function
+                            const result_value = try func.execute(args.items, &expr_engine);
+                            try row_values.append(self.allocator, try result_value.clone(self.allocator));
+                        },
+                    }
                 }
-                actual_cols = expanded_col_names.?;
+
+                try result.insertRow(row_values.items);
             }
 
-            const projected = try child_table.select(self.allocator, actual_cols);
-            defer std.debug.print("Deallocating projected table\n", .{});
-            defer @constCast(&projected).deinit();
             child_table.deinit();
-            return projected;
+            return result;
         }
 
         return child_table;
@@ -2452,7 +2508,7 @@ pub const QueryEngine = struct {
 
         if (trimmed_sql.len > 0 and trimmed_sql[0] == '{') {
             // This is a PL-Grizzly template - compile it
-            var template_engine = @import("template.zig").TemplateEngine.init(self.allocator);
+            var template_engine = @import("template.zig").TemplateEngine.initWithFunctions(self.allocator, self.function_registry);
             defer template_engine.deinit();
 
             // Find the end of the template (matching } at the end)

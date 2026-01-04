@@ -11,8 +11,7 @@ pub fn main() !void {
     defer db.deinit();
 
     // Create query engine
-    var query_engine = zig_grizzly.QueryEngine.init(allocator, &db);
-    defer query_engine.deinit();
+    var query_engine = zig_grizzly.QueryEngine.init(allocator, &db, &db.functions);
 
     // Test CREATE FUNCTION
     const query = "CREATE FUNCTION test_func(x int64) RETURNS int64 { x }";

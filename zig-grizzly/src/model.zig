@@ -103,13 +103,7 @@ pub const Model = struct {
             return try @import("incremental.zig").IncrementalEngine.executeIncrementalModel(self, db);
         }
 
-        var engine = QueryEngine.init(db.allocator, db);
-        defer engine.deinit();
-
-        // Attach audit log if available
-        if (db.audit_log) |log| {
-            engine.attachAuditLog(log);
-        }
+        var engine = QueryEngine.init(db.allocator, db, &db.functions);
 
         const start_time = std.time.milliTimestamp();
 

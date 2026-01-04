@@ -45,15 +45,13 @@ pub const View = struct {
     pub fn deinit(self: *View, allocator: std.mem.Allocator) void {
         allocator.free(self.name);
         allocator.free(self.sql_definition);
-        if (self.compiled_query) |*query| {
-            query.deinit();
-        }
+        // QueryEngine doesn't need deinit
     }
 
     pub fn compileQuery(self: *View, db: *Database) !void {
         if (self.compiled_query != null) return;
 
-        const query_engine = QueryEngine.init(db.allocator, db);
+        const query_engine = QueryEngine.init(db.allocator, db, &db.functions);
         self.compiled_query = query_engine;
     }
 

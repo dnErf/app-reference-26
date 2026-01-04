@@ -17,7 +17,7 @@ pub const TemplateEngine = struct {
     pub fn initWithFunctions(allocator: std.mem.Allocator, functions: *const @import("function.zig").FunctionRegistry) TemplateEngine {
         return TemplateEngine{
             .allocator = allocator,
-            .expression_engine = ExpressionEngine.initWithFunctions(allocator, functions),
+            .expression_engine = ExpressionEngine.initWithFunctions(allocator, @constCast(functions)),
         };
     }
 

@@ -21,13 +21,7 @@ pub const IncrementalEngine = struct {
     pub fn executeIncrementalModel(model: *Model, db: *Database) !*Table {
         if (!model.is_incremental) {
             // For non-incremental models, execute directly
-            var engine = @import("query.zig").QueryEngine.init(db.allocator, db);
-            defer engine.deinit();
-
-            // Attach audit log if available
-            if (db.audit_log) |log| {
-                engine.attachAuditLog(log);
-            }
+            var engine = @import("query.zig").QueryEngine.init(db.allocator, db, &db.functions);
 
             const start_time = std.time.milliTimestamp();
             const result = try engine.execute(model.sql_definition);
@@ -52,13 +46,7 @@ pub const IncrementalEngine = struct {
         defer db.allocator.free(incremental_sql);
 
         // Execute the modified query
-        var engine = QueryEngine.init(db.allocator, db);
-        defer engine.deinit();
-
-        // Attach audit log if available
-        if (db.audit_log) |log| {
-            engine.attachAuditLog(log);
-        }
+        var engine = QueryEngine.init(db.allocator, db, &db.functions);
 
         const start_time = std.time.milliTimestamp();
         const result = try engine.execute(incremental_sql);

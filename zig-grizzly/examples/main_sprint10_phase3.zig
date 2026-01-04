@@ -49,8 +49,7 @@ pub fn main() !void {
     // Test REFRESH MODEL
     std.debug.print("\nRefreshing model 'user_summary'...\n", .{});
 
-    var engine = QueryEngine.init(allocator, &db);
-    defer engine.deinit();
+    var engine = QueryEngine.init(allocator, &db, &db.functions);
 
     var refresh_result = try engine.execute("REFRESH MODEL user_summary;");
     defer refresh_result.deinit();

@@ -13,8 +13,7 @@ pub fn main() !void {
     defer db.deinit();
 
     // Create query engine
-    var query_engine = QueryEngine.init(allocator, &db);
-    defer query_engine.deinit();
+    var query_engine = QueryEngine.init(allocator, &db, &db.functions);
 
     // Create a table
     var result1 = try query_engine.execute(

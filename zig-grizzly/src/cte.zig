@@ -63,8 +63,7 @@ pub const CTE = struct {
 
         // Execute the query if not already materialized
         if (self.materialized_result == null) {
-            var query_engine = QueryEngine.init(db.allocator, db);
-            defer query_engine.deinit();
+            var query_engine = QueryEngine.init(db.allocator, db, &db.functions);
 
             if (db.audit_log) |log| {
                 query_engine.attachAuditLog(log);
