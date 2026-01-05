@@ -34,6 +34,8 @@ pub const Request = struct {
     timeout_ms: u32 = 30000, // 30 second default
     follow_redirects: bool = true,
     max_redirects: u8 = 5,
+    retry_count: u8 = 3, // Number of retries on failure
+    retry_delay_ms: u32 = 1000, // Delay between retries
 };
 
 /// HTTP response
@@ -54,6 +56,8 @@ pub const Client = struct {
     allocator: std.mem.Allocator,
     tls: TLS,
     connection_pool: std.StringHashMap(*Connection),
+    max_connections: usize = 10,
+    connection_timeout_ms: u32 = 5000, // 5 seconds
 
     const Connection = struct {
         stream: std.net.Stream,
@@ -74,7 +78,8 @@ pub const Client = struct {
     pub fn deinit(self: *Client) void {
         // Clean up connection pool
         var it = self.connection_pool.valueIterator();
-        while (it.next()) |conn| {
+        while (it.next()) |conn_ptr| {
+            const conn = conn_ptr.*;
             conn.stream.close();
             self.allocator.free(conn.host);
             self.allocator.destroy(conn);
@@ -84,31 +89,46 @@ pub const Client = struct {
     }
 
     /// Send an HTTP request
-    pub fn send(self: *Client, request: Request) !Response {
-        var current_url = request.url;
-        var redirects: u8 = 0;
+    pub fn send(self: *Client, req: Request) !Response {
+        var attempt: u8 = 0;
+        while (attempt <= req.retry_count) {
+            var current_url = req.url;
+            var redirects: u8 = 0;
 
-        while (redirects <= request.max_redirects) {
-            const response = try self.sendSingle(request.method, current_url, request.headers, request.body, request.timeout_ms);
+            while (redirects <= req.max_redirects) {
+                const response = self.sendSingle(req.method, current_url, req.headers, req.body, req.timeout_ms) catch |err| {
+                    if (attempt < req.retry_count and self.shouldRetry(err)) {
+                        attempt += 1;
+                        std.time.sleep(req.retry_delay_ms * 1000000); // Convert to nanoseconds
+                        break;
+                    } else {
+                        return err;
+                    }
+                };
 
-            if (request.follow_redirects and isRedirect(response.status.code)) {
-                if (response.headers.get("location")) |location| {
-                    current_url = try URL.parse(location);
-                    redirects += 1;
-                    response.deinit();
-                    continue;
+                if (req.follow_redirects and isRedirect(response.status.code)) {
+                    if (response.headers.get("location")) |location| {
+                        current_url = try URL.parse(location);
+                        redirects += 1;
+                        response.deinit();
+                        continue;
+                    }
                 }
+
+                return response;
             }
 
-            return response;
+            if (redirects > req.max_redirects) {
+                return error.TooManyRedirects;
+            }
         }
 
-        return error.TooManyRedirects;
+        return error.MaxRetriesExceeded;
     }
 
     fn sendSingle(self: *Client, method: Method, url: URL, headers: Headers, body: ?[]const u8, timeout_ms: u32) !Response {
         const is_https = std.mem.eql(u8, url.scheme, "https");
-        const port = url.port orelse if (is_https) 443 else 80;
+        const port: u16 = url.port orelse if (is_https) 443 else 80;
 
         // Get or create connection
         const conn_key = try std.fmt.allocPrint(self.allocator, "{s}:{d}:{s}", .{ url.host, port, if (is_https) "https" else "http" });
@@ -124,15 +144,46 @@ pub const Client = struct {
     }
 
     fn getConnection(self: *Client, host: []const u8, port: u16, is_https: bool) !std.net.Stream {
-        _ = self;
-        // For now, create new connection each time
-        // TODO: Implement connection pooling
+        const conn_key = try std.fmt.allocPrint(self.allocator, "{s}:{d}:{s}", .{ host, port, if (is_https) "https" else "http" });
+        defer self.allocator.free(conn_key);
+
+        // Check for existing connection in pool
+        if (self.connection_pool.getPtr(conn_key)) |conn_ptr| {
+            const now = std.time.timestamp();
+            const age_ms = (now - conn_ptr.*.last_used) * 1000;
+            if (age_ms < self.connection_timeout_ms) {
+                // Connection is still fresh, reuse it
+                conn_ptr.*.last_used = now;
+                return conn_ptr.*.stream;
+            } else {
+                // Connection is stale, remove it
+                conn_ptr.*.stream.close();
+                self.allocator.free(conn_ptr.*.host);
+                self.allocator.destroy(conn_ptr);
+                _ = self.connection_pool.remove(conn_key);
+            }
+        }
+
+        // Create new connection
         const address = try std.net.Address.resolveIp(host, port);
         const stream = try std.net.tcpConnectToAddress(address);
 
         if (is_https) {
-            // Wrap with TLS
             // TODO: Implement TLS handshake
+            // try self.tls.handshake(&stream, host);
+        }
+
+        // Add to pool if not at max capacity
+        if (self.connection_pool.count() < self.max_connections) {
+            const conn = try self.allocator.create(Connection);
+            conn.* = Connection{
+                .stream = stream,
+                .last_used = std.time.timestamp(),
+                .host = try self.allocator.dupe(u8, host),
+                .port = port,
+                .is_https = is_https,
+            };
+            try self.connection_pool.put(try self.allocator.dupe(u8, conn_key), conn);
         }
 
         return stream;
@@ -150,29 +201,30 @@ pub const Client = struct {
             .OPTIONS => "OPTIONS",
         };
 
-        // Send request line
-        try stream.writer().print("{s} {s} HTTP/1.1\r\n", .{ method_str, url.path });
+        // Build request
+        var request_buf = std.ArrayList(u8).init(self.allocator);
+        defer request_buf.deinit();
 
-        // Send Host header
-        try stream.writer().print("Host: {s}\r\n", .{url.host});
+        try request_buf.writer().print("{s} {s} HTTP/1.1\r\n", .{ method_str, url.path });
+        try request_buf.writer().print("Host: {s}\r\n", .{url.host});
 
-        // Send other headers
         var it = headers.iterator();
         while (it.next()) |entry| {
-            try stream.writer().print("{s}: {s}\r\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+            try request_buf.writer().print("{s}: {s}\r\n", .{ entry.key_ptr.*, entry.value_ptr.* });
         }
 
-        // Send Content-Length if body present
         if (body) |b| {
-            try stream.writer().print("Content-Length: {d}\r\n", .{b.len});
+            try request_buf.writer().print("Content-Length: {d}\r\n", .{b.len});
         }
 
-        // End headers
-        try stream.writer().print("\r\n", .{});
+        try request_buf.writer().print("\r\n", .{});
+
+        // Send headers
+        _ = try stream.write(request_buf.items);
 
         // Send body
         if (body) |b| {
-            try stream.writer().writeAll(b);
+            _ = try stream.write(b);
         }
     }
 
@@ -226,20 +278,80 @@ pub const Client = struct {
         return response;
     }
 
-    fn readLineWithTimeout(self: *Client, stream: *std.net.Stream, _: u32) ![]u8 {
-        // TODO: Implement timeout reading
-        return try stream.reader().readUntilDelimiterAlloc(self.allocator, '\n', 4096);
+    fn readLineWithTimeout(self: *Client, stream: *std.net.Stream, timeout_ms: u32) ![]u8 {
+        const start_time = std.time.milliTimestamp();
+        var buffer = std.ArrayList(u8).init(self.allocator);
+        defer buffer.deinit();
+
+        var reader = stream.reader();
+        while (true) {
+            const elapsed = std.time.milliTimestamp() - start_time;
+            if (elapsed > timeout_ms) return error.TimedOut;
+
+            const byte = reader.readByte() catch |err| {
+                if (err == error.EndOfStream) break;
+                return err;
+            };
+
+            try buffer.append(byte);
+            if (byte == '\n') break;
+        }
+
+        return buffer.toOwnedSlice();
     }
 
-    fn readWithTimeout(self: *Client, stream: *std.net.Stream, buffer: []u8, _: u32) !usize {
-        // TODO: Implement timeout reading
+    fn readWithTimeout(self: *Client, stream: *std.net.Stream, buffer: []u8, timeout_ms: u32) !usize {
         _ = self;
-        return try stream.reader().read(buffer);
+        const start_time = std.time.milliTimestamp();
+        var total_read: usize = 0;
+
+        while (total_read < buffer.len) {
+            const elapsed = std.time.milliTimestamp() - start_time;
+            if (elapsed > timeout_ms) return error.TimedOut;
+
+            const bytes_read = stream.reader().read(buffer[total_read..]) catch |err| {
+                if (err == error.WouldBlock) continue;
+                return err;
+            };
+
+            if (bytes_read == 0) break;
+            total_read += bytes_read;
+        }
+
+        return total_read;
     }
 
-    fn readChunkedBody(self: *Client, _: *std.net.Stream, _: *std.ArrayList(u8), _: u32) !void {
-        // TODO: Implement chunked transfer encoding
-        _ = self;
+    fn readChunkedBody(self: *Client, stream: *std.net.Stream, body: *std.ArrayList(u8), timeout_ms: u32) !void {
+        while (true) {
+            const size_line = try self.readLineWithTimeout(stream, timeout_ms);
+            defer self.allocator.free(size_line);
+
+            const trimmed = std.mem.trim(u8, size_line, &std.ascii.whitespace);
+            const chunk_size = try std.fmt.parseInt(usize, trimmed, 16);
+
+            if (chunk_size == 0) break; // Last chunk
+
+            try body.resize(body.items.len + chunk_size);
+            const bytes_read = try self.readWithTimeout(stream, body.items[body.items.len - chunk_size ..], timeout_ms);
+            if (bytes_read != chunk_size) return error.IncompleteChunk;
+
+            // Read trailing CRLF
+            const crlf = try self.readLineWithTimeout(stream, timeout_ms);
+            defer self.allocator.free(crlf);
+            if (!std.mem.eql(u8, crlf, "\r\n")) return error.InvalidChunkFormat;
+        }
+    }
+
+    fn shouldRetry(err: anyerror) bool {
+        return switch (err) {
+            error.ConnectionRefused, error.ConnectionTimedOut, error.ConnectionResetByPeer, error.BrokenPipe, error.NetworkUnreachable, error.HostUnreachable, error.TimedOut => true,
+            else => false,
+        };
+    }
+
+    /// Send an HTTP request (alias for send)
+    pub fn request(self: *Client, req: Request) !Response {
+        return self.send(req);
     }
 
     fn isRedirect(code: u16) bool {

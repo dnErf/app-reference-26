@@ -213,6 +213,17 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(test_secrets_exe);
 
+    const remote_api_demo_exe = b.addExecutable(.{
+        .name = "zig_grizzly_remote_api_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/remote_api_demo.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "zig_grizzly", .module = mod }},
+        }),
+    });
+    b.installArtifact(remote_api_demo_exe);
+
     const storage_abstraction_demo_exe = b.addExecutable(.{
         .name = "zig_grizzly_storage_abstraction_demo",
         .root_module = b.createModule(.{
@@ -452,6 +463,14 @@ pub fn build(b: *std.Build) void {
     run_secrets_perf_demo_step.dependOn(&run_secrets_perf_demo_cmd.step);
     if (b.args) |args| {
         run_secrets_perf_demo_cmd.addArgs(args);
+    }
+
+    const run_remote_api_demo_step = b.step("run-remote-api-demo", "Run Remote API Demo with Secrets");
+    const run_remote_api_demo_cmd = b.addRunArtifact(remote_api_demo_exe);
+    run_remote_api_demo_cmd.step.dependOn(b.getInstallStep());
+    run_remote_api_demo_step.dependOn(&run_remote_api_demo_cmd.step);
+    if (b.args) |args| {
+        run_remote_api_demo_cmd.addArgs(args);
     }
 
     // Creates an executable that will run `test` blocks from the provided module.
