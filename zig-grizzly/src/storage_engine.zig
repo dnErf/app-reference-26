@@ -1,9 +1,13 @@
 const std = @import("std");
 const types = @import("types.zig");
 const memory_store = @import("memory_store.zig");
+const row_store = @import("row_store.zig");
+const graph_store = @import("graph_store.zig");
 
 const Value = types.Value;
 const MemoryStore = memory_store.MemoryStore;
+const RowStore = row_store.RowStore;
+const GraphStore = graph_store.GraphStore;
 
 /// Performance metrics for storage operations
 pub const PerformanceMetrics = struct {
@@ -96,4 +100,16 @@ pub const MigrationResult = struct {
 pub fn createMemoryStore(allocator: std.mem.Allocator) !StorageEngine {
     const store = try MemoryStore.init(allocator);
     return store.asStorageEngine();
+}
+
+/// Create a new row store instance
+pub fn createRowStore(allocator: std.mem.Allocator, base_path: []const u8) !StorageEngine {
+    const store = try RowStore.init(allocator, base_path);
+    return store.asStorageEngine();
+}
+
+/// Create a new graph store instance
+pub fn createGraphStore(allocator: std.mem.Allocator, base_path: []const u8) !StorageEngine {
+    const store = try GraphStore.init(allocator, base_path);
+    return store.getStorageEngine();
 }

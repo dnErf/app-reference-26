@@ -26,6 +26,7 @@ pub const Table = struct {
     name: []const u8,
     schema: Schema,
     columns: []Column,
+    rows: std.ArrayList([]Value), // For row store: store complete rows
     row_count: usize,
     allocator: std.mem.Allocator,
     indexes: std.StringHashMap(*BTreeIndex),
@@ -48,6 +49,7 @@ pub const Table = struct {
             .name = owned_name,
             .schema = schema,
             .columns = columns,
+            .rows = try std.ArrayList([]Value).initCapacity(allocator, 0),
             .row_count = 0,
             .allocator = allocator,
             .indexes = std.StringHashMap(*BTreeIndex).init(allocator),
@@ -84,6 +86,12 @@ pub const Table = struct {
             self.allocator.free(entry.key_ptr.*);
         }
         self.composite_signature_map.deinit();
+
+        // Clean up rows for row store
+        for (self.rows.items) |row| {
+            self.allocator.free(row);
+        }
+        self.rows.deinit(self.allocator);
 
         self.allocator.free(self.name);
     }
