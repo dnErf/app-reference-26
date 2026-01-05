@@ -66,6 +66,7 @@ pub const View = struct {
         switch (result) {
             .table => |t| return t,
             .message => return error.ViewReturnedMessage,
+            .rows_affected => return error.ViewReturnedRowsAffected,
         }
     }
 

@@ -1,11 +1,13 @@
 const std = @import("std");
 const types = @import("types.zig");
 const memory_store = @import("memory_store.zig");
+const column_store = @import("column_store.zig");
 const row_store = @import("row_store.zig");
 const graph_store = @import("graph_store.zig");
 
 const Value = types.Value;
 const MemoryStore = memory_store.MemoryStore;
+const ColumnStore = column_store.ColumnStore;
 const RowStore = row_store.RowStore;
 const GraphStore = graph_store.GraphStore;
 
@@ -99,6 +101,12 @@ pub const MigrationResult = struct {
 /// Create a new memory store instance
 pub fn createMemoryStore(allocator: std.mem.Allocator) !StorageEngine {
     const store = try MemoryStore.init(allocator);
+    return store.asStorageEngine();
+}
+
+/// Create a new column store instance
+pub fn createColumnStore(allocator: std.mem.Allocator, base_path: []const u8) !StorageEngine {
+    const store = try ColumnStore.init(allocator, base_path);
     return store.asStorageEngine();
 }
 

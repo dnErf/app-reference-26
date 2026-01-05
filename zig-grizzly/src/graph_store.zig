@@ -270,6 +270,7 @@ const GRAPH_STORE_VTABLE = StorageEngine.VTable{
     .query = query,
     .getCapabilities = getCapabilities,
     .getPerformanceMetrics = getPerformanceMetrics,
+    .deinit = deinit,
 };
 
 fn save(ctx: *anyopaque, data: []const u8) anyerror!void {
@@ -288,10 +289,11 @@ fn load(ctx: *anyopaque, key: []const u8) anyerror![]u8 {
     return error.NotImplemented;
 }
 
-fn query(ctx: *anyopaque, query_str: []const u8) anyerror![]u8 {
+fn query(ctx: *anyopaque, query_str: []const u8, allocator: std.mem.Allocator) anyerror![]Value {
     const self: *GraphStore = @ptrCast(@alignCast(ctx));
     _ = self;
     _ = query_str;
+    _ = allocator;
     // TODO: Implement graph query processing
     return error.NotImplemented;
 }
@@ -309,4 +311,9 @@ fn getCapabilities(ctx: *anyopaque) StorageCapabilities {
 fn getPerformanceMetrics(ctx: *anyopaque) PerformanceMetrics {
     const self: *GraphStore = @ptrCast(@alignCast(ctx));
     return self.performance_metrics;
+}
+
+fn deinit(ctx: *anyopaque) void {
+    const self: *GraphStore = @ptrCast(@alignCast(ctx));
+    self.deinit();
 }

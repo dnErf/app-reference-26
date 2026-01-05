@@ -125,6 +125,7 @@ pub const Model = struct {
                 return @constCast(table);
             },
             .message => return error.ModelExecutionFailed,
+            .rows_affected => return error.ModelExecutionReturnedRowsAffected,
         }
     }
 

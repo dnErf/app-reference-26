@@ -818,6 +818,100 @@ pub const Database = struct {
         }
         return list;
     }
+
+    // Phase 7: Automatic Optimization Engine hooks
+
+    /// Get all tables as a slice for optimization analysis
+    pub fn getTables(self: *Database, allocator: std.mem.Allocator) ![]Table {
+        var tables = try std.ArrayList(Table).initCapacity(allocator, self.tables.count());
+        defer tables.deinit(allocator);
+
+        var it = self.tables.valueIterator();
+        while (it.next()) |table_ptr| {
+            try tables.append(allocator, table_ptr.*.*);
+        }
+
+        return try tables.toOwnedSlice(allocator);
+    }
+
+    /// Update table storage type (for optimization migrations)
+    pub fn updateTableStorage(self: *Database, table_name: []const u8, new_storage_type: StorageType) !void {
+        _ = self.getTable(table_name);
+
+        // This would need to be implemented in the Table struct
+        // For now, just update the storage engine mapping
+        _ = std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ table_name, @tagName(new_storage_type) });
+        // defer self.allocator.free(storage_key);
+
+        // Create new storage engine for the table
+        // const engine = switch (new_storage_type) {
+        //     .memory => try storage_engine_mod.createMemoryStore(self.allocator),
+        //     .column => try storage_engine_mod.createColumnStore(self.allocator, table_name),
+        //     .row => try storage_engine_mod.createRowStore(self.allocator, table_name),
+        //     .graph => try storage_engine_mod.createGraphStore(self.allocator, table_name),
+        // };
+
+        // try self.storage_engines.put(storage_key, engine);
+    }
+
+    /// Get table storage type (for optimization analysis)
+    pub fn getTableStorageType(self: *Database, table_name: []const u8) !StorageType {
+        _ = self.getTable(table_name);
+
+        // Check storage engine mappings (simplified - would need proper implementation)
+        var it = self.storage_engines.iterator();
+        while (it.next()) |entry| {
+            if (std.mem.indexOf(u8, entry.key_ptr.*, table_name) != null) {
+                // Parse storage type from key (simplified)
+                if (std.mem.indexOf(u8, entry.key_ptr.*, "memory") != null) return .memory;
+                if (std.mem.indexOf(u8, entry.key_ptr.*, "column") != null) return .column;
+                if (std.mem.indexOf(u8, entry.key_ptr.*, "row") != null) return .row;
+                if (std.mem.indexOf(u8, entry.key_ptr.*, "graph") != null) return .graph;
+            }
+        }
+
+        return .memory; // Default
+    }
+
+    /// Record query execution for optimization analysis
+    pub fn recordQueryExecution(self: *Database, query_str: []const u8, execution_time_ms: u64, rows_affected: usize) !void {
+        _ = self;
+        _ = query_str;
+        _ = execution_time_ms;
+        _ = rows_affected;
+        // This would integrate with the optimizer if attached
+        // For now, just log for potential future analysis
+    }
+
+    /// Get database performance metrics for optimization
+    pub fn getPerformanceMetrics(self: *Database) !DatabaseMetrics {
+        var metrics = DatabaseMetrics{
+            .total_tables = self.tables.count(),
+            .total_rows = 0,
+            .storage_size_bytes = 0,
+            .query_count = 0,
+            .avg_query_time_ms = 0.0,
+        };
+
+        // Calculate metrics from tables
+        var it = self.tables.valueIterator();
+        while (it.next()) |table_ptr| {
+            metrics.total_rows += table_ptr.*.row_count;
+            // Estimate storage size (rough heuristic)
+            metrics.storage_size_bytes += table_ptr.*.row_count * 100; // ~100 bytes per row
+        }
+
+        return metrics;
+    }
+};
+
+/// Database performance metrics for optimization
+pub const DatabaseMetrics = struct {
+    total_tables: usize,
+    total_rows: usize,
+    storage_size_bytes: usize,
+    query_count: usize,
+    avg_query_time_ms: f32,
 };
 
 test "Database operations" {

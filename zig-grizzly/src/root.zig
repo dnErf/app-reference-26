@@ -18,6 +18,11 @@ pub const query = @import("query.zig");
 pub const export_mod = @import("export.zig");
 pub const parallel = @import("parallel.zig");
 
+// Phase 7: Automatic Optimization Engine
+pub const workload_analyzer = @import("workload_analyzer.zig");
+pub const migration = @import("migration.zig");
+pub const optimizer = @import("optimizer.zig");
+
 // Sprint 1: AI-auditable analytics
 pub const audit = @import("audit.zig");
 pub const validator = @import("validator.zig");
@@ -164,6 +169,13 @@ pub const ParquetWriter = parquet.ParquetWriter;
 pub const ArrowRecordBatch = memory_store.ArrowRecordBatch;
 pub const ArrowBridge = arrow_bridge.ArrowBridge;
 pub const DuckDBConnection = arrow_bridge.DuckDBConnection;
+
+// Phase 7: Automatic Optimization Engine
+pub const WorkloadAnalyzer = workload_analyzer.WorkloadAnalyzer;
+pub const MigrationEngine = migration.MigrationEngine;
+pub const StorageOptimizer = optimizer.StorageOptimizer;
+pub const MigrationResult = storage_engine.MigrationResult;
+pub const MigrationEstimate = migration.MigrationEstimate;
 
 test {
     std.testing.refAllDecls(@This());

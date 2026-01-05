@@ -115,7 +115,7 @@ pub const Cli = struct {
             const end_time = std.time.nanoTimestamp();
             const duration_ns = end_time - start_time;
             const duration_ms = @as(f64, @floatFromInt(duration_ns)) / 1_000_000.0;
-            std.debug.print("\nTime: {d:.3}ms\n", .{duration_ms});
+            std.debug.print("\nTime: {}ms\n", .{duration_ms});
         }
     }
 
@@ -156,6 +156,9 @@ pub const Cli = struct {
             .message => |msg| {
                 std.debug.print("{s}\n", .{msg});
             },
+            .rows_affected => |count| {
+                std.debug.print("{d} rows affected\n", .{count});
+            },
         }
     }
 
@@ -163,8 +166,8 @@ pub const Cli = struct {
         switch (value) {
             .int32 => |i| std.debug.print("{d}", .{i}),
             .int64 => |i| std.debug.print("{d}", .{i}),
-            .float32 => |f| std.debug.print("{d}", .{f}),
-            .float64 => |f| std.debug.print("{d}", .{f}),
+            .float32 => |f| std.debug.print("{}", .{f}),
+            .float64 => |f| std.debug.print("{}", .{f}),
             .boolean => |b| std.debug.print("{s}", .{if (b) "true" else "false"}),
             .string => |s| std.debug.print("'{s}'", .{s}),
             .timestamp => |ts| std.debug.print("{d}", .{ts}),
@@ -172,7 +175,7 @@ pub const Cli = struct {
                 std.debug.print("[", .{});
                 for (vec.values, 0..) |item, i| {
                     if (i > 0) std.debug.print(", ", .{});
-                    std.debug.print("{d:.4}", .{item});
+                    std.debug.print("{}", .{item});
                 }
                 std.debug.print("]", .{});
             },

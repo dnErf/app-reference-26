@@ -38,6 +38,7 @@ pub const IncrementalEngine = struct {
                     return @constCast(table);
                 },
                 .message => return error.ModelExecutionFailed,
+                .rows_affected => return error.ModelExecutionReturnedRowsAffected,
             }
         }
 
@@ -70,6 +71,7 @@ pub const IncrementalEngine = struct {
                 return @constCast(table);
             },
             .message => return error.IncrementalExecutionFailed,
+            .rows_affected => return error.IncrementalExecutionReturnedRowsAffected,
         }
     }
 
@@ -114,8 +116,8 @@ pub const IncrementalEngine = struct {
             switch (last_val) {
                 .int32 => |val| try condition_buf.writer(allocator).print("{}", .{val}),
                 .int64 => |val| try condition_buf.writer(allocator).print("{}", .{val}),
-                .float32 => |val| try condition_buf.writer(allocator).print("{d}", .{val}),
-                .float64 => |val| try condition_buf.writer(allocator).print("{d}", .{val}),
+                .float32 => |val| try condition_buf.writer(allocator).print("{}", .{val}),
+                .float64 => |val| try condition_buf.writer(allocator).print("{}", .{val}),
                 .string => |val| try condition_buf.writer(allocator).print("'{s}'", .{val}),
                 .boolean => |val| try condition_buf.writer(allocator).print("{}", .{val}),
                 .timestamp => |val| try condition_buf.writer(allocator).print("{}", .{val}),
@@ -247,8 +249,8 @@ pub const IncrementalState = struct {
             switch (val) {
                 .int32 => |v| try writer.interface.print("{}", .{v}),
                 .int64 => |v| try writer.interface.print("{}", .{v}),
-                .float32 => |v| try writer.interface.print("{d}", .{v}),
-                .float64 => |v| try writer.interface.print("{d}", .{v}),
+                .float32 => |v| try writer.interface.print("{}", .{v}),
+                .float64 => |v| try writer.interface.print("{}", .{v}),
                 .string => |v| try writer.interface.print("\"{s}\"", .{v}),
                 .boolean => |v| try writer.interface.print("{}", .{v}),
                 .timestamp => |v| try writer.interface.print("{}", .{v}),

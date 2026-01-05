@@ -389,11 +389,11 @@ fn rowStoreSave(ptr: *anyopaque, data: []const u8) anyerror!void {
     const row_json = data[comma_pos + 1 ..];
 
     // Parse JSON row data (simplified - would need proper JSON parsing)
-    var values = std.ArrayList(Value).init(self.allocator);
-    defer values.deinit();
+    var values = try std.ArrayList(Value).initCapacity(self.allocator, 0);
+    defer values.deinit(self.allocator);
 
     // For now, just store the raw data
-    try self.insertRow(table_name, &[_]Value{Value{ .text = try self.allocator.dupe(u8, row_json) }});
+    try self.insertRow(table_name, &[_]Value{Value{ .string = try self.allocator.dupe(u8, row_json) }});
 }
 
 fn rowStoreLoad(ptr: *anyopaque, key: []const u8) anyerror![]u8 {
@@ -423,7 +423,15 @@ fn rowStoreQuery(ptr: *anyopaque, query_str: []const u8, allocator: std.mem.Allo
     const table_name = tokens.next() orelse return error.InvalidQuery;
     const where_clause = if (tokens.next()) |where| if (std.mem.eql(u8, where, "WHERE")) tokens.rest() else null else null;
 
-    return self.queryTable(table_name, where_clause, allocator);
+    const rows = try self.queryTable(table_name, where_clause, allocator);
+    defer allocator.free(rows);
+
+    // Return first row if any, otherwise empty array
+    if (rows.len > 0) {
+        return allocator.dupe(Value, rows[0]);
+    } else {
+        return allocator.dupe(Value, &[_]Value{});
+    }
 }
 
 fn rowStoreGetCapabilities(ptr: *anyopaque) StorageCapabilities {

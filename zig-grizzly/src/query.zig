@@ -506,11 +506,30 @@ pub const QueryEngine = struct {
     }
 
     pub fn execute(self: *QueryEngine, sql: []const u8) anyerror!QueryResult {
+        const start_time = std.time.milliTimestamp();
+        var result: QueryResult = undefined;
+        var execution_time: u64 = 0;
+        var rows_affected: usize = 0;
+
+        defer {
+            execution_time = @intCast(std.time.milliTimestamp() - start_time);
+            // Record query execution for optimization analysis
+            self.db.recordQueryExecution(sql, execution_time, rows_affected) catch {};
+        }
+
         var tokenizer = Tokenizer.init(sql);
         const first_token = (try tokenizer.next()) orelse return error.EmptyQuery;
 
-        return switch (first_token.type) {
-            .select => try self.executeSelect(&tokenizer),
+        result = switch (first_token.type) {
+            .select => blk: {
+                const res = try self.executeSelect(&tokenizer);
+                // Extract row count for SELECT queries
+                rows_affected = switch (res) {
+                    .table => |t| t.row_count,
+                    else => 0,
+                };
+                break :blk res;
+            },
             .with => blk: {
                 // For WITH, back up the tokenizer so executeSelect can handle it
                 tokenizer.pos -= first_token.value.len;
@@ -518,9 +537,21 @@ pub const QueryEngine = struct {
                 while (tokenizer.pos < tokenizer.input.len and std.ascii.isWhitespace(tokenizer.input[tokenizer.pos])) {
                     tokenizer.pos += 1;
                 }
-                break :blk try self.executeSelect(&tokenizer);
+                const res = try self.executeSelect(&tokenizer);
+                rows_affected = switch (res) {
+                    .table => |t| t.row_count,
+                    else => 0,
+                };
+                break :blk res;
             },
-            .insert => try self.executeInsert(&tokenizer),
+            .insert => blk: {
+                const res = try self.executeInsert(&tokenizer);
+                rows_affected = switch (res) {
+                    .rows_affected => |count| count,
+                    else => 0,
+                };
+                break :blk res;
+            },
             .create => try self.executeCreate(&tokenizer),
             .show => try self.executeShow(&tokenizer),
             .describe => try self.executeDescribe(&tokenizer),
@@ -530,8 +561,10 @@ pub const QueryEngine = struct {
             .detach => try self.executeDetach(&tokenizer),
             .refresh => try self.executeRefresh(&tokenizer),
             .drop => try self.executeDrop(&tokenizer),
-            else => error.UnsupportedQuery,
+            else => return QueryResult{ .message = "Unsupported query type" },
         };
+
+        return result;
     }
 
     fn executeSelect(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
@@ -2444,7 +2477,7 @@ pub const QueryEngine = struct {
 
         try table.insertRow(values.items);
 
-        return QueryResult{ .message = "Row inserted successfully" };
+        return QueryResult{ .rows_affected = 1 };
     }
 
     fn executeCreate(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
@@ -2544,6 +2577,9 @@ pub const QueryEngine = struct {
             .message => {
                 // SELECT should always return a table, but handle message case
                 return QueryResult{ .message = "CTAS failed: SELECT query did not return a table" };
+            },
+            .rows_affected => {
+                return QueryResult{ .message = "CTAS failed: SELECT query returned rows_affected instead of table" };
             },
         }
     }
@@ -4174,11 +4210,13 @@ pub const QueryEngine = struct {
 pub const QueryResult = union(enum) {
     table: Table,
     message: []const u8,
+    rows_affected: usize,
 
     pub fn deinit(self: *QueryResult) void {
         switch (self.*) {
             .table => |*t| t.deinit(),
             .message => {},
+            .rows_affected => {},
         }
     }
 };

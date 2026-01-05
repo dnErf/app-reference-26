@@ -73,6 +73,7 @@ pub const CTE = struct {
             switch (result) {
                 .table => self.materialized_result = result,
                 .message => return error.CTEQueryReturnedMessage,
+                .rows_affected => return error.CTEQueryReturnedRowsAffected,
             }
         }
 
