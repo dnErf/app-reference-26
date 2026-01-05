@@ -76,6 +76,7 @@ pub const RowStore = struct {
 
         var table_iter = self.tables.iterator();
         while (table_iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
             entry.value_ptr.*.deinit();
             self.allocator.destroy(entry.value_ptr.*);
         }
@@ -83,6 +84,7 @@ pub const RowStore = struct {
 
         var index_iter = self.indexes.iterator();
         while (index_iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
             entry.value_ptr.*.deinit();
             self.allocator.destroy(entry.value_ptr.*);
         }
@@ -201,11 +203,9 @@ pub const RowStore = struct {
         var avro_writer = try AvroWriter.init(self.allocator, table.schema);
         defer avro_writer.deinit();
         const old_avro = try avro_writer.serializeRow(table.schema, old_row);
-        defer self.allocator.free(old_avro);
 
         // Serialize new row to Avro format
         const new_avro = try avro_writer.serializeRow(table.schema, new_data);
-        defer self.allocator.free(new_avro);
 
         // Update the file
         const file_path = try std.fmt.allocPrint(self.allocator, "{s}/{s}/{d}.avro", .{ self.base_path, table_name, row_id });
@@ -250,7 +250,6 @@ pub const RowStore = struct {
         var avro_writer = try AvroWriter.init(self.allocator, table.schema);
         defer avro_writer.deinit();
         const old_avro = try avro_writer.serializeRow(table.schema, old_row);
-        defer self.allocator.free(old_avro);
 
         // Remove the file
         const file_path = try std.fmt.allocPrint(self.allocator, "{s}/{s}/{d}.avro", .{ self.base_path, table_name, row_id });
@@ -299,13 +298,13 @@ pub const RowStore = struct {
                 const row_id = std.fmt.parseInt(usize, std.mem.trim(u8, id_str, " "), 10) catch return error.InvalidWhereClause;
 
                 if (row_id < table.rows.items.len and table.rows.items[row_id].len > 0) {
-                    try results.append(allocator, table.rows.items[row_id]);
+                    try results.append(allocator, try allocator.dupe(Value, table.rows.items[row_id]));
                 }
             } else {
                 // Fall back to full table scan
                 for (table.rows.items) |row| {
                     if (row.len > 0) { // Skip deleted rows
-                        try results.append(allocator, row);
+                        try results.append(allocator, try allocator.dupe(Value, row));
                     }
                 }
             }
@@ -313,7 +312,7 @@ pub const RowStore = struct {
             // Return all rows
             for (table.rows.items) |row| {
                 if (row.len > 0) { // Skip deleted rows
-                    try results.append(allocator, row);
+                    try results.append(allocator, try allocator.dupe(Value, row));
                 }
             }
         }

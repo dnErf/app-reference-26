@@ -119,6 +119,8 @@ pub const Blockchain = struct {
         const genesis_block = try Block.init(allocator, 0, genesis_tx, "0");
         errdefer genesis_block.deinit(allocator);
 
+        // Free the original transaction data since Block.init made copies
+        allocator.free(genesis_tx_data);
         defer genesis_tx.deinit(allocator);
 
         blockchain.* = Blockchain{

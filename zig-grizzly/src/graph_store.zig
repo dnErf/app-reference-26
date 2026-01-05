@@ -95,7 +95,6 @@ pub const GraphStore = struct {
         self.edges.deinit(self.allocator);
 
         self.blockchain.deinit();
-        self.allocator.destroy(self.blockchain);
 
         self.allocator.destroy(self);
     }

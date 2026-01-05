@@ -41,6 +41,10 @@ pub fn main() !void {
     var rows = try std.ArrayList([]const Value).initCapacity(allocator, num_employees);
     defer {
         for (rows.items) |row| {
+            // Clean up allocated strings and vectors in each row
+            if (row[1].string.len > 0) allocator.free(row[1].string);
+            if (row[4].string.len > 0) allocator.free(row[4].string);
+            if (row[5].vector.values.len > 0) allocator.free(row[5].vector.values);
             allocator.free(row);
         }
         rows.deinit(allocator);

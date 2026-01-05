@@ -80,6 +80,13 @@ pub fn main() !void {
         const insert_time = std.time.milliTimestamp() - start_time;
         total_insert_time += insert_time;
         std.debug.print("  ✅ Inserted order {d} in {d}ms\n", .{ i + 1, insert_time });
+
+        // Clean up the temporary allocated strings
+        for (order) |value| {
+            if (value == .string) {
+                allocator.free(value.string);
+            }
+        }
     }
 
     const avg_insert_time = @as(f32, @floatFromInt(total_insert_time)) / @as(f32, @floatFromInt(sample_orders.len));
@@ -91,7 +98,12 @@ pub fn main() !void {
     // Query all orders
     const start_query_time = std.time.milliTimestamp();
     const all_orders = try store.queryTable("orders", null, allocator);
-    defer allocator.free(all_orders);
+    defer {
+        for (all_orders) |row| {
+            allocator.free(row);
+        }
+        allocator.free(all_orders);
+    }
 
     const query_time = std.time.milliTimestamp() - start_query_time;
     std.debug.print("  ✅ Queried {d} orders in {d}ms\n", .{ all_orders.len, query_time });
@@ -122,7 +134,12 @@ pub fn main() !void {
     std.debug.print("\n🔎 Testing indexed lookup (order_id = 2)...\n", .{});
     const indexed_start = std.time.milliTimestamp();
     const indexed_orders = try store.queryTable("orders", "id = 2", allocator);
-    defer allocator.free(indexed_orders);
+    defer {
+        for (indexed_orders) |row| {
+            allocator.free(row);
+        }
+        allocator.free(indexed_orders);
+    }
     const indexed_time = std.time.milliTimestamp() - indexed_start;
 
     std.debug.print("  ✅ Found {d} orders in {d}ms\n", .{ indexed_orders.len, indexed_time });

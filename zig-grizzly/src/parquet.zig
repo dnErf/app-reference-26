@@ -34,6 +34,7 @@ pub const ParquetWriter = struct {
 
         // Create row group
         var row_group = try self.createRowGroup(table);
+        defer row_group.deinit(self.allocator);
 
         // Write row group data
         const data_offset = try file.getPos();
@@ -54,12 +55,28 @@ pub const ParquetWriter = struct {
         columns: []ColumnChunk,
         row_count: u64,
         total_byte_size: u64,
+
+        pub fn deinit(self: *RowGroup, allocator: std.mem.Allocator) void {
+            for (self.columns) |*column| {
+                column.deinit(allocator);
+            }
+            allocator.free(self.columns);
+        }
     };
 
     const ColumnChunk = struct {
         column_idx: usize,
         pages: []Page,
         metadata: ColumnMetadata,
+
+        pub fn deinit(self: *ColumnChunk, allocator: std.mem.Allocator) void {
+            for (self.pages) |*page| {
+                page.deinit(allocator);
+            }
+            allocator.free(self.pages);
+            allocator.free(self.metadata.encodings);
+            allocator.free(self.metadata.path_in_schema);
+        }
     };
 
     const Page = struct {
@@ -68,6 +85,13 @@ pub const ParquetWriter = struct {
         compressed_size: u32,
         data: []u8,
         statistics: Statistics,
+
+        pub fn deinit(self: *Page, allocator: std.mem.Allocator) void {
+            allocator.free(self.data);
+            // Statistics values are owned by the page, so free them too
+            if (self.statistics.min) |*min| min.deinit(allocator);
+            if (self.statistics.max) |*max| max.deinit(allocator);
+        }
     };
 
     const PageType = enum(u8) {
@@ -190,9 +214,11 @@ pub const ParquetWriter = struct {
             // Update statistics
             // Note: This system doesn't use null values, so no null counting needed
             if (min_val == null or self.compareValues(val, min_val.?) == .lt) {
+                if (min_val) |*old_min| old_min.deinit(self.allocator);
                 min_val = try val.clone(self.allocator);
             }
             if (max_val == null or self.compareValues(val, max_val.?) == .gt) {
+                if (max_val) |*old_max| old_max.deinit(self.allocator);
                 max_val = try val.clone(self.allocator);
             }
 
