@@ -15,6 +15,7 @@ const lakehouse_mod = @import("lakehouse.zig");
 const function_mod = @import("function.zig");
 const pattern_mod = @import("pattern.zig");
 const expression_mod = @import("expression.zig");
+const secrets_mod = @import("secrets.zig");
 
 const Value = types.Value;
 const DataType = types.DataType;
@@ -167,6 +168,7 @@ const TokenType = enum {
     incremental,
     partition,
     schedule,
+    secret,
     cron,
     failure,
     retry,
@@ -397,6 +399,7 @@ pub const Tokenizer = struct {
         if (std.mem.eql(u8, lowercase, "incremental")) return .incremental;
         if (std.mem.eql(u8, lowercase, "partition")) return .partition;
         if (std.mem.eql(u8, lowercase, "schedule")) return .schedule;
+        if (std.mem.eql(u8, lowercase, "secret")) return .secret;
         if (std.mem.eql(u8, lowercase, "cron")) return .cron;
         if (std.mem.eql(u8, lowercase, "failure")) return .failure;
         if (std.mem.eql(u8, lowercase, "retry")) return .retry;
@@ -2502,6 +2505,8 @@ pub const QueryEngine = struct {
             return try self.executeCreateModel(tokenizer, false);
         } else if (token.type == .schedule) {
             return try self.executeCreateSchedule(tokenizer);
+        } else if (token.type == .secret) {
+            return try self.executeCreateSecret(tokenizer);
         } else if (token.type == .type_) {
             return try self.executeCreateType(tokenizer);
         } else if (token.type == .function) {
@@ -2782,6 +2787,87 @@ pub const QueryEngine = struct {
         try self.db.createSchedule(schedule_id, model_name, cron_expr, max_retries);
 
         return QueryResult{ .message = "Schedule created successfully" };
+    }
+
+    fn executeCreateSecret(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
+        // Get secret name
+        var token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .identifier) {
+            return error.ExpectedSecretName;
+        }
+        const secret_name = token.value;
+
+        // Expect '('
+        token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .lparen) {
+            return error.ExpectedLeftParen;
+        }
+
+        // Parse parameters: KIND 'value', VALUE 'value'
+        var kind_value: ?[]const u8 = null;
+        var value_data: ?[]const u8 = null;
+
+        while (true) {
+            // Get parameter name
+            token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+            if (token.type == .rparen) break; // End of parameters
+
+            if (token.type != .identifier) {
+                return error.ExpectedParameterName;
+            }
+            const param_name = token.value;
+
+            // Expect string literal value
+            token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+            if (token.type != .string_literal) {
+                return error.ExpectedStringLiteral;
+            }
+            const param_value = token.value;
+
+            // Store based on parameter name
+            if (std.mem.eql(u8, param_name, "KIND")) {
+                kind_value = param_value;
+            } else if (std.mem.eql(u8, param_name, "VALUE")) {
+                value_data = param_value;
+            } else {
+                return error.UnknownParameter;
+            }
+
+            // Check for comma or closing paren
+            if (try tokenizer.peekToken()) |peek| {
+                if (peek.type == .comma) {
+                    _ = try tokenizer.next(); // consume comma
+                } else if (peek.type == .rparen) {
+                    _ = try tokenizer.next(); // consume rparen
+                    break;
+                } else {
+                    return error.ExpectedCommaOrRightParen;
+                }
+            } else {
+                return error.UnexpectedEndOfQuery;
+            }
+        }
+
+        // Validate required parameters
+        if (kind_value == null) return error.MissingKindParameter;
+        if (value_data == null) return error.MissingValueParameter;
+
+        // Map kind to SecretType
+        const secret_type = if (std.mem.eql(u8, kind_value.?, "bearer"))
+            secrets_mod.SecretsManager.Secret.SecretType.token
+        else if (std.mem.eql(u8, kind_value.?, "password"))
+            secrets_mod.SecretsManager.Secret.SecretType.password
+        else if (std.mem.eql(u8, kind_value.?, "key"))
+            secrets_mod.SecretsManager.Secret.SecretType.key
+        else if (std.mem.eql(u8, kind_value.?, "certificate"))
+            secrets_mod.SecretsManager.Secret.SecretType.certificate
+        else
+            secrets_mod.SecretsManager.Secret.SecretType.custom;
+
+        // Create the secret
+        try self.db.createSecret(secret_name, secret_type, value_data.?);
+
+        return QueryResult{ .message = "Secret created successfully" };
     }
 
     fn executeCreateType(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {

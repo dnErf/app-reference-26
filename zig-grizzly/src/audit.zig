@@ -23,6 +23,7 @@ pub const AuditEntry = struct {
         create_materialized_view,
         create_model,
         create_type,
+        create_secret,
         refresh_materialized_view,
         drop_view,
         drop_materialized_view,

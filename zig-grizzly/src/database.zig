@@ -12,6 +12,7 @@ const scheduler_mod = @import("scheduler.zig");
 const type_registry_mod = @import("type_registry.zig");
 const function_mod = @import("function.zig");
 const storage_engine_mod = @import("storage_engine.zig");
+const extensions_mod = @import("extensions.zig");
 
 const Value = types.Value;
 const Table = table_mod.Table;
@@ -26,6 +27,8 @@ const TypeRegistry = type_registry_mod.TypeRegistry;
 const FunctionRegistry = function_mod.FunctionRegistry;
 const StorageEngine = storage_engine_mod.StorageEngine;
 const StorageType = storage_engine_mod.StorageType;
+const ExtensionManager = extensions_mod.ExtensionManager;
+const SecretsManager = @import("secrets.zig").SecretsManager;
 
 /// Database manages multiple tables
 pub const Database = struct {
@@ -43,6 +46,8 @@ pub const Database = struct {
     attached_databases: std.StringHashMap(*Database),
     attached_function_libraries: std.StringHashMap(*FunctionRegistry),
     storage_engines: std.StringHashMap(StorageEngine),
+    extension_manager: ExtensionManager,
+    secrets_manager: SecretsManager,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) !Database {
@@ -62,6 +67,8 @@ pub const Database = struct {
             .attached_databases = std.StringHashMap(*Database).init(allocator),
             .attached_function_libraries = std.StringHashMap(*FunctionRegistry).init(allocator),
             .storage_engines = std.StringHashMap(StorageEngine).init(allocator),
+            .extension_manager = ExtensionManager.init(allocator),
+            .secrets_manager = try SecretsManager.init(allocator, .{}),
             .allocator = allocator,
         };
     }
@@ -89,6 +96,9 @@ pub const Database = struct {
             engine.deinit();
         }
         self.storage_engines.deinit();
+
+        self.extension_manager.deinit();
+        self.secrets_manager.deinit();
 
         self.allocator.free(self.name);
     }
@@ -523,6 +533,14 @@ pub const Database = struct {
             } else {
                 try log.log(.refresh_materialized_view, view_name, "Refreshed materialized view", 0, null);
             }
+        }
+    }
+
+    /// Create a secret for secure credential storage
+    pub fn createSecret(self: *Database, name: []const u8, secret_type: SecretsManager.Secret.SecretType, data: []const u8) !void {
+        try self.secrets_manager.createSecret(name, secret_type, data);
+        if (self.audit_log) |log| {
+            try log.log(.create_secret, name, "Created secret", 0, null);
         }
     }
 

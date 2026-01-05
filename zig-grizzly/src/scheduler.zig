@@ -158,7 +158,7 @@ pub const Scheduler = struct {
 
         // Execute the model refresh
         db.refreshModel(schedule.model_name) catch |err| {
-            std.debug.print("Failed to refresh model {s}: {}\n", .{ schedule.model_name, err });
+            std.debug.print("Failed to refresh model {s}: {any}\n", .{ schedule.model_name, err });
             schedule.markFailed();
 
             // TODO: Implement retry logic with exponential backoff

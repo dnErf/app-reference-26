@@ -156,17 +156,17 @@ pub fn main() !void {
     defer analysis_result.deinit();
 
     std.debug.print("  📈 Analysis Results:\n", .{});
-    std.debug.print("    - Found {} optimization recommendations\n", .{analysis_result.recommendations.items.len});
+    std.debug.print("    - Found {any} optimization recommendations\n", .{analysis_result.recommendations.items.len});
 
     for (analysis_result.recommendations.items, 0..) |rec, i| {
-        std.debug.print("    {}. {s}: {s} → {s} (confidence: N/A, benefit: N/A)\n", .{
+        std.debug.print("    {any}. {s}: {s} → {s} (confidence: N/A, benefit: N/A)\n", .{
             i + 1,
             rec.table_name,
             @tagName(rec.current_storage),
             @tagName(rec.recommended_storage),
         });
         std.debug.print("       Reasoning: {s}\n", .{rec.reasoning});
-        std.debug.print("       Migration cost: ~N/A ms, {} bytes\n", .{rec.migration_cost.estimated_bytes});
+        std.debug.print("       Migration cost: ~N/A ms, {any} bytes\n", .{rec.migration_cost.estimated_bytes});
     }
 
     // Apply optimizations automatically
@@ -175,12 +175,12 @@ pub fn main() !void {
     var apply_result = try optimizer.applyOptimizations(analysis_result.recommendations.items, true);
     defer apply_result.deinit();
 
-    std.debug.print("  ✅ Applied {} optimizations\n", .{apply_result.applied_changes.items.len});
+    std.debug.print("  ✅ Applied {any} optimizations\n", .{apply_result.applied_changes.items.len});
     std.debug.print("    - Total benefit: N/A\n", .{});
     std.debug.print("    - Total migration time: N/A ms\n", .{});
 
     for (apply_result.applied_changes.items) |change| {
-        std.debug.print("    - Migrated {s}: {s} → {s} ({} bytes in {}ms)\n", .{
+        std.debug.print("    - Migrated {s}: {s} → {s} ({any} bytes in {any}ms)\n", .{
             change.table_name,
             @tagName(change.old_storage),
             @tagName(change.new_storage),
@@ -192,9 +192,9 @@ pub fn main() !void {
     // Get optimization statistics
     const stats = optimizer.getOptimizationStats();
     std.debug.print("\n📊 Optimization Statistics:\n", .{});
-    std.debug.print("  - Total queries analyzed: {}\n", .{stats.workload_stats.query_history.items.len});
-    std.debug.print("  - Average query execution time: {}ms\n", .{stats.workload_stats.getPerformanceStats().avg_execution_time_ms});
-    std.debug.print("  - Time since last optimization: {}ms\n", .{stats.time_since_last_optimization});
+    std.debug.print("  - Total queries analyzed: {any}\n", .{stats.workload_stats.query_history.items.len});
+    std.debug.print("  - Average query execution time: {any}ms\n", .{stats.workload_stats.getPerformanceStats().avg_execution_time_ms});
+    std.debug.print("  - Time since last optimization: {any}ms\n", .{stats.time_since_last_optimization});
 
     std.debug.print("\n🎉 Phase 7: Automatic Optimization Engine Complete!\n", .{});
     std.debug.print("   ✅ Workload analysis and pattern recognition\n", .{});

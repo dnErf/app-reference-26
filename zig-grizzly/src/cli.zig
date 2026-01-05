@@ -6,6 +6,7 @@ const QueryEngine = grizzly.QueryEngine;
 const FunctionRegistry = grizzly.FunctionRegistry;
 const Lakehouse = grizzly.Lakehouse;
 const Value = grizzly.Value;
+const ExtensionManager = grizzly.ExtensionManager;
 
 pub const Cli = struct {
     allocator: std.mem.Allocator,
@@ -253,6 +254,33 @@ pub const Cli = struct {
                 std.debug.print("Query timeout: {d}ms\n", .{self.query_timeout_ms});
             }
             return true;
+        } else if (std.mem.eql(u8, cmd, ".extensions")) {
+            try self.showExtensions();
+            return true;
+        } else if (std.mem.eql(u8, cmd, ".install")) {
+            const ext_name = tokens.next();
+            if (ext_name) |name| {
+                try self.installExtension(name);
+            } else {
+                std.debug.print("Usage: .install <extension_name>\n", .{});
+            }
+            return true;
+        } else if (std.mem.eql(u8, cmd, ".load")) {
+            const ext_name = tokens.next();
+            if (ext_name) |name| {
+                try self.loadExtension(name);
+            } else {
+                std.debug.print("Usage: .load <extension_name>\n", .{});
+            }
+            return true;
+        } else if (std.mem.eql(u8, cmd, ".unload")) {
+            const ext_name = tokens.next();
+            if (ext_name) |name| {
+                try self.unloadExtension(name);
+            } else {
+                std.debug.print("Usage: .unload <extension_name>\n", .{});
+            }
+            return true;
         }
 
         return false; // Not a special command
@@ -271,6 +299,10 @@ pub const Cli = struct {
         std.debug.print("  .load <file>       Load database from file\n", .{});
         std.debug.print("  .timer on|off      Enable/disable query timing\n", .{});
         std.debug.print("  .timeout <ms>      Set query timeout in milliseconds\n", .{});
+        std.debug.print("  .extensions        List all extensions\n", .{});
+        std.debug.print("  .install <ext>     Install an extension\n", .{});
+        std.debug.print("  .load <ext>        Load an extension\n", .{});
+        std.debug.print("  .unload <ext>      Unload an extension\n", .{});
         std.debug.print("\nSQL Commands:\n", .{});
         std.debug.print("  Any valid SQL statement\n", .{});
         std.debug.print("\n", .{});
@@ -346,6 +378,70 @@ pub const Cli = struct {
         var lakehouse = Lakehouse.init(self.allocator);
         try lakehouse.save(self.database.?, filename, .none);
         std.debug.print("Database saved to '{s}'\n", .{filename});
+    }
+
+    fn showExtensions(self: *Cli) !void {
+        if (self.database == null) {
+            std.debug.print("No database loaded\n", .{});
+            return;
+        }
+
+        std.debug.print("Extensions:\n", .{});
+        const list = try self.database.?.extension_manager.listExtensions(self.allocator);
+        defer self.allocator.free(list);
+
+        for (list) |ext_name| {
+            const loaded = self.database.?.extension_manager.isLoaded(ext_name);
+            std.debug.print("  {s} ({s})\n", .{ ext_name, if (loaded) "loaded" else "registered" });
+        }
+        if (list.len == 0) {
+            std.debug.print("  (no extensions)\n", .{});
+        }
+    }
+
+    fn installExtension(self: *Cli, name: []const u8) !void {
+        if (self.database == null) {
+            std.debug.print("No database loaded\n", .{});
+            return;
+        }
+
+        // For now, only support httpfs extension
+        if (!std.mem.eql(u8, name, "httpfs")) {
+            std.debug.print("Unknown extension: {s}\n", .{name});
+            return;
+        }
+
+        // Create extension config
+        const config = grizzly.ExtensionConfig{
+            .name = try self.allocator.dupe(u8, name),
+            .version = try self.allocator.dupe(u8, "1.0.0"),
+            .capabilities = &[_]grizzly.ExtensionCapability{ .http_client, .https_client, .remote_data_access, .data_export },
+            .config_data = null,
+            .allocator = self.allocator,
+        };
+
+        try self.database.?.extension_manager.install(config);
+        std.debug.print("Extension '{s}' installed and loaded\n", .{name});
+    }
+
+    fn loadExtension(self: *Cli, name: []const u8) !void {
+        if (self.database == null) {
+            std.debug.print("No database loaded\n", .{});
+            return;
+        }
+
+        try self.database.?.extension_manager.load(name);
+        std.debug.print("Extension '{s}' loaded\n", .{name});
+    }
+
+    fn unloadExtension(self: *Cli, name: []const u8) !void {
+        if (self.database == null) {
+            std.debug.print("No database loaded\n", .{});
+            return;
+        }
+
+        try self.database.?.extension_manager.unload(name);
+        std.debug.print("Extension '{s}' unloaded\n", .{name});
     }
 };
 

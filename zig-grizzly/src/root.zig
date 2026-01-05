@@ -79,6 +79,15 @@ pub const index = @import("index.zig");
 pub const parquet = @import("parquet.zig");
 pub const arrow_bridge = @import("arrow_bridge.zig");
 
+// Sprint 20: HTTPFS Extension
+pub const extensions = @import("extensions.zig");
+pub const extension_api = @import("extension_api.zig");
+pub const dynamic_loader = @import("dynamic_loader.zig");
+pub const http_client = @import("http_client.zig");
+pub const tls = @import("tls.zig");
+pub const url = @import("url.zig");
+pub const secrets = @import("secrets.zig");
+
 // Re-export commonly used types
 pub const DataType = types.DataType;
 pub const Value = types.Value;
@@ -168,6 +177,23 @@ pub const Index = index.Index;
 pub const ParquetWriter = parquet.ParquetWriter;
 pub const ArrowRecordBatch = memory_store.ArrowRecordBatch;
 pub const ArrowBridge = arrow_bridge.ArrowBridge;
+
+// Sprint 20 types
+pub const ExtensionManager = extensions.ExtensionManager;
+pub const Extension = extension_api.Extension;
+pub const ExtensionConfig = extension_api.ExtensionConfig;
+pub const ExtensionCapability = extension_api.ExtensionCapability;
+pub const ExtensionEntry = extension_api.ExtensionEntry;
+pub const Client = http_client.Client;
+pub const Request = http_client.Request;
+pub const Response = http_client.Response;
+pub const Method = http_client.Method;
+pub const Status = http_client.Status;
+pub const Headers = http_client.Headers;
+pub const TLS = tls.TLS;
+pub const URL = url.URL;
+pub const SecretsManager = secrets.SecretsManager;
+pub const Secret = secrets.SecretsManager.Secret;
 pub const DuckDBConnection = arrow_bridge.DuckDBConnection;
 
 // Phase 7: Automatic Optimization Engine

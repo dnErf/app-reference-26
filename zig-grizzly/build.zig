@@ -202,6 +202,17 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(attach_no_semicolon_test_exe);
 
+    const test_secrets_exe = b.addExecutable(.{
+        .name = "zig_grizzly_test_secrets",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/test_secrets.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "zig_grizzly", .module = mod }},
+        }),
+    });
+    b.installArtifact(test_secrets_exe);
+
     const storage_abstraction_demo_exe = b.addExecutable(.{
         .name = "zig_grizzly_storage_abstraction_demo",
         .root_module = b.createModule(.{
@@ -267,16 +278,28 @@ pub fn build(b: *std.Build) void {
         }),
     });
     b.installArtifact(hybrid_demo_exe);
-    const optimization_demo_exe = b.addExecutable(.{
-        .name = "zig_grizzly_optimization_demo",
+
+    const secrets_perf_demo_exe = b.addExecutable(.{
+        .name = "zig_grizzly_secrets_perf_demo",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/optimization_demo.zig"),
+            .root_source_file = b.path("examples/secrets_perf_demo.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{.{ .name = "zig_grizzly", .module = mod }},
         }),
     });
-    b.installArtifact(optimization_demo_exe);
+    b.installArtifact(secrets_perf_demo_exe);
+
+    // const optimization_demo_exe = b.addExecutable(.{
+    //     .name = "zig_grizzly_optimization_demo",
+    //     .root_module = b.createModule(.{
+    //         .root_source_file = b.path("examples/optimization_demo.zig"),
+    //         .target = target,
+    //         .optimize = optimize,
+    //         .imports = &.{.{ .name = "zig_grizzly", .module = mod }},
+    //     }),
+    // });
+    // b.installArtifact(optimization_demo_exe);
     // This creates a top level step. Top level steps have a name and can be
     // invoked by name when running `zig build` (e.g. `zig build run`).
     // This will evaluate the `run` step rather than the default step.
@@ -367,6 +390,14 @@ pub fn build(b: *std.Build) void {
         run_attach_no_semicolon_test_cmd.addArgs(args);
     }
 
+    const run_test_secrets_step = b.step("run-test-secrets", "Run secrets manager tests");
+    const run_test_secrets_cmd = b.addRunArtifact(test_secrets_exe);
+    run_test_secrets_cmd.step.dependOn(b.getInstallStep());
+    run_test_secrets_step.dependOn(&run_test_secrets_cmd.step);
+    if (b.args) |args| {
+        run_test_secrets_cmd.addArgs(args);
+    }
+
     const run_storage_abstraction_demo_step = b.step("run-storage-abstraction-demo", "Run Storage Abstraction Layer demo");
     const run_storage_abstraction_demo_cmd = b.addRunArtifact(storage_abstraction_demo_exe);
     run_storage_abstraction_demo_cmd.step.dependOn(b.getInstallStep());
@@ -413,6 +444,14 @@ pub fn build(b: *std.Build) void {
     run_hybrid_demo_step.dependOn(&run_hybrid_demo_cmd.step);
     if (b.args) |args| {
         run_hybrid_demo_cmd.addArgs(args);
+    }
+
+    const run_secrets_perf_demo_step = b.step("run-secrets-perf-demo", "Run Secrets Performance Benchmark");
+    const run_secrets_perf_demo_cmd = b.addRunArtifact(secrets_perf_demo_exe);
+    run_secrets_perf_demo_cmd.step.dependOn(b.getInstallStep());
+    run_secrets_perf_demo_step.dependOn(&run_secrets_perf_demo_cmd.step);
+    if (b.args) |args| {
+        run_secrets_perf_demo_cmd.addArgs(args);
     }
 
     // Creates an executable that will run `test` blocks from the provided module.
