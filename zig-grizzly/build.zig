@@ -224,6 +224,17 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(memory_store_demo_exe);
 
+    const column_store_demo_exe = b.addExecutable(.{
+        .name = "zig_grizzly_column_store_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/column_store_demo.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "zig_grizzly", .module = mod }},
+        }),
+    });
+    b.installArtifact(column_store_demo_exe);
+
     // This creates a top level step. Top level steps have a name and can be
     // invoked by name when running `zig build` (e.g. `zig build run`).
     // This will evaluate the `run` step rather than the default step.
@@ -328,6 +339,14 @@ pub fn build(b: *std.Build) void {
     run_memory_store_demo_step.dependOn(&run_memory_store_demo_cmd.step);
     if (b.args) |args| {
         run_memory_store_demo_cmd.addArgs(args);
+    }
+
+    const run_column_store_demo_step = b.step("run-column-store-demo", "Run Column Store demo");
+    const run_column_store_demo_cmd = b.addRunArtifact(column_store_demo_exe);
+    run_column_store_demo_cmd.step.dependOn(b.getInstallStep());
+    run_column_store_demo_step.dependOn(&run_column_store_demo_cmd.step);
+    if (b.args) |args| {
+        run_column_store_demo_cmd.addArgs(args);
     }
 
     // Creates an executable that will run `test` blocks from the provided module.

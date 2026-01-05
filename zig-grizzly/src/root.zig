@@ -64,6 +64,8 @@ pub const storage_engine = @import("storage_engine.zig");
 pub const storage_config = @import("storage_config.zig");
 pub const storage_selector = @import("storage_selector.zig");
 pub const memory_store = @import("memory_store.zig");
+pub const column_store = @import("column_store.zig");
+pub const parquet = @import("parquet.zig");
 pub const arrow_bridge = @import("arrow_bridge.zig");
 
 // Re-export commonly used types
@@ -144,6 +146,8 @@ pub const StorageRegistry = storage_config.StorageRegistry;
 pub const WorkloadProfile = storage_selector.WorkloadProfile;
 pub const StorageSelector = storage_selector.StorageSelector;
 pub const MemoryStore = memory_store.MemoryStore;
+pub const ColumnStore = column_store.ColumnStore;
+pub const ParquetWriter = parquet.ParquetWriter;
 pub const ArrowRecordBatch = memory_store.ArrowRecordBatch;
 pub const ArrowBridge = arrow_bridge.ArrowBridge;
 pub const DuckDBConnection = arrow_bridge.DuckDBConnection;
