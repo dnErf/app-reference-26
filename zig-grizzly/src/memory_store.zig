@@ -191,24 +191,29 @@ pub const MemoryStore = struct {
         // TODO: Implement WHERE clause parsing and filtering
         _ = where_clause;
 
-        var results = std.ArrayList(Value).initCapacity(allocator, 0) catch unreachable;
-        errdefer results.deinit(allocator);
+        var results = std.ArrayList(Value).initCapacity(allocator, batch.row_count) catch unreachable;
+        errdefer {
+            for (results.items) |*value| {
+                value.deinit(allocator);
+            }
+            results.deinit(allocator);
+        }
 
         // Convert columnar data to row-based results
+        // Return each row as a separate Value (simplified - in practice you'd want structured data)
         for (0..batch.row_count) |row_idx| {
-            var row = std.ArrayList(Value).initCapacity(allocator, 0) catch unreachable;
-            errdefer row.deinit(allocator);
-
-            for (batch.columns.items) |col| {
+            // Create a simple representation of the row
+            // For now, just return the first column value as an example
+            if (batch.columns.items.len > 0) {
+                const col = &batch.columns.items[0];
                 if (col.get(row_idx)) |value| {
-                    try row.append(allocator, try value.clone(allocator));
+                    try results.append(allocator, try value.clone(allocator));
                 } else {
-                    try row.append(allocator, Value{ .string = try allocator.dupe(u8, "NULL") });
+                    try results.append(allocator, Value{ .string = try allocator.dupe(u8, "NULL") });
                 }
+            } else {
+                try results.append(allocator, Value{ .string = try allocator.dupe(u8, "EMPTY_ROW") });
             }
-
-            try results.append(allocator, Value{ .string = try allocator.dupe(u8, "ROW_DATA") }); // TODO: Proper JSON serialization
-            row.deinit(allocator);
         }
 
         // Update performance metrics

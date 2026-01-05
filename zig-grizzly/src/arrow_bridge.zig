@@ -47,7 +47,9 @@ pub const ArrowBridge = struct {
         try self.writeRecordBatchMessage(batch, writer);
 
         // Write end of stream
-        try writer.writeIntLittle(u32, 0); // EOS marker
+        var eos_buf: [4]u8 = undefined;
+        std.mem.writeInt(u32, &eos_buf, 0, .little);
+        try writer.writeAll(&eos_buf);
     }
 
     /// Convert Arrow IPC format to Grizzly RecordBatch
@@ -85,20 +87,34 @@ pub const ArrowBridge = struct {
         }
 
         // Write continuation marker
-        try writer.writeIntLittle(u32, CONTINUATION_MARKER);
+        var marker_buf: [4]u8 = undefined;
+        std.mem.writeInt(u32, &marker_buf, CONTINUATION_MARKER, .little);
+        try writer.writeAll(&marker_buf);
 
         // Write message header
-        try writer.writeIntLittle(i32, @intCast(message_size)); // message size
-        try writer.writeIntLittle(i32, 1); // message type (schema = 1)
+        var size_buf: [4]u8 = undefined;
+        std.mem.writeInt(i32, &size_buf, @intCast(message_size), .little);
+        try writer.writeAll(&size_buf);
+
+        var type_buf: [4]u8 = undefined;
+        std.mem.writeInt(i32, &type_buf, 1, .little); // message type (schema = 1)
+        try writer.writeAll(&type_buf);
 
         // Write schema
-        try writer.writeIntLittle(i32, 1); // version
-        try writer.writeIntLittle(i32, @intCast(batch.schema.fields.items.len)); // field count
+        var version_buf: [4]u8 = undefined;
+        std.mem.writeInt(i32, &version_buf, 1, .little); // version
+        try writer.writeAll(&version_buf);
+
+        var field_count_buf: [4]u8 = undefined;
+        std.mem.writeInt(i32, &field_count_buf, @intCast(batch.schema.fields.items.len), .little); // field count
+        try writer.writeAll(&field_count_buf);
 
         // Write fields
         for (batch.schema.fields.items) |field| {
             // Field name
-            try writer.writeIntLittle(i32, @intCast(field.name.len));
+            var name_len_buf: [4]u8 = undefined;
+            std.mem.writeInt(i32, &name_len_buf, @intCast(field.name.len), .little);
+            try writer.writeAll(&name_len_buf);
             try writer.writeAll(field.name);
 
             // Nullable flag
@@ -178,29 +194,51 @@ pub const ArrowBridge = struct {
         }
 
         // Write continuation marker
-        try writer.writeIntLittle(u32, CONTINUATION_MARKER);
+        var marker_buf: [4]u8 = undefined;
+        std.mem.writeInt(u32, &marker_buf, CONTINUATION_MARKER, .little);
+        try writer.writeAll(&marker_buf);
 
         // Write message header
-        try writer.writeIntLittle(i32, @intCast(message_size)); // message size
-        try writer.writeIntLittle(i32, 2); // message type (record batch = 2)
+        var size_buf: [4]u8 = undefined;
+        std.mem.writeInt(i32, &size_buf, @intCast(message_size), .little); // message size
+        try writer.writeAll(&size_buf);
+
+        var type_buf: [4]u8 = undefined;
+        std.mem.writeInt(i32, &type_buf, 2, .little); // message type (record batch = 2)
+        try writer.writeAll(&type_buf);
 
         // Write record batch metadata
-        try writer.writeIntLittle(i64, @intCast(batch.row_count)); // length
-        try writer.writeIntLittle(i64, @intCast(batch.columns.items.len)); // node count
+        var length_buf: [8]u8 = undefined;
+        std.mem.writeInt(i64, &length_buf, @intCast(batch.row_count), .little); // length
+        try writer.writeAll(&length_buf);
+
+        var node_count_buf: [8]u8 = undefined;
+        std.mem.writeInt(i64, &node_count_buf, @intCast(batch.columns.items.len), .little); // node count
+        try writer.writeAll(&node_count_buf);
 
         // Write buffer metadata
         var buffer_offset: usize = 0;
         for (batch.columns.items) |col| {
             // Validity bitmap
             const validity_size = (col.values.items.len + 7) / 8;
-            try writer.writeIntLittle(i64, @intCast(buffer_offset));
-            try writer.writeIntLittle(i64, @intCast(validity_size));
+            var offset_buf: [8]u8 = undefined;
+            std.mem.writeInt(i64, &offset_buf, @intCast(buffer_offset), .little);
+            try writer.writeAll(&offset_buf);
+
+            var validity_size_buf: [8]u8 = undefined;
+            std.mem.writeInt(i64, &validity_size_buf, @intCast(validity_size), .little);
+            try writer.writeAll(&validity_size_buf);
             buffer_offset += validity_size;
 
             // Data buffer
             const data_size = col.values.items.len * 8; // rough estimate
-            try writer.writeIntLittle(i64, @intCast(buffer_offset));
-            try writer.writeIntLittle(i64, @intCast(data_size));
+            var data_offset_buf: [8]u8 = undefined;
+            std.mem.writeInt(i64, &data_offset_buf, @intCast(buffer_offset), .little);
+            try writer.writeAll(&data_offset_buf);
+
+            var data_size_buf: [8]u8 = undefined;
+            std.mem.writeInt(i64, &data_size_buf, @intCast(data_size), .little);
+            try writer.writeAll(&data_size_buf);
             buffer_offset += data_size;
         }
 
@@ -215,7 +253,9 @@ pub const ArrowBridge = struct {
                     bitmap |= (@as(usize, 1) << @intCast(i % 64));
                 }
                 if (i % 64 == 63 or i == col.null_bitmap.items.len - 1) {
-                    try writer.writeIntLittle(u64, @intCast(bitmap));
+                    var bitmap_buf: [8]u8 = undefined;
+                    std.mem.writeInt(u64, &bitmap_buf, @intCast(bitmap), .little);
+                    try writer.writeAll(&bitmap_buf);
                     bitmap = 0;
                 }
             }
@@ -223,16 +263,38 @@ pub const ArrowBridge = struct {
             // Write data (simplified - just write raw values)
             for (col.values.items) |value| {
                 switch (value) {
-                    .int32 => |i| try writer.writeIntLittle(i32, i),
-                    .int64 => |i| try writer.writeIntLittle(i64, i),
-                    .float32 => |f| try writer.writeIntLittle(u32, @bitCast(f)),
-                    .float64 => |f| try writer.writeIntLittle(u64, @bitCast(f)),
+                    .int32 => |i| {
+                        var int_buf: [4]u8 = undefined;
+                        std.mem.writeInt(i32, &int_buf, i, .little);
+                        try writer.writeAll(&int_buf);
+                    },
+                    .int64 => |i| {
+                        var int_buf: [8]u8 = undefined;
+                        std.mem.writeInt(i64, &int_buf, i, .little);
+                        try writer.writeAll(&int_buf);
+                    },
+                    .float32 => |f| {
+                        var float_buf: [4]u8 = undefined;
+                        std.mem.writeInt(u32, &float_buf, @bitCast(f), .little);
+                        try writer.writeAll(&float_buf);
+                    },
+                    .float64 => |f| {
+                        var float_buf: [8]u8 = undefined;
+                        std.mem.writeInt(u64, &float_buf, @bitCast(f), .little);
+                        try writer.writeAll(&float_buf);
+                    },
                     .boolean => |b| try writer.writeByte(@intFromBool(b)),
                     .string => |s| {
-                        try writer.writeIntLittle(i32, @intCast(s.len));
+                        var len_buf: [4]u8 = undefined;
+                        std.mem.writeInt(i32, &len_buf, @intCast(s.len), .little);
+                        try writer.writeAll(&len_buf);
                         try writer.writeAll(s);
                     },
-                    else => try writer.writeIntLittle(u64, 0), // Placeholder for other types
+                    else => {
+                        var zero_buf: [8]u8 = undefined;
+                        std.mem.writeInt(u64, &zero_buf, 0, .little);
+                        try writer.writeAll(&zero_buf);
+                    }, // Placeholder for other types
                 }
             }
         }
