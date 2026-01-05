@@ -11,6 +11,7 @@ const dependency_mod = @import("dependency.zig");
 const scheduler_mod = @import("scheduler.zig");
 const type_registry_mod = @import("type_registry.zig");
 const function_mod = @import("function.zig");
+const storage_engine_mod = @import("storage_engine.zig");
 
 const Value = types.Value;
 const Table = table_mod.Table;
@@ -23,6 +24,8 @@ const DependencyAnalyzer = dependency_mod.DependencyAnalyzer;
 const Scheduler = scheduler_mod.Scheduler;
 const TypeRegistry = type_registry_mod.TypeRegistry;
 const FunctionRegistry = function_mod.FunctionRegistry;
+const StorageEngine = storage_engine_mod.StorageEngine;
+const StorageType = storage_engine_mod.StorageType;
 
 /// Database manages multiple tables
 pub const Database = struct {
@@ -39,6 +42,7 @@ pub const Database = struct {
     audit_log: ?*audit_mod.AuditLog,
     attached_databases: std.StringHashMap(*Database),
     attached_function_libraries: std.StringHashMap(*FunctionRegistry),
+    storage_engines: std.StringHashMap(StorageEngine),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) !Database {
@@ -57,6 +61,7 @@ pub const Database = struct {
             .audit_log = null,
             .attached_databases = std.StringHashMap(*Database).init(allocator),
             .attached_function_libraries = std.StringHashMap(*FunctionRegistry).init(allocator),
+            .storage_engines = std.StringHashMap(StorageEngine).init(allocator),
             .allocator = allocator,
         };
     }
@@ -77,6 +82,14 @@ pub const Database = struct {
         self.type_registry.deinit();
         self.attached_databases.deinit();
         self.attached_function_libraries.deinit();
+
+        // Deinit storage engines
+        var storage_it = self.storage_engines.valueIterator();
+        while (storage_it.next()) |engine| {
+            engine.deinit();
+        }
+        self.storage_engines.deinit();
+
         self.allocator.free(self.name);
     }
 
@@ -89,6 +102,32 @@ pub const Database = struct {
         const table = try self.allocator.create(Table);
         table.* = try Table.init(self.allocator, table_name, schema_def);
         try self.tables.put(table.name, table); // Use the owned name from table
+    }
+
+    /// Create a table with a specific storage engine
+    pub fn createTableWithStorage(self: *Database, table_name: []const u8, schema_def: []const Schema.ColumnDef, storage_type: StorageType) !void {
+        if (self.tables.contains(table_name)) {
+            return error.TableAlreadyExists;
+        }
+
+        // Create storage engine if it doesn't exist
+        const engine_name = try std.fmt.allocPrint(self.allocator, "{s}_engine", .{@tagName(storage_type)});
+        defer self.allocator.free(engine_name);
+
+        if (!self.storage_engines.contains(engine_name)) {
+            const engine = switch (storage_type) {
+                .memory => try storage_engine_mod.createMemoryStore(self.allocator),
+                .column => return error.NotImplemented, // TODO: Implement column store
+                .row => return error.NotImplemented, // TODO: Implement row store
+                .graph => return error.NotImplemented, // TODO: Implement graph store
+            };
+            try self.storage_engines.put(try self.allocator.dupe(u8, engine_name), engine);
+        }
+
+        // For now, still create regular table - storage engine integration comes later
+        const table = try self.allocator.create(Table);
+        table.* = try Table.init(self.allocator, table_name, schema_def);
+        try self.tables.put(table.name, table);
     }
 
     /// Create a table from a query result

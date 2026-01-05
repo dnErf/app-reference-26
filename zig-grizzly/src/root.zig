@@ -63,6 +63,8 @@ pub const function = @import("function.zig");
 pub const storage_engine = @import("storage_engine.zig");
 pub const storage_config = @import("storage_config.zig");
 pub const storage_selector = @import("storage_selector.zig");
+pub const memory_store = @import("memory_store.zig");
+pub const arrow_bridge = @import("arrow_bridge.zig");
 
 // Re-export commonly used types
 pub const DataType = types.DataType;
@@ -141,6 +143,10 @@ pub const StorageMetadata = storage_config.StorageMetadata;
 pub const StorageRegistry = storage_config.StorageRegistry;
 pub const WorkloadProfile = storage_selector.WorkloadProfile;
 pub const StorageSelector = storage_selector.StorageSelector;
+pub const MemoryStore = memory_store.MemoryStore;
+pub const ArrowRecordBatch = memory_store.ArrowRecordBatch;
+pub const ArrowBridge = arrow_bridge.ArrowBridge;
+pub const DuckDBConnection = arrow_bridge.DuckDBConnection;
 
 test {
     std.testing.refAllDecls(@This());

@@ -1,6 +1,9 @@
 const std = @import("std");
 const types = @import("types.zig");
+const memory_store = @import("memory_store.zig");
+
 const Value = types.Value;
+const MemoryStore = memory_store.MemoryStore;
 
 /// Performance metrics for storage operations
 pub const PerformanceMetrics = struct {
@@ -89,3 +92,8 @@ pub const MigrationResult = struct {
     duration_ms: u64,
     error_message: ?[]const u8,
 };
+/// Create a new memory store instance
+pub fn createMemoryStore(allocator: std.mem.Allocator) !StorageEngine {
+    const store = try MemoryStore.init(allocator);
+    return store.asStorageEngine();
+}
