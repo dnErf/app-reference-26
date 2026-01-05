@@ -202,6 +202,17 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(attach_no_semicolon_test_exe);
 
+    const storage_abstraction_demo_exe = b.addExecutable(.{
+        .name = "zig_grizzly_storage_abstraction_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/main_storage_abstraction_demo.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "zig_grizzly", .module = mod }},
+        }),
+    });
+    b.installArtifact(storage_abstraction_demo_exe);
+
     // This creates a top level step. Top level steps have a name and can be
     // invoked by name when running `zig build` (e.g. `zig build run`).
     // This will evaluate the `run` step rather than the default step.
@@ -290,6 +301,14 @@ pub fn build(b: *std.Build) void {
     run_attach_no_semicolon_test_step.dependOn(&run_attach_no_semicolon_test_cmd.step);
     if (b.args) |args| {
         run_attach_no_semicolon_test_cmd.addArgs(args);
+    }
+
+    const run_storage_abstraction_demo_step = b.step("run-storage-abstraction-demo", "Run Storage Abstraction Layer demo");
+    const run_storage_abstraction_demo_cmd = b.addRunArtifact(storage_abstraction_demo_exe);
+    run_storage_abstraction_demo_cmd.step.dependOn(b.getInstallStep());
+    run_storage_abstraction_demo_step.dependOn(&run_storage_abstraction_demo_cmd.step);
+    if (b.args) |args| {
+        run_storage_abstraction_demo_cmd.addArgs(args);
     }
 
     // Creates an executable that will run `test` blocks from the provided module.

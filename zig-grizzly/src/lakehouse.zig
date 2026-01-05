@@ -955,7 +955,7 @@ pub const Lakehouse = struct {
                     try writeInt(file, u32, @bitCast(val), .little);
                 }
             },
-            .custom => return error.UnsupportedOperation,
+            .custom, .exception => return error.UnsupportedOperation,
         }
     }
 
@@ -1075,7 +1075,7 @@ pub const Lakehouse = struct {
                 }
                 break :blk Value{ .vector = VectorValue{ .values = values } };
             },
-            .custom => return error.UnsupportedOperation,
+            .custom, .exception => return error.UnsupportedOperation,
         };
     }
 

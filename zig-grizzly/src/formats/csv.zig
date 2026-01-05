@@ -315,6 +315,7 @@ fn saveCSV(table: Table, file_path: []const u8, opts: SaveOptions, allocator: st
                 },
                 .vector => |_| {}, // TODO: Implement vector serialization
                 .custom => |_| {}, // TODO: Implement custom type serialization
+                .exception => |_| {}, // Exception values not serialized to CSV
             }
         }
         try buffer.append(allocator, '\n');
@@ -338,7 +339,7 @@ fn parseValue(str: []const u8, dtype: DataType, allocator: std.mem.Allocator) !V
             break :blk Value{ .boolean = false };
         },
         .string => Value{ .string = try allocator.dupe(u8, str) },
-        .timestamp, .vector, .custom => return error.UnsupportedType,
+        .timestamp, .vector, .custom, .exception => return error.UnsupportedType,
     };
 }
 
@@ -349,7 +350,7 @@ fn getDefaultValue(dtype: DataType) Value {
         .float32 => Value{ .float32 = 0.0 },
         .float64 => Value{ .float64 = 0.0 },
         .boolean => Value{ .boolean = false },
-        .string, .timestamp, .vector, .custom => Value{ .string = "" },
+        .string, .timestamp, .vector, .custom, .exception => Value{ .string = "" },
     };
 }
 

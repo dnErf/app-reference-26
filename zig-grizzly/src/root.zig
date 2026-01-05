@@ -59,6 +59,11 @@ pub const expression = @import("expression.zig");
 pub const template = @import("template.zig");
 pub const function = @import("function.zig");
 
+// Sprint 19: Hybrid Storage Architecture
+pub const storage_engine = @import("storage_engine.zig");
+pub const storage_config = @import("storage_config.zig");
+pub const storage_selector = @import("storage_selector.zig");
+
 // Re-export commonly used types
 pub const DataType = types.DataType;
 pub const Value = types.Value;
@@ -124,6 +129,18 @@ pub const FunctionRegistry = function.FunctionRegistry;
 pub const Function = function.Function;
 pub const FunctionBody = function.FunctionBody;
 pub const Parameter = function.Parameter;
+
+// Sprint 19 types
+pub const StorageEngine = storage_engine.StorageEngine;
+pub const StorageType = storage_engine.StorageType;
+pub const StorageCapabilities = storage_engine.StorageCapabilities;
+pub const PerformanceMetrics = storage_engine.PerformanceMetrics;
+pub const StorageRecommendation = storage_engine.StorageRecommendation;
+pub const StorageConfig = storage_config.StorageConfig;
+pub const StorageMetadata = storage_config.StorageMetadata;
+pub const StorageRegistry = storage_config.StorageRegistry;
+pub const WorkloadProfile = storage_selector.WorkloadProfile;
+pub const StorageSelector = storage_selector.StorageSelector;
 
 test {
     std.testing.refAllDecls(@This());

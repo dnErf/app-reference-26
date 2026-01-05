@@ -1,5 +1,6 @@
 const std = @import("std");
 const grizzly = @import("zig_grizzly");
+const cli_mod = @import("cli.zig");
 
 const Database = grizzly.Database;
 const Table = grizzly.Table;
@@ -21,17 +22,29 @@ pub fn main() !void {
     // Check command line arguments
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
-    
+
     _ = args.skip(); // Skip program name
 
-    const command = args.next();
-    
-    if (command) |cmd| {
-        if (std.mem.eql(u8, cmd, "benchmark")) {
+    const first_arg = args.next();
+
+    if (first_arg) |arg| {
+        if (std.mem.eql(u8, arg, "demo")) {
+            try runDemo(allocator);
+            return;
+        } else if (std.mem.eql(u8, arg, "benchmark")) {
             try runBenchmark(allocator);
             return;
-        } else if (std.mem.eql(u8, cmd, "help")) {
+        } else if (std.mem.eql(u8, arg, "help") or std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             try printHelp();
+            return;
+        } else if (std.mem.eql(u8, arg, "shell") or std.mem.eql(u8, arg, "cli")) {
+            // Interactive shell mode
+            const db_file = args.next();
+            try cli_mod.runInteractiveShell(allocator, db_file);
+            return;
+        } else {
+            // Assume it's a database file - start shell with that database
+            try cli_mod.runInteractiveShell(allocator, arg);
             return;
         }
     }
@@ -41,11 +54,20 @@ pub fn main() !void {
 }
 
 fn printHelp() !void {
-    std.debug.print("Usage: zig_grizzly [command]\n\n", .{});
+    std.debug.print("Grizzly DB - Fast Columnar Database\n\n", .{});
+    std.debug.print("Usage: zig_grizzly [command|database_file]\n\n", .{});
     std.debug.print("Commands:\n", .{});
-    std.debug.print("  demo       - Run a demonstration of Grizzly DB features (default)\n", .{});
-    std.debug.print("  benchmark  - Run performance benchmarks\n", .{});
-    std.debug.print("  help       - Show this help message\n", .{});
+    std.debug.print("  demo              - Run a demonstration of Grizzly DB features (default)\n", .{});
+    std.debug.print("  benchmark         - Run performance benchmarks\n", .{});
+    std.debug.print("  shell, cli        - Start interactive SQL shell\n", .{});
+    std.debug.print("  help, --help, -h  - Show this help message\n", .{});
+    std.debug.print("\nDatabase Files:\n", .{});
+    std.debug.print("  <filename.griz>   - Start interactive shell with database loaded\n", .{});
+    std.debug.print("\nExamples:\n", .{});
+    std.debug.print("  zig_grizzly                    # Run demo\n", .{});
+    std.debug.print("  zig_grizzly shell              # Start empty shell\n", .{});
+    std.debug.print("  zig_grizzly mydb.griz          # Load and explore database\n", .{});
+    std.debug.print("  zig_grizzly mydb.griz < query.sql  # Execute SQL file\n", .{});
 }
 
 fn runDemo(allocator: std.mem.Allocator) !void {
@@ -70,7 +92,7 @@ fn runDemo(allocator: std.mem.Allocator) !void {
 
     // Insert sample data
     const users_table = try db.getTable("users");
-    
+
     try users_table.insertRow(&[_]Value{
         Value{ .int32 = 1 },
         Value{ .string = "Alice Johnson" },
@@ -106,7 +128,7 @@ fn runDemo(allocator: std.mem.Allocator) !void {
     std.debug.print("Table: {s}\n", .{users_table.name});
     std.debug.print("Rows: {d}\n", .{users_table.row_count});
     std.debug.print("Columns: {d}\n\n", .{users_table.schema.columns.len});
-    
+
     var row: usize = 0;
     while (row < users_table.row_count) : (row += 1) {
         std.debug.print("Row {d}: ", .{row});
@@ -119,7 +141,7 @@ fn runDemo(allocator: std.mem.Allocator) !void {
 
     // Perform aggregations
     std.debug.print("\n═══ Aggregations ═══\n", .{});
-    
+
     const avg_age = try users_table.aggregate(allocator, "age", .avg);
     std.debug.print("Average Age: {d:.1}\n", .{avg_age.value.float64});
 
@@ -191,9 +213,9 @@ fn runBenchmark(allocator: std.mem.Allocator) !void {
     // Benchmark: Insert 100,000 rows
     const row_count = 100_000;
     std.debug.print("Inserting {d} rows...\n", .{row_count});
-    
+
     var timer = try std.time.Timer.start();
-    
+
     var i: i32 = 0;
     while (i < row_count) : (i += 1) {
         try table.insertRow(&[_]Value{
@@ -201,7 +223,7 @@ fn runBenchmark(allocator: std.mem.Allocator) !void {
             Value{ .float64 = @as(f64, @floatFromInt(i)) * 1.5 },
         });
     }
-    
+
     const insert_time = timer.read();
     std.debug.print("✓ Inserted {d} rows in {d:.2}ms\n", .{ row_count, @as(f64, @floatFromInt(insert_time)) / 1_000_000.0 });
     std.debug.print("  Throughput: {d:.0} rows/sec\n\n", .{@as(f64, @floatFromInt(row_count)) / (@as(f64, @floatFromInt(insert_time)) / 1_000_000_000.0)});
@@ -209,48 +231,48 @@ fn runBenchmark(allocator: std.mem.Allocator) !void {
     // Benchmark: Aggregation
     std.debug.print("Running aggregations...\n", .{});
     timer.reset();
-    
+
     const sum_result = try table.aggregate(allocator, "value", .sum);
     const sum_time = timer.read();
-    
+
     std.debug.print("✓ SUM computed in {d:.2}ms\n", .{@as(f64, @floatFromInt(sum_time)) / 1_000_000.0});
     std.debug.print("  Result: {d:.2}\n", .{sum_result.value.float64});
-    
+
     timer.reset();
     const avg_result = try table.aggregate(allocator, "value", .avg);
     const avg_time = timer.read();
-    
+
     std.debug.print("✓ AVG computed in {d:.2}ms\n", .{@as(f64, @floatFromInt(avg_time)) / 1_000_000.0});
     std.debug.print("  Result: {d:.2}\n", .{avg_result.value.float64});
 
     timer.reset();
     const max_result = try table.aggregate(allocator, "value", .max);
     const max_time = timer.read();
-    
+
     std.debug.print("✓ MAX computed in {d:.2}ms\n\n", .{@as(f64, @floatFromInt(max_time)) / 1_000_000.0});
     std.debug.print("  Result: {d:.2}\n", .{max_result.value.float64});
 
     // Benchmark: Export
     std.debug.print("Exporting data...\n", .{});
-    
+
     var json_buffer = std.ArrayList(u8){};
     defer json_buffer.deinit(allocator);
     const json_writer = json_buffer.writer(allocator);
-    
+
     timer.reset();
     try export_mod.exportJSON(table.*, json_writer);
     const json_time = timer.read();
-    
+
     std.debug.print("✓ JSON export in {d:.2}ms ({d} bytes)\n", .{ @as(f64, @floatFromInt(json_time)) / 1_000_000.0, json_buffer.items.len });
 
     var binary_buffer = std.ArrayList(u8){};
     defer binary_buffer.deinit(allocator);
     const binary_writer = binary_buffer.writer(allocator);
-    
+
     timer.reset();
     try export_mod.exportBinary(table.*, binary_writer);
     const binary_time = timer.read();
-    
+
     std.debug.print("✓ Binary export in {d:.2}ms ({d} bytes)\n", .{ @as(f64, @floatFromInt(binary_time)) / 1_000_000.0, binary_buffer.items.len });
     std.debug.print("  Compression ratio: {d:.1}x\n\n", .{@as(f64, @floatFromInt(json_buffer.items.len)) / @as(f64, @floatFromInt(binary_buffer.items.len))});
 

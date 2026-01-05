@@ -165,7 +165,7 @@ SAVE DATABASE TO 'backup.griz' WITH COMPRESSION zstd;
 See [TRANSFORMATION_ROADMAP.md](.agents/TRANSFORMATION_ROADMAP.md) for detailed specifications.
 
 ## Sprint History
-- [Sprint 17 - Cross-File Function Sharing](.agents/SPRINT_17.md): Enable function reusability across database files using ATTACH syntax for SQL files 📋 Planned
+- [Sprint 17 - Cross-File Function Sharing](.agents/SPRINT_17.md): Enable function reusability across database files using ATTACH syntax for SQL files ✅ Complete
 - [Sprint 16 - Exception Types & Zig-Style Error Handling](.agents/SPRINT_16.md): Custom exception types with CREATE TYPE AS EXCEPTION, exception value system, and foundation for Zig-style try-catch syntax ✅ Complete
 - [Sprint 12 - Persistence SQL Commands](.agents/SPRINT_12.md): Complete SQL interface for database save/load with SAVE DATABASE, LOAD DATABASE, ATTACH/DETACH DATABASE, and SHOW DATABASES commands ✅ Complete
 - [Sprint 11 - Incremental Models](.agents/SPRINT_11_COMPLETION.md): Model Refresh Scheduler with cron syntax, retry logic, automated execution, and Column-Level Lineage tracking (Phases 3 & 4 ✅ Complete)
