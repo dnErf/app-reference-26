@@ -5,7 +5,10 @@
 - [x] Phase 2: Memory access implementation and documentation
 - [x] Phase 3: Compilation fixes for core modules
 - [x] Phase 4: Create educational content on Mojo ownership
-- [ ] Phase 5: Final compilation and testing
+- [x] Phase 5: Final compilation and testing
+- [ ] Phase 6: Fix join logic and add more features
 
 ## TODO
-- Session cleanup completed
+- Compilation errors fixed
+- Unit tests expanded with aggregates, greater filters, joins
+- Join test failing - investigate logic in join_left

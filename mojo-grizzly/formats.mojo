@@ -127,9 +127,9 @@ fn write_csv(table: Table) -> String:
         return ""
     var csv = String("")
     # Headers
-    for i in range(len(table.schema.field_names)):
-        csv += table.schema.field_names[i]
-        if i < len(table.schema.field_names) - 1:
+    for i in range(len(table.schema.fields)):
+        csv += table.schema.fields[i].name
+        if i < len(table.schema.fields) - 1:
             csv += ","
     csv += "\n"
     # Rows
@@ -218,8 +218,8 @@ fn read_jsonl(content: String) raises -> Table:
         if line.strip() == "":
             continue
         var dict = parse_json(String(line))
-        for j in range(len(schema.field_names)):
-            var key = schema.field_names[j]
+        for j in range(len(schema.fields)):
+            var key = schema.fields[j].name
             if key in dict:
                 if dict[key].type == "number":
                     table.columns[j].append(dict[key].number)

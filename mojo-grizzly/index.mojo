@@ -10,7 +10,7 @@ struct HashIndex(Copyable, Movable):
         self.index = Dict[Int64, List[Int]]()
 
     fn __copyinit__(out self, existing: HashIndex):
-        self.index = Dict[Int64, List[Int]]()
+        self.index = existing.index.copy()
 
     fn __moveinit__(out self, deinit existing: HashIndex):
         self.index = existing.index^

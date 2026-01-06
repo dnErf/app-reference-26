@@ -97,35 +97,87 @@ struct Int64Array(Copyable, Movable):
     fn __setitem__(mut self, index: Int, value: Int64):
         self.data[index] = value
 
-# Schema
-struct Schema(Copyable, Movable):
-    var field_names: List[String]
-    var field_types: Dict[String, String]
+    fn length(self) -> Int:
+        return len(self.data)
+
+# Float64 Primitive Array
+struct Float64Array(Copyable, Movable):
+    var data: List[Float64]
+    var validity: List[Bool]
 
     fn __init__(out self):
-        self.field_names = List[String]()
-        self.field_types = Dict[String, String]()
+        self.data = List[Float64]()
+        self.validity = List[Bool]()
+
+    fn __init__(out self, size: Int):
+        self.data = List[Float64]()
+        self.data.resize(size, 0.0)
+        self.validity = List[Bool]()
+        self.validity.resize(size, True)
+
+    fn __copyinit__(out self, existing: Float64Array):
+        self.data = existing.data.copy()
+        self.validity = existing.validity.copy()
+
+    fn __moveinit__(out self, deinit existing: Float64Array):
+        self.data = existing.data^
+        self.validity = existing.validity^
+
+    fn append(mut self, value: Float64):
+        self.data.append(value)
+        self.validity.append(True)
+
+    fn is_valid(self, index: Int) -> Bool:
+        return self.validity[index]
+
+    fn __getitem__(self, index: Int) -> Float64:
+        return self.data[index]
+
+    fn __setitem__(mut self, index: Int, value: Float64):
+        self.data[index] = value
+
+    fn length(self) -> Int:
+        return len(self.data)
+
+# Field for Schema
+struct Field(Copyable, Movable):
+    var name: String
+    var data_type: String
+
+    fn __init__(out self, name: String, data_type: String):
+        self.name = name
+        self.data_type = data_type
+
+    fn __copyinit__(out self, existing: Field):
+        self.name = existing.name
+        self.data_type = existing.data_type
+
+    fn __moveinit__(out self, deinit existing: Field):
+        self.name = existing.name^
+        self.data_type = existing.data_type^
+
+# Schema
+struct Schema(Copyable, Movable):
+    var fields: List[Field]
+
+    fn __init__(out self):
+        self.fields = List[Field]()
 
     fn __copyinit__(out self, existing: Schema):
-        self.field_names = List[String]()
-        for n in existing.field_names:
-            self.field_names.append(n)
-        self.field_types = existing.field_types.copy()
+        self.fields = List[Field]()
+        for f in existing.fields:
+            self.fields.append(f.copy())
 
     fn __moveinit__(out self, deinit existing: Schema):
-        self.field_names = existing.field_names^
-        self.field_types = existing.field_types^
+        self.fields = existing.fields^
 
     fn add_field(mut self, name: String, data_type: String):
-        self.field_names.append(name)
-        self.field_types[name] = data_type
+        self.fields.append(Field(name, data_type))
 
     fn clone(self) raises -> Schema:
         var s = Schema()
-        for n in self.field_names:
-            s.field_names.append(n)
-        for k in self.field_types.keys():
-            s.field_types[k] = self.field_types[k]
+        for f in self.fields:
+            s.fields.append(f.copy())
         return s^
 
 from collections import Dict
@@ -141,19 +193,26 @@ struct Table(Copyable, Movable):
 
     fn __init__(out self, schema: Schema, num_rows: Int):
         self.schema = Schema()
-        self.schema.field_names = schema.field_names.copy()
-        self.schema.field_types = schema.field_types.copy()
+        for f in schema.fields:
+            self.schema.fields.append(f.copy())
         self.columns = List[Int64Array]()
-        for _ in schema.field_names:
+        for _ in schema.fields:
             self.columns.append(Int64Array(num_rows))
         self.indexes = Dict[String, HashIndex]()
 
     fn __copyinit__(out self, existing: Table):
         self.schema = Schema()
-        self.schema.field_names = existing.schema.field_names.copy()
-        self.schema.field_types = existing.schema.field_types.copy()
+        for f in existing.schema.fields:
+            self.schema.fields.append(f.copy())
         self.columns = List[Int64Array]()
+        for col in existing.columns:
+            self.columns.append(col.copy())
         self.indexes = Dict[String, HashIndex]()
+        for key in existing.indexes.keys():
+            try:
+                self.indexes[key] = existing.indexes[key].copy()
+            except:
+                pass
 
     fn __moveinit__(out self, deinit existing: Table):
         self.schema = existing.schema^
@@ -163,8 +222,8 @@ struct Table(Copyable, Movable):
     fn build_index(mut self, column_name: String):
         var col_index = -1
         var i = 0
-        for name in self.schema.field_names:
-            if name == column_name:
+        for f in self.schema.fields:
+            if f.name == column_name:
                 col_index = i
                 break
             i += 1
@@ -178,10 +237,14 @@ struct Table(Copyable, Movable):
     fn num_rows(self) -> Int:
         return len(self.columns[0].data) if len(self.columns) > 0 else 0
 
+    fn append_row(mut self):
+        for i in range(len(self.columns)):
+            self.columns[i].append(0)
+
     fn snapshot(self) -> Table:
         var new_schema = Schema()
-        for name in self.schema.field_names:
-            new_schema.add_field(name, self.schema.field_types[name])
+        for f in self.schema.fields:
+            new_schema.add_field(f.name, f.data_type)
         var new_table = Table(new_schema, 0)
         for i in range(len(self.columns)):
             for j in range(len(self.columns[i].data)):
