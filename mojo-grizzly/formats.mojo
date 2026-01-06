@@ -179,9 +179,24 @@ fn parse_json(json: String) raises -> Dict[String, JsonValue]:
                 var str_val = val_str.strip('"')
                 dict[String(key)] = JsonValue("string", 0, String(str_val))
             else:
-                var num = atol(val_str)
+                var num = atol(String(val_str))
                 dict[String(key)] = JsonValue("number", num, "")
     return dict^
+
+fn atol(s: String) -> Int64:
+    var result: Int64 = 0
+    var sign = 1
+    var i = 0
+    if len(s) > 0 and s[0] == '-':
+        sign = -1
+        i += 1
+    while i < len(s):
+        var c = s[i]
+        if c < '0' or c > '9':
+            break
+        result = result * 10 + Int64(ord(c) - ord('0'))
+        i += 1
+    return result * sign
 
 # Read JSONL from string content
 fn read_jsonl(content: String) raises -> Table:
@@ -197,7 +212,7 @@ fn read_jsonl(content: String) raises -> Table:
         schema.add_field(key, "int64")
 
     # Create table
-    var table = Table(schema.clone(), len(lines))
+    var table = Table(schema.clone(), 0)
     for i in range(len(lines)):
         var line = lines[i]
         if line.strip() == "":

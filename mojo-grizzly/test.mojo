@@ -64,7 +64,7 @@ fn test_block():
 fn run_tests() raises:
     test_arrow()
     test_query()
-    # test_formats()
+    test_formats()
     test_pl()
     # test_block()
     print("All tests completed")

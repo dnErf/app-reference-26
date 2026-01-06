@@ -70,6 +70,12 @@ struct Int64Array(Copyable, Movable):
         self.data = List[Int64]()
         self.validity = List[Bool]()
 
+    fn __init__(out self, size: Int):
+        self.data = List[Int64]()
+        self.data.resize(size, 0)
+        self.validity = List[Bool]()
+        self.validity.resize(size, True)
+
     fn __copyinit__(out self, existing: Int64Array):
         self.data = existing.data.copy()
         self.validity = existing.validity.copy()
@@ -139,7 +145,7 @@ struct Table(Copyable, Movable):
         self.schema.field_types = schema.field_types.copy()
         self.columns = List[Int64Array]()
         for _ in schema.field_names:
-            self.columns.append(Int64Array())
+            self.columns.append(Int64Array(num_rows))
         self.indexes = Dict[String, HashIndex]()
 
     fn __copyinit__(out self, existing: Table):
