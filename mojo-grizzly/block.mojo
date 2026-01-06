@@ -94,3 +94,32 @@ struct GraphStore:
         table.columns[0].append(edge.from_id)
         table.columns[1].append(edge.to_id)
         self.edges.append(Block(table^))
+
+fn save_block(block: Block, filename: String) raises:
+    # Save to ORC file
+    write_orc(block.data, filename)
+
+fn load_block(filename: String) raises -> Block:
+    var data = read_orc(filename)
+    return Block(data^)
+
+struct WAL(Movable):
+    var log: List[String]
+    var filename: String
+
+    fn __init__(out self, filename: String):
+        self.log = List[String]()
+        self.filename = filename
+
+    fn append(inout self, operation: String):
+        self.log.append(operation)
+        # Stub: write to file
+
+    fn replay(inout self, store: BlockStore):
+        for op in self.log:
+            # Stub: parse and apply op
+            pass
+
+    fn commit(inout self):
+        self.log.clear()
+        # Stub: flush

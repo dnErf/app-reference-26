@@ -139,6 +139,45 @@ struct Float64Array(Copyable, Movable):
     fn length(self) -> Int:
         return len(self.data)
 
+# String Primitive Array
+struct StringArray(Copyable, Movable):
+    var data: List[String]
+    var validity: List[Bool]
+
+    fn __init__(out self):
+        self.data = List[String]()
+        self.validity = List[Bool]()
+
+    fn __init__(out self, size: Int):
+        self.data = List[String]()
+        self.data.resize(size, "")
+        self.validity = List[Bool]()
+        self.validity.resize(size, True)
+
+    fn __copyinit__(out self, existing: StringArray):
+        self.data = existing.data.copy()
+        self.validity = existing.validity.copy()
+
+    fn __moveinit__(out self, deinit existing: StringArray):
+        self.data = existing.data^
+        self.validity = existing.validity^
+
+    fn append(mut self, value: String):
+        self.data.append(value)
+        self.validity.append(True)
+
+    fn is_valid(self, index: Int) -> Bool:
+        return self.validity[index]
+
+    fn __getitem__(self, index: Int) -> String:
+        return self.data[index]
+
+    fn __setitem__(mut self, index: Int, value: String):
+        self.data[index] = value
+
+    fn length(self) -> Int:
+        return len(self.data)
+
 # Field for Schema
 struct Field(Copyable, Movable):
     var name: String

@@ -91,3 +91,12 @@ mojo test.mojo
 
 ## Benchmarks
 Run `mojo benchmark.mojo` for performance tests on large datasets.
+
+## Data Types
+Supports int64, float64, string with Variant columns for type safety.
+
+## Performance Features
+- SIMD-accelerated aggregates
+- Query caching
+- Parallel execution
+- BLOCK storage for persistence

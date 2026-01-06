@@ -12,8 +12,10 @@ from ipc import serialize_table, deserialize_table
 
 # Global database state (simple: one table)
 var global_table = Table(Schema(), 0)
+var command_history = List[String]()
 
 fn execute_sql(sql: String):
+    command_history.append(sql)
     if sql.startswith("CREATE FUNCTION"):
         create_function(sql)
         print("Function created")

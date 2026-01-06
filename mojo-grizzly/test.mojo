@@ -31,7 +31,7 @@ fn test_query() raises:
     except:
         print("Query test fail")
 
-fn test_query_greater():
+fn test_query_greater() raises:
     from query import select_where_greater
     var schema = Schema()
     schema.add_field("value", "int64")
@@ -95,7 +95,7 @@ fn test_joins() raises:
     table2.columns[1][1] = 200
 
     var joined = join_inner(table1^, table2^, "id", "id")
-    if joined.num_rows() == 2 and joined.columns[2][0] == 100:
+    if joined.num_rows() == 2 and joined.columns[3][0] == 100:
         print("Join test pass")
     else:
         print("Join test fail")

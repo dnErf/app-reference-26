@@ -15,6 +15,10 @@ fn generate_key() -> String:
     return str(random.randint(100000, 999999))
 
 fn create_secret(name: String, value: String):
+    # Security: only allow if authenticated
+    if not is_authenticated():
+        print("Access denied: authentication required for create_secret")
+        return
     let encrypted = encrypt(value, master_key)
     secrets[name] = encrypted
 
@@ -33,3 +37,7 @@ fn encrypt(value: String, key: String) -> String:
 
 fn decrypt(encrypted: String, key: String) -> String:
     return encrypt(encrypted, key)  # XOR is symmetric
+
+fn is_authenticated() -> Bool:
+    # Stub: check token or something
+    return True  # For now, allow

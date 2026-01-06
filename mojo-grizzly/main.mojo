@@ -36,11 +36,13 @@ async fn demo():
 
     # Query: SELECT * FROM table WHERE value > 15
     var sql = "SELECT * FROM table WHERE value > 15"
-    var result = await execute_query(table1, sql)
-
-    print("\nQuery result (" + sql + "):")
-    for i in range(result.columns[0].length):
-        print("Row", i, ": id =", result.columns[0][i], ", value =", result.columns[1][i])
+    try:
+        var result = await execute_query(table1, sql)
+        print("\nQuery result (" + sql + "):")
+        for i in range(result.columns[0].length):
+            print("Row", i, ": id =", result.columns[0][i], ", value =", result.columns[1][i])
+    except e:
+        print("Query error:", e)
 
     print("JSONL reader and SQL parser implemented successfully!")
 

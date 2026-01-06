@@ -106,3 +106,16 @@ fn eval_template(template: String, vars: Dict[String, String]) -> String:
         let replacement = true_part[1:-1] if condition_true else false_part[1:-1]  # remove quotes
         result = result[:if_start] + replacement + result[end_pos+5:]
     return result
+
+fn factorial(n: Int64) -> Int64:
+    if n <= 1:
+        return 1
+    return n * factorial(n - 1)
+
+fn load_lib(lib_name: String) -> Dict[String, PLFunction]:
+    var lib = Dict[String, PLFunction]()
+    if lib_name == "math":
+        lib["factorial"] = PLFunction("factorial", List[String]("n"), "factorial(n)")
+        lib["sqrt"] = PLFunction("sqrt", List[String]("x"), "x ** 0.5")  # Stub
+    # Stub: load from file or compile
+    return lib

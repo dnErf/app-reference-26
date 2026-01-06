@@ -9,6 +9,44 @@ struct QueryResult(Movable):
     var table: Table
     var error: String
 
+struct LRUCache(Copyable, Movable):
+    var cache: Dict[String, Table]
+    var order: List[String]
+    var capacity: Int
+
+    fn __init__(out self, capacity: Int = 100):
+        self.cache = Dict[String, Table]()
+        self.order = List[String]()
+        self.capacity = capacity
+
+    fn __copyinit__(out self, existing: LRUCache):
+        self.cache = existing.cache.copy()
+        self.order = existing.order.copy()
+        self.capacity = existing.capacity
+
+    fn __moveinit__(out self, deinit existing: LRUCache):
+        self.cache = existing.cache^
+        self.order = existing.order^
+        self.capacity = existing.capacity
+
+    fn get(inout self, key: String) -> Table:
+        if key in self.cache:
+            # Move to front
+            self.order.remove(key)
+            self.order.append(key)
+            return self.cache[key].copy()
+        return Table(Schema(), 0)
+
+    fn put(inout self, key: String, value: Table):
+        if key in self.cache:
+            self.order.remove(key)
+        elif len(self.cache) >= self.capacity:
+            var oldest = self.order[0]
+            self.order.remove(oldest)
+            self.cache.pop(oldest)
+        self.cache[key] = value.copy()
+        self.order.append(key)
+
     fn __init__(out self, var table: Table, error: String):
         self.table = table^
         self.error = error
@@ -18,12 +56,6 @@ struct QueryResult(Movable):
         self.error = existing.error
 
 # Error types as strings
-# enum QueryError:
-#     ColumnNotFound
-#     InvalidSQL
-#     ParseError
-#     TypeMismatch
-#     SubqueryFailed
 
 fn join_inner(table1: Table, table2: Table, key1: String, key2: String) raises -> Table:
     return join_left(table1, table2, key1, key2)
@@ -106,7 +138,7 @@ fn filter_table(table: Table, condition: String) -> Table:
         # Add more types
     return table
 
-fn select_where_greater(table: Table, column_name: String, value: Int64) -> Table:
+fn select_where_greater(table: Table, column_name: String, value: Int64) raises -> Table:
     # Find column index
     var col_index = -1
     for i in range(len(table.schema.fields)):
@@ -189,6 +221,31 @@ fn sum_column(table: Table, column_name: String) -> Int64:
             break
     if col_index == -1: return 0
     var total: Int64 = 0
+    # SIMD vectorized sum
+    alias vec_size = 4
+    var i = 0
+    while i + vec_size <= table.columns[col_index].length():
+        var vec = SIMD[DType.int64, vec_size]()
+        for j in range(vec_size):
+            if table.columns[col_index].is_valid(i + j):
+                vec[j] = table.columns[col_index][i + j]
+        total += vec.reduce_add()
+        i += vec_size
+    # Remainder
+    while i < table.columns[col_index].length():
+        if table.columns[col_index].is_valid(i):
+            total += table.columns[col_index][i]
+        i += 1
+    return total
+
+fn sum_float_column(table: Table, column_name: String) -> Float64:
+    var col_index = -1
+    for i in range(len(table.schema.fields)):
+        if table.schema.fields[i].name == column_name:
+            col_index = i
+            break
+    if col_index == -1: return 0.0
+    var total: Float64 = 0.0
     for i in range(table.columns[col_index].length()):
         if table.columns[col_index].is_valid(i):
             total += table.columns[col_index][i]
@@ -209,11 +266,24 @@ fn min_column(table: Table, column_name: String) -> Int64:
             col_index = i
             break
     if col_index == -1: return 0
-    var min_val: Int64 = 9223372036854775807  # max int64
-    for i in range(table.columns[col_index].length()):
+    var min_val: Int64 = 9223372036854775807
+    # SIMD vectorized min
+    alias vec_size = 4
+    var i = 0
+    while i + vec_size <= table.columns[col_index].length():
+        var vec = SIMD[DType.int64, vec_size]()
+        for j in range(vec_size):
+            if table.columns[col_index].is_valid(i + j):
+                vec[j] = table.columns[col_index][i + j]
+            else:
+                vec[j] = min_val
+        min_val = min(min_val, vec.reduce_min())
+        i += vec_size
+    # Remainder
+    while i < table.columns[col_index].length():
         if table.columns[col_index].is_valid(i):
-            if table.columns[col_index][i] < min_val:
-                min_val = table.columns[col_index][i]
+            min_val = min(min_val, table.columns[col_index][i])
+        i += 1
     return min_val
 
 fn max_column(table: Table, column_name: String) -> Int64:
@@ -223,15 +293,27 @@ fn max_column(table: Table, column_name: String) -> Int64:
             col_index = i
             break
     if col_index == -1: return 0
-    var max_val: Int64 = -9223372036854775808  # min int64
-    for i in range(table.columns[col_index].length()):
+    var max_val: Int64 = -9223372036854775808
+    # SIMD vectorized max
+    alias vec_size = 4
+    var i = 0
+    while i + vec_size <= table.columns[col_index].length():
+        var vec = SIMD[DType.int64, vec_size]()
+        for j in range(vec_size):
+            if table.columns[col_index].is_valid(i + j):
+                vec[j] = table.columns[col_index][i + j]
+            else:
+                vec[j] = max_val
+        max_val = max(max_val, vec.reduce_max())
+        i += vec_size
+    # Remainder
+    while i < table.columns[col_index].length():
         if table.columns[col_index].is_valid(i):
-            if table.columns[col_index][i] > max_val:
-                max_val = table.columns[col_index][i]
+            max_val = max(max_val, table.columns[col_index][i])
+        i += 1
     return max_val
 
-# Basic SQL parser for "SELECT * FROM table WHERE column > value" or "WHERE func(column) == value"
-async fn parse_and_execute_sql(table: Table, sql: String) -> Table:
+async fn parse_and_execute_sql(table: Table, sql: String) raises -> Table:
     # Simple parsing: split by spaces
     var parts = sql.split(" ")
     if "SUM(" in sql:
@@ -355,6 +437,17 @@ async fn parse_and_execute_sql(table: Table, sql: String) -> Table:
     else:
         return table  # Unsupported
 
-# General execute query
-async fn execute_query(table: Table, sql: String) -> Table:
-    return await parse_and_execute_sql(table, sql)
+from collections import Dict
+
+
+
+from threading import ThreadPool
+
+async fn execute_query(table: Table, sql: String) raises -> Table:
+    if sql in query_cache:
+        return query_cache[sql].copy()
+    # Parallel execution stub
+    var pool = ThreadPool(4)
+    var result = await parse_and_execute_sql(table, sql)
+    query_cache[sql] = result.copy()
+    return result

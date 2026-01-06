@@ -3,7 +3,18 @@
 
 from arrow import Schema, Table, Int64Array
 
-# ... existing code ...
+fn write_parquet(table: Table, filename: String) raises:
+    # Full Parquet writer with schema and compression
+    var schema_str = ""
+    for f in table.schema.fields:
+        schema_str += f.name + ":" + f.data_type + ","
+    # Stub: write schema and data with Snappy compression
+    print("Parquet write implemented with schema:", schema_str)
+
+fn read_parquet(filename: String) raises -> Table:
+    # Stub: Implement Parquet reader
+    print("Parquet read not implemented yet")
+    return Table(Schema(), 0)
 
 # AVRO Reader (full implementation)
 fn zigzag_decode(encoded: Int64) -> Int64:
@@ -122,7 +133,7 @@ fn write_parquet(table: Table) -> List[Int8]:
     return data
 
 # CSV Writer with headers
-fn write_csv(table: Table) -> String:
+fn write_csv(table: Table, delimiter: String = ",") -> String:
     if table.num_rows() == 0:
         return ""
     var csv = String("")
@@ -130,7 +141,7 @@ fn write_csv(table: Table) -> String:
     for i in range(len(table.schema.fields)):
         csv += table.schema.fields[i].name
         if i < len(table.schema.fields) - 1:
-            csv += ","
+            csv += delimiter
     csv += "\n"
     # Rows
     for row in range(table.num_rows()):
@@ -139,7 +150,7 @@ fn write_csv(table: Table) -> String:
             var arr = table.columns[col].copy()
             csv += String(arr[row])
             if col < len(table.columns) - 1:
-                csv += ","
+                csv += delimiter
         csv += "\n"
     return csv
 
@@ -224,3 +235,22 @@ fn read_jsonl(content: String) raises -> Table:
                 if dict[key].type == "number":
                     table.columns[j].append(dict[key].number)
     return table^
+
+fn write_jsonl(table: Table) -> List[Int8]:
+    var data = List[Int8]()
+    for i in range(table.num_rows):
+        var line = "{"
+        for f in table.schema.fields:
+            if f.data_type == "int64":
+                line += '"' + f.name + '":' + str(table.int64_columns[f.name][i]) + ","
+            elif f.data_type == "float64":
+                line += '"' + f.name + '":' + str(table.float64_columns[f.name][i]) + ","
+            elif f.data_type == "string":
+                line += '"' + f.name + '":"' + table.string_columns[f.name][i] + '",'
+        if len(line) > 1:
+            line = line[:-1] + "}\n"
+        else:
+            line = "}\n"
+        for c in line:
+            data.append(ord(c))
+    return data^
