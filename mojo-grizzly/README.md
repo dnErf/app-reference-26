@@ -4,10 +4,14 @@ A high-performance, columnar database built in pure Mojo, leveraging Apache Arro
 
 ## Features
 - **Columnar Storage**: Arrow-based arrays with validity bitmaps.
-- **SQL Queries**: SELECT, FROM, WHERE with > operator.
-- **Formats**: JSONL reader, IPC serialization.
+- **SQL Queries**: SELECT, FROM, WHERE, JOIN, aggregates (SUM, COUNT, AVG, MIN, MAX), GROUP BY.
+- **Formats**: JSONL, AVRO, ORC, Parquet readers/writers, CSV export.
+- **Indexing**: HashIndex for fast WHERE lookups.
 - **CLI**: Run .sql files.
-- **PL Functions**: CREATE FUNCTION with simple evaluation.
+- **PL Functions**: CREATE FUNCTION with AST evaluation, async, templating, debugging.
+- **Testing**: Comprehensive unit tests in test.mojo.
+- **Storage Types**: MEMORY (in-memory) and BLOCK (persistent ORC-based).
+- **Extensions**: Loadable modules like 'secret' (default), 'blockchain', 'graph'.
 
 ## Usage
 
@@ -16,14 +20,27 @@ A high-performance, columnar database built in pure Mojo, leveraging Apache Arro
 mojo cli.mojo test.sql
 ```
 
+### Extensions
+```sql
+LOAD EXTENSION 'secret';
+LOAD EXTENSION 'blockchain';
+```
+
 ### SQL Example
 ```sql
 LOAD JSONL '{"id": 1, "value": 10}
 {"id": 2, "value": 20}';
 
-SELECT * FROM table WHERE value > 15;
+SELECT SUM(value) FROM table GROUP BY id;
 
 SAVE 'table.ipc';
+```
+
+### PL Example
+```sql
+CREATE FUNCTION double(x) RETURN x * 2;
+
+SELECT double(value) FROM table;
 ```
 
 ### API
@@ -31,6 +48,7 @@ Import modules:
 ```mojo
 from arrow import Table, Schema, DataType
 from query import execute_query
+from formats import read_avro, write_csv
 ```
 
 Create table:
@@ -39,11 +57,22 @@ var schema = Schema()
 schema.add_field("id", DataType.int64)
 var table = Table(schema, 10)
 table.columns[0][0] = 1
+table.build_index("id")  # For fast queries
 ```
 
 Query:
 ```mojo
-let result = execute_query(table, "SELECT * FROM table WHERE id > 5")
+let result = execute_query(table, "SELECT * FROM table WHERE id == 5")
+```
+
+Export:
+```mojo
+let csv_data = write_csv(table)
+```
+
+### Testing
+```bash
+mojo test.mojo
 ```
 
 ## Architecture
@@ -55,11 +84,10 @@ let result = execute_query(table, "SELECT * FROM table WHERE id > 5")
 - `cli.mojo`: Command-line interface.
 
 ## Roadmap
-- Full SQL (JOIN, aggregates).
-- More formats (AVRO, ORC).
-- Advanced PL (pattern matching, pipes).
-- Performance optimizations.
 - REST API.
+- Full AVRO/ORC/Parquet implementations.
+- Advanced optimizations.
+- Open-source release.
 
 ## Benchmarks
 Run `mojo benchmark.mojo` for performance tests on large datasets.

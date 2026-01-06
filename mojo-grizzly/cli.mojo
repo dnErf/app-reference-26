@@ -38,8 +38,35 @@ fn execute_sql(sql: String):
         print("Query result:")
         for i in range(result.columns[0].length):
             print("Row", i, ": id =", result.columns[0][i], ", value =", result.columns[1][i])
+    elif sql.startswith("LOAD EXTENSION"):
+        # LOAD EXTENSION 'name'
+        let start = sql.find("'")
+        let end = sql.rfind("'")
+        if start != -1 and end != -1:
+            let name = sql[start+1:end]
+            load_extension(name)
+    elif sql.startswith("CREATE TABLE"):
+        # CREATE TABLE name (cols) STORAGE type
+        # Placeholder
+        print("CREATE TABLE not fully implemented")
     else:
         print("Unsupported SQL:", sql)
+
+fn load_extension(name: String):
+    if name == "secret":
+        from extensions.secret import init
+        init()
+    elif name == "blockchain":
+        from extensions.blockchain import init
+        init()
+    elif name == "graph":
+        from extensions.graph import init
+        init()
+    elif name == "rest_api":
+        from extensions.rest_api import init
+        init()
+    else:
+        print("Unknown extension:", name)
 
 fn main():
     if len(sys.argv) != 2:

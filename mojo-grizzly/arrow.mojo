@@ -12,17 +12,29 @@ from memory import memset_zero
 
 # Core Buffer struct for contiguous memory
 struct Buffer:
-    var data: Pointer[UInt8]
+    var data: Pointer[mut UInt8]
     var size: Int
 
     fn __init__(inout self, size: Int):
-        self.data = Pointer[UInt8].alloc(size)
+        self.data = Pointer[mut UInt8].alloc(size)
         self.size = size
         # Initialize to zero for safety
         memset_zero(self.data, size)
 
-    fn __del__(inout self):
+    fn deinit(self):
         self.data.free()
+
+    fn __copyinit__(inout self, other: Buffer):
+        self.size = other.size
+        self.data = Pointer[UInt8].alloc(self.size)
+        for i in range(self.size):
+            self.data[i] = other.data[i]
+
+    fn __moveinit__(inout self, owned other: Buffer):
+        self.size = other.size
+        self.data = other.data
+        other.data = Pointer[UInt8]()
+        other.size = 0
 
     fn __getitem__(self, index: Int) -> UInt8:
         return self.data[index]
@@ -92,6 +104,18 @@ struct Int64Array:
             self.null_count += 1
         set_valid(self.validity, index, False)
 
+    fn __copyinit__(inout self, other: Int64Array):
+        self.length = other.length
+        self.null_count = other.null_count
+        self.validity = other.validity
+        self.data = other.data
+
+    fn __moveinit__(inout self, owned other: Int64Array):
+        self.length = other.length
+        self.null_count = other.null_count
+        self.validity = other.validity^
+        self.data = other.data^
+
 # String Array (Variable Binary)
 struct StringArray:
     var length: Int
@@ -146,6 +170,20 @@ struct StringArray:
             self.null_count += 1
         set_valid(self.validity, index, False)
 
+    fn __copyinit__(inout self, other: StringArray):
+        self.length = other.length
+        self.null_count = other.null_count
+        self.validity = other.validity
+        self.offsets = other.offsets
+        self.data = other.data
+
+    fn __moveinit__(inout self, owned other: StringArray):
+        self.length = other.length
+        self.null_count = other.null_count
+        self.validity = other.validity^
+        self.offsets = other.offsets^
+        self.data = other.data^
+
 # Float64 Primitive Array
 struct Float64Array:
     var length: Int
@@ -183,6 +221,141 @@ struct Float64Array:
             self.null_count += 1
         set_valid(self.validity, index, False)
 
+    fn __copyinit__(inout self, other: Float64Array):
+        self.length = other.length
+        self.null_count = other.null_count
+        self.validity = other.validity
+        self.data = other.data
+
+    fn __moveinit__(inout self, owned other: Float64Array):
+        self.length = other.length
+        self.null_count = other.null_count
+        self.validity = other.validity^
+        self.data = other.data^
+
+# Date32 Array (days since 1970-01-01 as Int32)
+struct Date32Array:
+    var length: Int
+    var null_count: Int
+    var validity: Buffer
+    var data: Buffer
+
+    fn __init__(inout self, length: Int):
+        self.length = length
+        self.null_count = 0
+        let validity_size = (length + 7) // 8
+        self.validity = Buffer(validity_size)
+        self.data = Buffer(length * 4)
+
+    fn is_valid(self, index: Int) -> Bool:
+        return is_valid(self.validity, index)
+
+    fn __getitem__(self, index: Int) -> Int32:
+        if not self.is_valid(index):
+            return 0
+        return self.data.data.bitcast[Int32]()[index]
+
+    fn __setitem__(inout self, index: Int, value: Int32):
+        self.data.data.bitcast[Int32]()[index] = value
+        if not self.is_valid(index):
+            self.null_count -= 1
+        set_valid(self.validity, index, True)
+
+    fn set_null(inout self, index: Int):
+        if self.is_valid(index):
+            self.null_count += 1
+        set_valid(self.validity, index, False)
+
+    fn __copyinit__(inout self, other: Date32Array):
+        self.length = other.length
+        self.null_count = other.null_count
+        self.validity = other.validity
+        self.data = other.data
+
+    fn __moveinit__(inout self, owned other: Date32Array):
+        self.length = other.length
+        self.null_count = other.null_count
+        self.validity = other.validity^
+        self.data = other.data^
+
+# Timestamp Array (microseconds since 1970-01-01 as Int64)
+struct TimestampArray:
+    var length: Int
+    var null_count: Int
+    var validity: Buffer
+    var data: Buffer
+
+    fn __init__(inout self, length: Int):
+        self.length = length
+        self.null_count = 0
+        let validity_size = (length + 7) // 8
+        self.validity = Buffer(validity_size)
+        self.data = Buffer(length * 8)
+
+    fn is_valid(self, index: Int) -> Bool:
+        return is_valid(self.validity, index)
+
+    fn __getitem__(self, index: Int) -> Int64:
+        if not self.is_valid(index):
+            return 0
+        return self.data.data.bitcast[Int64]()[index]
+
+    fn __setitem__(inout self, index: Int, value: Int64):
+        self.data.data.bitcast[Int64]()[index] = value
+        if not self.is_valid(index):
+            self.null_count -= 1
+        set_valid(self.validity, index, True)
+
+    fn set_null(inout self, index: Int):
+        if self.is_valid(index):
+            self.null_count += 1
+        set_valid(self.validity, index, False)
+
+    fn __copyinit__(inout self, other: TimestampArray):
+        self.length = other.length
+        self.null_count = other.null_count
+        self.validity = other.validity
+        self.data = other.data
+
+    fn __moveinit__(inout self, owned other: TimestampArray):
+        self.length = other.length
+        self.null_count = other.null_count
+        self.validity = other.validity^
+        self.data = other.data^
+
+# List Array (variable-length lists of Int64)
+struct ListArray:
+    var length: Int
+    var null_count: Int
+    var validity: Buffer
+    var offsets: Buffer  # Int32 offsets
+    var values: Int64Array
+
+    fn __init__(inout self, length: Int):
+        self.length = length
+        self.null_count = 0
+        let validity_size = (length + 7) // 8
+        self.validity = Buffer(validity_size)
+        self.offsets = Buffer((length + 1) * 4)
+        self.values = Int64Array(0)  # Start empty
+
+    fn is_valid(self, index: Int) -> Bool:
+        return is_valid(self.validity, index)
+
+    fn __copyinit__(inout self, other: ListArray):
+        self.length = other.length
+        self.null_count = other.null_count
+        self.validity = other.validity
+        self.offsets = other.offsets
+        self.values = other.values
+
+    fn __moveinit__(inout self, owned other: ListArray):
+        self.length = other.length
+        self.null_count = other.null_count
+        self.validity = other.validity^
+        self.offsets = other.offsets^
+        self.values = other.values^
+
 # Schema
 struct Field:
     var name: String
@@ -197,13 +370,66 @@ struct Schema:
     fn add_field(inout self, name: String, data_type: String):
         self.fields.append(Field(name, data_type))
 
+    fn __copyinit__(inout self, other: Schema):
+        self.fields = other.fields
+
+    fn __moveinit__(inout self, owned other: Schema):
+        self.fields = other.fields^
+
+from collections import Dict
+from index import HashIndex
+
+# ... existing ...
+
 # Table (simplified: all columns Int64 for now)
 struct Table:
     var schema: Schema
     var columns: List[Int64Array]
+    var indexes: Dict[String, HashIndex]
 
     fn __init__(inout self, schema: Schema, num_rows: Int):
         self.schema = schema
         self.columns = List[Int64Array]()
         for field in schema.fields:
             self.columns.append(Int64Array(num_rows))
+        self.indexes = Dict[String, HashIndex]()
+
+    fn build_index(inout self, column_name: String):
+        var col_index = -1
+        for i in range(len(self.schema.fields)):
+            if self.schema.fields[i].name == column_name:
+                col_index = i
+                break
+        if col_index == -1:
+            return
+        var index = HashIndex()
+        for i in range(self.columns[col_index].length):
+            index.insert(self.columns[col_index][i], i)
+        self.indexes[column_name] = index
+
+    fn num_rows(self) -> Int:
+        return self.columns[0].length if len(self.columns) > 0 else 0
+
+    fn snapshot(self) -> Table:
+        # Deep copy for ACID snapshots
+        var new_schema = Schema()
+        for field in self.schema.fields:
+            new_schema.add_field(field.name, field.data_type)
+        var new_table = Table(new_schema, self.columns[0].length)
+        for i in range(len(self.columns)):
+            for j in range(self.columns[i].length):
+                new_table.columns[i][j] = self.columns[i][j]
+        # Copy indexes
+        for key in self.indexes.keys():
+            new_table.indexes[key] = self.indexes[key]  # Shallow for now
+        return new_table
+
+    fn __copyinit__(inout self, other: Table):
+        self.schema = other.schema
+        self.columns = other.columns
+        self.indexes = other.indexes
+
+    fn __moveinit__(inout self, owned other: Table):
+        self.schema = other.schema^
+        self.columns = other.columns^
+        self.indexes = other.indexes^
