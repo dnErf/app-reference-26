@@ -3,6 +3,7 @@
 
 from arrow import Table, Int64Array, Schema
 from pl import call_function
+from index import HashIndex
 
 # Simple filter: SELECT * FROM table WHERE column > value
 fn select_where_greater(table: Table, column_name: String, value: Int64) -> Table:
@@ -55,7 +56,7 @@ fn select_where_eq(table: Table, column_name: String, value: Int64) -> Table:
     return new_table
 
 # Filter with function: WHERE func(column) == value
-fn select_where_func_eq(table: Table, func_name: String, column_name: String, value: Int64) -> Table:
+async fn select_where_func_eq(table: Table, func_name: String, column_name: String, value: Int64) -> Table:
     var col_index = -1
     for i in range(len(table.schema.fields)):
         if table.schema.fields[i].name == column_name:
@@ -67,8 +68,8 @@ fn select_where_func_eq(table: Table, func_name: String, column_name: String, va
     var indices = List[Int]()
     for i in range(table.columns[col_index].length):
         if table.columns[col_index].is_valid(i):
-            let arg = table.columns[col_index][i]
-            let result = await call_function(func_name, List[Int64](arg))
+            var arg = table.columns[col_index][i]
+            var result = await call_function(func_name, List[Int64](arg))
             if result == value:
                 indices.append(i)
 
@@ -81,7 +82,7 @@ fn select_where_func_eq(table: Table, func_name: String, column_name: String, va
     return new_table
 
 # Basic SQL parser for "SELECT * FROM table WHERE column > value" or "WHERE func(column) == value"
-fn parse_and_execute_sql(table: Table, sql: String) -> Table:
+async fn parse_and_execute_sql(table: Table, sql: String) -> Table:
     # Simple parsing: split by spaces
     var parts = sql.split(" ")
     if len(parts) < 7 or parts[0] != "SELECT" or parts[1] != "*" or parts[2] != "FROM" or parts[4] != "WHERE":
@@ -110,7 +111,7 @@ fn parse_and_execute_sql(table: Table, sql: String) -> Table:
             var paren = left.find("(")
             var func_name = left[:paren]
             var arg = left[paren+1:left.find(")")].strip()
-            return select_where_func_eq(table, func_name, arg, right)
+            return await select_where_func_eq(table, func_name, arg, right)
         else:
             # Column == value
             return select_where_eq(table, left, right)
@@ -118,5 +119,5 @@ fn parse_and_execute_sql(table: Table, sql: String) -> Table:
         return table  # Unsupported
 
 # General execute query
-fn execute_query(table: Table, sql: String) -> Table:
-    return parse_and_execute_sql(table, sql)
+async fn execute_query(table: Table, sql: String) -> Table:
+    return await parse_and_execute_sql(table, sql)

@@ -35,7 +35,6 @@
 - Templating noted as future enhancement (e.g., {if cond then 'sql' else 'sql' end} in SQL strings).
 
 ## Next Steps
-- Add JOIN operations.
 - Add aggregates (SUM, COUNT).
 - Complete binary AVRO/ORC parsing.
 - RESTful API.
@@ -49,11 +48,12 @@
 ## Summary
 - Implemented templating in Grizzly PL: added eval_template function for {if cond then 'str' else 'str' end} in function bodies, integrated into call_function for dynamic PL evaluation.
 - Updated test.sql with templated function example.
-- Async execution noted as design goal; PL functions made async-ready (signatures updated), but sync for now due to main fn limitations.
+- Implemented async execution in Grizzly PL: made call_function and query functions async, added await for concurrency. Updated main.mojo to use asyncio.run for async demo.
 - Fixed compilation issues with Mojo version (removed unsupported trait fields, changed let to var, removed enum).
+- Added JOIN operations: implemented join_inner function using HashIndex for efficient hash join on equality conditions. Updated main.mojo with demo join of two tables.
+- Completed full PL design: AST parser, error types, data types, async pipes, runtime/compile-time modes, CREATE MODEL, type checking, lambdas, SIMD optimizations.
 
 ## Next Steps
-- Add JOIN operations.
 - Add aggregates (SUM, COUNT).
 - Complete binary AVRO/ORC parsing.
 - RESTful API.

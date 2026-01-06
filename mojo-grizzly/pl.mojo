@@ -1,15 +1,45 @@
 # Grizzly PL for Mojo Arrow Database
 # Inspired by Grizzly PL Functions
 
-struct PLFunction:
-    var name: String
-    var params: List[String]
-    var body: String
+from expr import PLFunction, Expr, parse_expr, eval_ast
+
+enum Error:
+    DivisionByZero
+    InvalidArgument
+    ParseError
+
+struct Value:
+    var type: String  # "int", "float", "string"
+    var int_val: Int64
+    var float_val: Float64
+    var str_val: String
 
 var functions = Dict[String, PLFunction]()
+var models = Dict[String, String]()
+var types = Dict[String, List[Tuple[String, String]]]()
+var builtins = Dict[String, fn(List[Value]) -> Value]()
+
+fn init_builtins():
+    builtins["len"] = lambda args: Value("int", atol(str(len(args[0].str_val))) if args[0].type == "string" else 0, 0.0, "")
+    # Add more
+
+init_builtins()
 
 fn create_function(sql: String):
-    # Parse CREATE FUNCTION name(params) RETURNS type { body }
+    if sql.startswith("CREATE TYPE"):
+        # Parse CREATE TYPE name { field: type, ... }
+        let start = sql.find("CREATE TYPE ") + 12
+        let brace = sql.find("{")
+        let name = sql[start:brace].strip()
+        let fields_str = sql[brace+1:sql.rfind("}")].strip()
+        let fields = List[Tuple[String, String]]()
+        for field in fields_str.split(","):
+            let parts = field.split(":")
+            if len(parts) == 2:
+                fields.append((parts[0].strip(), parts[1].strip()))
+        types[name] = fields
+        return
+    # Rest
     let start = sql.find("CREATE FUNCTION ")
     if start == -1: return
     let after = sql[start + 16:]
@@ -24,7 +54,11 @@ fn create_function(sql: String):
     let body_start = after.find("{") + 1
     let body_end = after.rfind("}")
     let body = after[body_start:body_end].strip()
-    functions[name] = PLFunction(name, params, body)
+    let body_ast = parse_expr(body)
+    var mode = Mode.runtime
+    if "AS COMPILE_TIME" in sql:
+        mode = Mode.compile_time
+    functions[name] = PLFunction(name, params, body_ast, mode)
 
 # Simple pattern matching evaluator
 fn eval_match(value: Int64, patterns: List[String], results: List[Int64]) -> Int64:
@@ -65,51 +99,16 @@ fn eval_try(expr: String, catch_expr: String) -> Int64:
         return atol(catch_expr)
     return atol(expr)
 
-fn call_function(name: String, args: List[Int64]) -> Int64:
+async fn call_function(name: String, args: List[Int64]) -> Int64:
     if name not in functions: return 0
     let func = functions[name]
-    # Prepare vars for templating
-    var vars = Dict[String, String]()
+    # Prepare vars for evaluation
+    var vars = Dict[String, Int64]()
     for i in range(len(args)):
-        vars["arg" + str(i)] = str(args[i])
-    if len(args) > 0: vars["x"] = str(args[0])  # common
-    # Eval template in body
-    let templated_body = eval_template(func.body, vars)
-    # Simple evaluation: assume body like "x * 2" or match or pipe
-    if "match" in templated_body:
-        # Parse match
-        let match_start = templated_body.find("match ") + 6
-        let var_name = templated_body[match_start:templated_body.find(" {")].strip()
-        let cases_str = templated_body[templated_body.find("{") + 1:templated_body.rfind("}")]
-        let cases = cases_str.split(",")
-        var patterns = List[String]()
-        var results = List[Int64]()
-        for case in cases:
-            let arrow = case.find("=>")
-            let pat = case[:arrow].strip()
-            let res_str = case[arrow+2:].strip()
-            patterns.append(pat)
-            results.append(atol(res_str))
-        let value = args[0] if len(args) > 0 else 0
-        return eval_match(value, patterns, results)
-    elif "|>" in templated_body:
-        # Pipe
-        let parts = templated_body.split("|>")
-        var ops = List[String]()
-        for i in range(1, len(parts)):
-            ops.append(parts[i].strip())
-        let initial = args[0] if len(args) > 0 else 0
-        return eval_pipe(initial, ops)
-    elif "try" in templated_body:
-        # Try catch
-        let try_start = templated_body.find("try ") + 4
-        let catch_start = templated_body.find(" catch ")
-        let expr = templated_body[try_start:catch_start].strip()
-        let catch_expr = templated_body[catch_start + 7:].strip()
-        return eval_try(expr, catch_expr)
-    elif templated_body == "x * 2" and len(args) > 0:
-        return args[0] * 2
-    return 0
+        vars["arg" + str(i)] = args[i]
+    if len(args) > 0: vars["x"] = args[0]  # common
+    # Eval AST
+    return eval_ast(func.body_ast, vars)
 
 # Example: CREATE FUNCTION double(x int64) RETURNS int64 { x * 2 }
 

@@ -49,10 +49,11 @@ CREATE MODEL summary AS {
 - **Runtime**: Functions in queries, executed at query time.
 - **Compile-time**: Templates for dynamic SQL, expanded before execution.
 
-## Implementation Plan
-1. Extend pl.mojo with AST for expressions.
-2. Add pattern matching evaluator.
-3. Implement pipe chaining.
-4. Add try/catch with error types.
-5. Integrate templating in SQL parser.
-6. Ensure seamless switching between environments.
+## Use Cases
+- **ETL Pipelines**: Use pipes and functions for data transformation (e.g., `data |> filter |> map`).
+- **Analytics**: Aggregates and matches for grouping/classification.
+- **Dynamic Queries**: Models for templated SQL generation.
+
+## Examples
+- Function: `CREATE FUNCTION double(x int64) RETURNS int64 { x * 2 }`
+- Model: `CREATE MODEL active_users AS { SELECT * FROM users WHERE {if active then 'status = "active"' else 'true'} end }`

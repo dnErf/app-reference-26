@@ -76,7 +76,7 @@ Build a high-performance, columnar database leveraging a pure Mojo implementatio
 - [x] Advanced storage (indexing).
 - [x] Extend PL with pattern matching and pipes.
 - [x] Implement full Grizzly PL (try/catch, templating, async execution).
-- [ ] Add JOIN operations.
+- [x] Add JOIN operations.
 - [ ] Add aggregates (SUM, COUNT).
 - [ ] RESTful API.
 - [x] Document API and usage.
@@ -84,7 +84,23 @@ Build a high-performance, columnar database leveraging a pure Mojo implementatio
 - [x] Performance optimizations (SIMD).
 - [x] Advanced storage (indexing).
 - [ ] Document API and usage.
-- [ ] Implement async execution in Grizzly PL (async fn, await for concurrency).
+- [x] Implement async execution in Grizzly PL (async fn, await for concurrency).
+- [x] Implement PL AST parser for robust expression evaluation.
+- [x] Add custom error types for try/catch in PL.
+- [x] Implement compile-time evaluation for PL templates.
+- [x] Extend PL data types and operators (FLOAT, TEXT, ARRAY, binary ops).
+- [x] Integrate async pipes for concurrency in PL.
+- [x] Implement runtime/compile-time modes in PL.
+- [x] Add CREATE MODEL for templated SQL.
+- [x] Add type checking in PL AST.
+- [x] Enhance pipes with higher-order functions (lambdas).
+- [x] Optimize AST evaluation with SIMD/parallelism.
+- [x] Add user-defined types/structs to PL.
+- [x] Add built-in functions library to PL.
+- [x] Add recursive functions and TCO to PL.
+- [x] Add debugging/inspection features to PL.
+- [x] Add caching/memoization to PL.
+- [x] Update PL design doc with examples/use cases.
 - [x] Implement templating in Grizzly PL (conditional SQL generation with {if/else/end}).
 
 ## Risks & Mitigations
