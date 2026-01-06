@@ -1,0 +1,1 @@
+before cli command always `.venv/bin/activate`
