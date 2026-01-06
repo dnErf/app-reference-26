@@ -29,12 +29,24 @@ pub const Model = struct {
     partition_column: ?[]const u8 = null,
     last_partition_value: ?Value = null,
 
+    // Metadata fields for documentation and management
+    description: ?[]const u8 = null,
+    tags: std.ArrayListUnmanaged([]const u8) = std.ArrayListUnmanaged([]const u8){},
+    owner: ?[]const u8 = null,
+    category: ?[]const u8 = null,
+    freshness_threshold_hours: ?u32 = null,
+    data_quality_score: ?f32 = null,
+    created_at: i64,
+    updated_at: i64,
+
     pub fn init(allocator: std.mem.Allocator, name: []const u8, sql: []const u8) !Model {
         const name_copy = try allocator.dupe(u8, name);
         errdefer allocator.free(name_copy);
 
         const sql_copy = try allocator.dupe(u8, sql);
         errdefer allocator.free(sql_copy);
+
+        const now = std.time.timestamp();
 
         return Model{
             .name = name_copy,
@@ -46,6 +58,14 @@ pub const Model = struct {
             .is_incremental = false,
             .partition_column = null,
             .last_partition_value = null,
+            .description = null,
+            .tags = std.ArrayListUnmanaged([]const u8){},
+            .owner = null,
+            .category = null,
+            .freshness_threshold_hours = null,
+            .data_quality_score = null,
+            .created_at = now,
+            .updated_at = now,
         };
     }
 
@@ -61,6 +81,8 @@ pub const Model = struct {
             partition_column_copy = try allocator.dupe(u8, col);
         }
 
+        const now = std.time.timestamp();
+
         return Model{
             .name = name_copy,
             .sql_definition = sql_copy,
@@ -71,6 +93,14 @@ pub const Model = struct {
             .is_incremental = true,
             .partition_column = partition_column_copy,
             .last_partition_value = null,
+            .description = null,
+            .tags = std.ArrayListUnmanaged([]const u8){},
+            .owner = null,
+            .category = null,
+            .freshness_threshold_hours = null,
+            .data_quality_score = null,
+            .created_at = now,
+            .updated_at = now,
         };
     }
 
@@ -89,6 +119,23 @@ pub const Model = struct {
         if (self.last_partition_value) |_| {
             // Value is a union of primitives and slices, no deinit needed
         }
+
+        if (self.description) |desc| {
+            allocator.free(desc);
+        }
+
+        if (self.owner) |owner| {
+            allocator.free(owner);
+        }
+
+        if (self.category) |cat| {
+            allocator.free(cat);
+        }
+
+        for (self.tags.items) |tag| {
+            allocator.free(tag);
+        }
+        self.tags.deinit(allocator);
 
         for (self.dependencies.items) |dep| {
             allocator.free(dep);
@@ -222,6 +269,96 @@ pub const Model = struct {
             .partition_column = partition_column_copy,
             .last_partition_value = last_partition_value_copy,
         };
+    }
+
+    /// Set model description
+    pub fn setDescription(self: *Model, allocator: std.mem.Allocator, description: []const u8) !void {
+        if (self.description) |old_desc| {
+            allocator.free(old_desc);
+        }
+        self.description = try allocator.dupe(u8, description);
+        self.updated_at = std.time.timestamp();
+    }
+
+    /// Set model owner
+    pub fn setOwner(self: *Model, allocator: std.mem.Allocator, owner: []const u8) !void {
+        if (self.owner) |old_owner| {
+            allocator.free(old_owner);
+        }
+        self.owner = try allocator.dupe(u8, owner);
+        self.updated_at = std.time.timestamp();
+    }
+
+    /// Set model category
+    pub fn setCategory(self: *Model, allocator: std.mem.Allocator, category: []const u8) !void {
+        if (self.category) |old_cat| {
+            allocator.free(old_cat);
+        }
+        self.category = try allocator.dupe(u8, category);
+        self.updated_at = std.time.timestamp();
+    }
+
+    /// Add a tag to the model
+    pub fn addTag(self: *Model, allocator: std.mem.Allocator, tag: []const u8) !void {
+        const tag_copy = try allocator.dupe(u8, tag);
+        try self.tags.append(allocator, tag_copy);
+        self.updated_at = std.time.timestamp();
+    }
+
+    /// Remove a tag from the model
+    pub fn removeTag(self: *Model, allocator: std.mem.Allocator, tag: []const u8) bool {
+        for (self.tags.items, 0..) |t, i| {
+            if (std.mem.eql(u8, t, tag)) {
+                allocator.free(t);
+                _ = self.tags.orderedRemove(i);
+                self.updated_at = std.time.timestamp();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Set freshness threshold in hours
+    pub fn setFreshnessThreshold(self: *Model, hours: u32) void {
+        self.freshness_threshold_hours = hours;
+        self.updated_at = std.time.timestamp();
+    }
+
+    /// Update data quality score (0.0 to 1.0)
+    pub fn updateDataQualityScore(self: *Model, score: f32) void {
+        self.data_quality_score = @max(0.0, @min(1.0, score));
+        self.updated_at = std.time.timestamp();
+    }
+
+    /// Check if model is fresh based on last run and threshold
+    pub fn isFresh(self: Model) bool {
+        const threshold_hours = self.freshness_threshold_hours orelse return true; // No threshold = always fresh
+        const last_run = self.last_run orelse return false; // Never run = not fresh
+
+        const now = std.time.timestamp();
+        const threshold_seconds = @as(i64, threshold_hours) * 3600; // Convert hours to seconds
+        const time_since_last_run = now - last_run;
+
+        return time_since_last_run <= threshold_seconds;
+    }
+
+    /// Get freshness status as a string
+    pub fn getFreshnessStatus(self: Model, allocator: std.mem.Allocator) ![]const u8 {
+        if (!self.isFresh()) {
+            return try allocator.dupe(u8, "stale");
+        }
+
+        const last_run = self.last_run orelse return try allocator.dupe(u8, "never_run");
+        const hours_since = (@divFloor(std.time.timestamp() - last_run, 3600));
+
+        if (hours_since < 1) {
+            return try allocator.dupe(u8, "fresh");
+        } else if (hours_since < 24) {
+            return try std.fmt.allocPrint(allocator, "fresh ({d}h ago)", .{hours_since});
+        } else {
+            const days = @divFloor(hours_since, 24);
+            return try std.fmt.allocPrint(allocator, "fresh ({d}d ago)", .{days});
+        }
     }
 };
 

@@ -16,6 +16,9 @@ const function_mod = @import("function.zig");
 const pattern_mod = @import("pattern.zig");
 const expression_mod = @import("expression.zig");
 const secrets_mod = @import("secrets.zig");
+const documentation_mod = @import("documentation.zig");
+const lineage_mod = @import("lineage.zig");
+const test_mod = @import("test.zig");
 
 const Value = types.Value;
 const DataType = types.DataType;
@@ -39,6 +42,9 @@ const ExecutionContext = function_mod.ExecutionContext;
 const Pattern = pattern_mod.Pattern;
 const MatchCase = function_mod.MatchCase;
 const ExpressionEngine = expression_mod.ExpressionEngine;
+const TestEngine = test_mod.TestEngine;
+const DocumentationEngine = @import("documentation.zig").DocumentationEngine;
+const LineageEngine = @import("lineage.zig").LineageEngine;
 
 const JoinClause = struct {
     join_type: JoinType,
@@ -173,7 +179,6 @@ const TokenType = enum {
     failure,
     retry,
     drop,
-    lineage,
     dependencies,
     for_,
     as,
@@ -183,6 +188,9 @@ const TokenType = enum {
     databases,
     use,
     validate,
+    test_,
+    documentation,
+    lineage,
     eof,
     enum_,
     type_,
@@ -438,7 +446,9 @@ pub const Tokenizer = struct {
         if (std.mem.eql(u8, lowercase, "in")) return .in;
         if (std.mem.eql(u8, lowercase, "attach")) return .attach;
         if (std.mem.eql(u8, lowercase, "detach")) return .detach;
-        if (std.mem.eql(u8, lowercase, "enum")) return .enum_;
+        if (std.mem.eql(u8, lowercase, "test")) return .test_;
+        if (std.mem.eql(u8, lowercase, "documentation")) return .documentation;
+        if (std.mem.eql(u8, lowercase, "lineage")) return .lineage;
         if (std.mem.eql(u8, lowercase, "struct")) return .struct_;
         if (std.mem.eql(u8, lowercase, "exception")) return .exception;
         if (std.mem.eql(u8, lowercase, "describe")) return .describe;
@@ -564,6 +574,9 @@ pub const QueryEngine = struct {
             .detach => try self.executeDetach(&tokenizer),
             .refresh => try self.executeRefresh(&tokenizer),
             .drop => try self.executeDrop(&tokenizer),
+            .test_ => try self.executeTest(&tokenizer),
+            .documentation => try self.executeDocumentation(&tokenizer),
+            .lineage => try self.executeLineage(&tokenizer),
             else => return QueryResult{ .message = "Unsupported query type" },
         };
 
@@ -3846,6 +3859,72 @@ pub const QueryEngine = struct {
         } else {
             return error.ExpectedSchedule;
         }
+    }
+
+    fn executeTest(_: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
+        // For now, just return a placeholder message
+        // TODO: Implement full test execution with test definitions
+        const token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+        if (token.type != .semicolon) return error.ExpectedSemicolon;
+
+        return QueryResult{ .message = "Test framework initialized - use YAML/JSON test definitions" };
+    }
+
+    fn executeDocumentation(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
+        const token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+
+        if (token.type == .identifier and std.mem.eql(u8, token.value, "GENERATE")) {
+            // DOCUMENTATION GENERATE path
+            const path_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+            if (path_token.type != .string_literal) return error.ExpectedPath;
+
+            const semi_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+            if (semi_token.type != .semicolon) return error.ExpectedSemicolon;
+
+            var doc_engine = documentation_mod.DocumentationEngine.init(self.allocator, self.db);
+            try doc_engine.generateHTMLDocs(path_token.value);
+
+            var message = std.ArrayList(u8).init(self.allocator);
+            defer message.deinit();
+            try message.writer(self.allocator).print("Documentation generated in {s}", .{path_token.value});
+
+            return QueryResult{ .message = try message.toOwnedSlice(self.allocator) };
+        }
+
+        return error.InvalidDocumentationCommand;
+    }
+
+    fn executeLineage(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {
+        const token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+
+        if (token.type == .identifier and std.mem.eql(u8, token.value, "GRAPH")) {
+            // LINEAGE GRAPH path
+            const path_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+            if (path_token.type != .string_literal) return error.ExpectedPath;
+
+            const semi_token = (try tokenizer.next()) orelse return error.UnexpectedEndOfQuery;
+            if (semi_token.type != .semicolon) return error.ExpectedSemicolon;
+
+            var lineage_engine = lineage_mod.LineageEngine.init(self.allocator, self.db);
+            var graph = try lineage_engine.buildLineageGraph();
+            defer graph.deinit(self.allocator);
+
+            const dot_content = try graph.toGraphViz(self.allocator);
+            defer self.allocator.free(dot_content);
+
+            // Write to file
+            var file = try std.fs.cwd().createFile(path_token.value, .{});
+            defer file.close();
+            try file.writeAll(dot_content);
+
+            var message = std.ArrayList(u8).init(self.allocator);
+            defer message.deinit();
+            try message.writer(self.allocator).print("Lineage graph generated in {s}", .{path_token.value});
+
+            return QueryResult{ .message = try message.toOwnedSlice(self.allocator) };
+        }
+
+        return error.InvalidLineageCommand;
     }
 
     fn executeShow(self: *QueryEngine, tokenizer: *Tokenizer) !QueryResult {

@@ -190,7 +190,6 @@ pub const Client = struct {
     }
 
     fn sendRequest(self: *Client, stream: *std.net.Stream, method: Method, url: URL, headers: Headers, body: ?[]const u8) !void {
-        _ = self;
         const method_str = switch (method) {
             .GET => "GET",
             .POST => "POST",
