@@ -3,21 +3,28 @@
 
 from arrow import Int64Array
 
-struct HashIndex:
+struct HashIndex(Copyable, Movable):
     var index: Dict[Int64, List[Int]]
 
-    fn __init__(inout self):
+    fn __init__(out self):
         self.index = Dict[Int64, List[Int]]()
 
-    fn build(inout self, arr: Int64Array):
-        for i in range(arr.length):
-            if arr.is_valid(i):
-                let val = arr[i]
-                if val not in self.index:
-                    self.index[val] = List[Int]()
-                self.index[val].append(i)
+    fn __copyinit__(out self, existing: HashIndex):
+        self.index = Dict[Int64, List[Int]]()
+        for k in existing.index.keys():
+            self.index[k] = List[Int]()
+            for v in existing.index[k]:
+                self.index[k].append(v)
 
-    fn lookup(self, val: Int64) -> List[Int]:
+    fn __moveinit__(out self, deinit existing: HashIndex):
+        self.index = existing.index^
+
+    fn build(inout self, arr: Int64Array):
+        for i in range(len(arr.data)):
+            let val = arr[i]
+            self.insert(val, i)
+
+    fn lookup(self, val: Int64) raises -> List[Int]:
         if val in self.index:
             return self.index[val]
         return List[Int]()

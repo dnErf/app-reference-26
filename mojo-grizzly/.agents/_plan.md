@@ -21,19 +21,20 @@ Build a high-performance, columnar database leveraging a pure Mojo implementatio
 
 ## Implementation Status
 ### Completed
-- **Arrow Core**: Buffer, Int64Array, StringArray, Float64Array, Date32Array, TimestampArray, ListArray, Schema, Table with indexes and snapshots.
-- **Query Engine**: SQL-like queries with SELECT, WHERE, JOIN (inner/left/right/full), subqueries, aggregates, error handling with Tuples.
-- **PL Engine**: Grizzly PL with AST, async execution, types, builtins.
+- **Arrow Core**: Buffer, Int64Array, StringArray, Float64Array, Date32Array, TimestampArray, ListArray, Schema, Field, Table with indexes and snapshots.
+- **Query Engine**: SQL-like queries with SELECT, WHERE, JOIN (inner/left/right/full), subqueries, aggregates, error handling with QueryResult struct.
+- **PL Engine**: Grizzly PL with AST, async execution, types, builtins, pattern matching, pipes, templates.
 - **Formats**: JSONL reader, AVRO/ORC/Parquet readers with schema/metadata parsing, CSV writer.
 - **BLOCK Store**: ORC-based persistence, Node/Edge/GraphStore for graph extensions.
 - **Extensions**: Secret (XOR encryption), Blockchain (chained blocks), Graph (relations), REST API (asyncio HTTP server with token auth).
 - **CLI**: SQL execution with LOAD EXTENSION support.
-- **Testing**: Unit tests for arrow, query, formats, pl, block.
+- **Testing**: Comprehensive test suite in test.mojo; significant compilation issues fixed, remaining copy and ownership issues to resolve for full test execution.
 
 ### TODO
-- Fix Mojo compilation errors for Copyable structs with Pointers.
-- Run full test suite and benchmarks.
-- Optimize performance and add more advanced features if needed.
+- Complete Phase 4: MemoryAccess implementation and documentation.
+- Apply memory access principles to fix remaining Mojo compilation errors (ownership, __copyinit__, implicit copies).
+- Run benchmark.mojo for performance validation.
+- Final documentation and examples.
 
 ## Implementation Phases
 ### Phase 1: Arrow Foundation (Completed)
@@ -48,12 +49,15 @@ Build a high-performance, columnar database leveraging a pure Mojo implementatio
 - Implemented AVRO, ORC, Parquet readers/writers.
 - Added export functionality.
 
-### Phase 4: Advanced Features & Optimization (Completed)
-- Added aggregations, joins, indexing.
-- BLOCK store, extensions, REST API.
-- Testing initiated but blocked by compilation issues.
+### Phase 4: Memory Access Fundamentals (In Progress)
+- Implement a simple MemoryAccess struct in Mojo demonstrating:
+  - Memory allocation and deallocation.
+  - Safe read/write operations using pointers.
+  - Bounds checking and error handling.
+- Document the implementation with detailed comments and a README section on Mojo memory management.
+- Use this as a learning foundation to resolve ownership and copying issues in the main codebase.
 
-### Phase 5: Testing & Refinement (In Progress)
+### Phase 5: Testing & Refinement (Pending)
 - Fix compilation errors related to Copyable traits.
 - Run tests and benchmarks.
 - Final optimizations.

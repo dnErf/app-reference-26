@@ -5,34 +5,39 @@ from arrow import Table, Schema
 from formats import write_orc, read_orc
 import hashlib  # Assume Mojo has hashlib or implement simple hash
 
-struct Block:
+struct Block(Copyable, Movable):
     var data: Table
     var hash: String
     var prev_hash: String  # For blockchain
 
-    fn __init__(inout self, data: Table, prev_hash: String = ""):
-        self.data = data
+    fn __init__(out self, var data: Table, prev_hash: String = ""):
+        self.data = data^
         self.prev_hash = prev_hash
         self.hash = self.compute_hash()
+
+    fn __copyinit__(out self, existing: Block):
+        self.data = existing.data
+        self.hash = existing.hash
+        self.prev_hash = existing.prev_hash
+
+    fn __copyinit__(out self, existing: Block):
+        self.data = existing.data
+        self.hash = existing.hash
+        self.prev_hash = existing.prev_hash
+
+    fn __moveinit__(out self, deinit existing: Block):
+        self.data = existing.data^
+        self.hash = existing.hash
+        self.prev_hash = existing.prev_hash
 
     fn compute_hash(self) -> String:
         # Include prev_hash
         var h = 0
         for col in self.data.columns:
-            for val in col:
+            for val in col.data:
                 h = (h * 31 + val) % 1000000
         h = (h * 31 + hash_string(self.prev_hash)) % 1000000
-        return str(h)
-
-    fn __copyinit__(inout self, other: Block):
-        self.data = other.data
-        self.hash = other.hash
-        self.prev_hash = other.prev_hash
-
-    fn __moveinit__(inout self, owned other: Block):
-        self.data = other.data^
-        self.hash = other.hash^
-        self.prev_hash = other.prev_hash^
+        return String(h)
 
     fn verify_chain(blocks: List[Block]) -> Bool:
         for i in range(1, len(blocks)):
@@ -42,8 +47,8 @@ struct Block:
 
 fn hash_string(s: String) -> Int:
     var h = 0
-    for c in s:
-        h = (h * 31 + ord(c)) % 1000000
+    for c in s.codepoints():
+        h = (h * 31 + c) % 1000000
     return h
 
 struct Node:
@@ -61,63 +66,39 @@ struct GraphStore:
     var edges: BlockStore
 
     fn __init__(inout self, path: String):
-        self.nodes = BlockStore(path + "/nodes.orc")
-        self.edges = BlockStore(path + "/edges.orc")
+        self.nodes = BlockStore()
+        self.edges = BlockStore()
 
     fn add_node(inout self, node: Node):
         # Convert to table
         var schema = Schema()
         schema.add_field("id", "int64")
-        var table = Table(schema, 1)
-        table.columns[0][0] = node.id
-        self.nodes.append(Block(table))
+        var table = Table(schema, 0)
+        table.columns[0].append(node.id)
+        self.nodes.append(Block(table^))
 
     fn add_edge(inout self, edge: Edge):
         var schema = Schema()
         schema.add_field("from_id", "int64")
         schema.add_field("to_id", "int64")
-        var table = Table(schema, 1)
-        table.columns[0][0] = edge.from_id
-        table.columns[1][0] = edge.to_id
-        self.edges.append(Block(table))
+        var table = Table(schema, 0)
+        table.columns[0].append(edge.from_id)
+        table.columns[1].append(edge.to_id)
+        self.edges.append(Block(table^))
 
-struct BlockStore:
-    var blocks: List[Block]
-    var file_path: String
+struct BlockStore(Copyable, Movable):
+    var blocks: Dict[String, Block]
 
-    fn __init__(inout self, file_path: String):
-        self.blocks = List[Block]()
-        self.file_path = file_path
-        self.load()
+    fn __init__(out self):
+        self.blocks = Dict[String, Block]()
 
-    fn load(self):
-        # Placeholder for loading blocks from ORC file
-        pass
+    fn __copyinit__(out self, existing: BlockStore):
+        self.blocks = Dict[String, Block]()
+        for k in existing.blocks.keys():
+            self.blocks[k] = existing.blocks[k]
 
-    fn save(self):
-        # Placeholder for saving blocks to ORC file
-        pass
+    fn __moveinit__(out self, deinit existing: BlockStore):
+        self.blocks = existing.blocks
 
-    fn append(inout self, block: Block):
-        self.blocks.append(block)
-        self.save()
-
-    fn save(self):
-        # Save all blocks as ORC (placeholder: save as single table)
-        if len(self.blocks) > 0:
-            let data = self.blocks[len(self.blocks)-1].data  # Last block
-            let orc_data = write_orc(data)
-            # Write to file (placeholder)
-            print("Saving BLOCK to", self.file_path)
-
-    fn load(self):
-        # Load from ORC file (placeholder)
-        let table = read_orc([])  # Empty for now
-        if table.num_rows > 0:
-            self.blocks.append(Block(table))
-
-    fn query(self, condition: String) -> Table:
-        # Simple query across blocks (placeholder)
-        if len(self.blocks) > 0:
-            return self.blocks[0].data
-        return Table(Schema(), 0)
+    fn append(inout self, var block: Block):
+        self.blocks[block.hash] = block^

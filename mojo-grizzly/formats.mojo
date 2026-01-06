@@ -127,32 +127,50 @@ fn write_csv(table: Table) -> String:
         return ""
     var csv = String("")
     # Headers
-    for i in range(len(table.schema.fields)):
-        csv += table.schema.fields[i].name
-        if i < len(table.schema.fields) - 1:
+    for i in range(len(table.schema.field_names)):
+        csv += table.schema.field_names[i]
+        if i < len(table.schema.field_names) - 1:
             csv += ","
     csv += "\n"
     # Rows
     for row in range(table.num_rows()):
         for col in range(len(table.columns)):
             # Assume int64 for now
-            var arr = table.columns[col] as Int64Array
-            csv += str(arr[row])
+            var arr = table.columns[col]
+            csv += String(arr[row])
             if col < len(table.columns) - 1:
                 csv += ","
         csv += "\n"
     return csv
 
 # Simple JSON parser (numbers and strings only)
-struct JsonValue:
-    enum Type:
-        number
-        string
-    var type: Type
+
+struct JsonValue(Copyable, Movable):
+    var type: String
     var number: Int64
     var string_val: String
 
-fn parse_json(json: String) -> Dict[String, JsonValue]:
+    fn __init__(out self, type: String, number: Int64, string_val: String):
+        self.type = type
+        self.number = number
+        self.string_val = string_val
+
+    fn __copyinit__(out self, existing: JsonValue):
+        self.type = existing.type
+        self.number = existing.number
+        self.string_val = existing.string_val
+
+    fn __copyinit__(out self, existing: JsonValue):
+        self.type = existing.type
+        self.number = existing.number
+        self.string_val = existing.string_val
+
+    fn __moveinit__(out self, deinit existing: JsonValue):
+        self.type = existing.type
+        self.number = existing.number
+        self.string_val = existing.string_val
+
+fn parse_json(json: String) raises -> Dict[String, JsonValue]:
     # Very simple parser: {"key": value, "key2": "string"}
     var dict = Dict[String, JsonValue]()
     var stripped = json.strip().strip("{}")
@@ -164,36 +182,36 @@ fn parse_json(json: String) -> Dict[String, JsonValue]:
             var val_str = kv[1].strip()
             if val_str.startswith('"'):
                 var str_val = val_str.strip('"')
-                dict[key] = JsonValue(JsonValue.Type.string, 0, str_val)
+                dict[String(key)] = JsonValue("string", 0, String(str_val))
             else:
                 var num = atol(val_str)
-                dict[key] = JsonValue(JsonValue.Type.number, num, "")
-    return dict
+                dict[String(key)] = JsonValue("number", num, "")
+    return dict^
 
 # Read JSONL from string content
-fn read_jsonl(content: String) -> Table:
+fn read_jsonl(content: String) raises -> Table:
     var lines = content.split("\n")
     if len(lines) == 0:
         return Table(Schema(), 0)
 
     # Parse first line for schema
-    var first_dict = parse_json(lines[0])
+    var first_dict = parse_json(String(lines[0]))
     var schema = Schema()
     for key in first_dict.keys():
         # Assume all numbers for now
         schema.add_field(key[], DataType.int64)
 
     # Create table
-    var table = Table(schema, len(lines))
+    var table = Table(schema.clone(), len(lines))
     for i in range(len(lines)):
         var line = lines[i]
         if line.strip() == "":
             continue
-        var dict = parse_json(line)
-        for j in range(len(schema.fields)):
-            var key = schema.fields[j].name
+        var dict = parse_json(String(line))
+        for j in range(len(schema.field_names)):
+            var key = schema.field_names[j]
             if key in dict:
                 let val = dict[key]
                 if val.type == JsonValue.Type.number:
                     table.columns[j][i] = val.number
-    return table
+    return table^

@@ -8,8 +8,29 @@ from expr import PLFunction, Expr, parse_expr, eval_ast
 #     InvalidArgument
 #     ParseError
 
-struct Value:
+struct Value(Copyable, Movable):
+    var type: String  # "int", "float", "string"
+    var int_val: Int64
+    var float_val: Float64
+    var str_val: String
 
+    fn __init__(out self, type: String, int_val: Int64, float_val: Float64, str_val: String):
+        self.type = type
+        self.int_val = int_val
+        self.float_val = float_val
+        self.str_val = str_val
+
+    fn __copyinit__(out self, existing: Value):
+        self.type = existing.type
+        self.int_val = existing.int_val
+        self.float_val = existing.float_val
+        self.str_val = existing.str_val
+
+    fn __moveinit__(out self, deinit existing: Value):
+        self.type = existing.type
+        self.int_val = existing.int_val
+        self.float_val = existing.float_val
+        self.str_val = existing.str_val
 
 # Simple pattern matching evaluator
 fn eval_match(value: Int64, patterns: List[String], results: List[Int64]) -> Int64:

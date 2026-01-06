@@ -15,14 +15,16 @@ fn test_arrow():
         print("Arrow test fail: num_rows")
     print("Arrow test pass")
 
-fn test_query():
+fn test_query() raises:
     var schema = Schema()
     schema.add_field("id", "int64")
     var table = Table(schema, 3)
     table.columns[0][0] = 1
     table.columns[0][1] = 2
     table.columns[0][2] = 1
-    var filtered, err = select_where_eq(table, "id", 1)
+    var result = select_where_eq(table^, "id", 1)
+    var filtered = result.table
+    var err = result.error
     if err != "":
         print("Query test fail: " + err)
     elif filtered.num_rows() != 2:
@@ -52,18 +54,23 @@ fn test_block():
     schema.add_field("id", "int64")
     var table = Table(schema, 1)
     table.columns[0][0] = 1
-    var block = Block(table)
+    var block = Block(table^)
     var store = BlockStore("test.orc")
-    store.append(block)
+    store.append(block^)
     if len(store.blocks) > 0:
         print("Block test pass")
     else:
         print("Block test fail")
 
-fn run_tests():
+fn run_tests() raises:
     test_arrow()
     test_query()
     test_formats()
     test_pl()
     test_block()
     print("All tests completed")
+
+fn main() raises:
+    print("Starting tests")
+    run_tests()
+    print("Tests completed")

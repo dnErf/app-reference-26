@@ -5,6 +5,22 @@ from arrow import Table, Int64Array, Schema
 from pl import call_function
 from index import HashIndex
 
+struct QueryResult(Copyable, Movable):
+    var table: Table
+    var error: String
+
+    fn __init__(out self, var table: Table, error: String):
+        self.table = table^
+        self.error = error
+
+    fn __copyinit__(out self, existing: QueryResult):
+        self.table = existing.table
+        self.error = existing.error
+
+    fn __moveinit__(out self, deinit existing: QueryResult):
+        self.table = existing.table^
+        self.error = existing.error
+
 # Error types as strings
 # enum QueryError:
 #     ColumnNotFound
@@ -143,33 +159,28 @@ fn select_where_greater(table: Table, column_name: String, value: Int64) -> Tupl
     return new_table
 
 # Simple filter: SELECT * FROM table WHERE column == value
-fn select_where_eq(table: Table, column_name: String, value: Int64) -> Tuple[Table, String]:
+fn select_where_eq(var table: Table, column_name: String, value: Int64) raises -> QueryResult:
+    var filtered = Table(table.schema.clone(), 0)
     var col_index = -1
-    for i in range(len(table.schema.fields)):
-        if table.schema.fields[i].name == column_name:
+    for i in range(len(table.schema.field_names)):
+        if table.schema.field_names[i] == column_name:
             col_index = i
             break
     if col_index == -1:
-        return Table(Schema(), 0), "Column not found: " + column_name
-
-    var indices: List[Int]
+        return QueryResult(Table(Schema(), 0)^, "Column not found: " + column_name)
+    # Use index if available
     if column_name in table.indexes:
-        # Use index for fast lookup
-        indices = table.indexes[column_name].lookup(value)
+        var index = table.indexes[column_name]
+        var row_indices = index.lookup(value)
+        for row in row_indices:
+            for c in range(len(table.columns)):
+                filtered.columns[c].append(table.columns[c][row])
     else:
-        # Scan
-        indices = List[Int]()
-        for i in range(table.columns[col_index].length):
-            if table.columns[col_index].is_valid(i) and table.columns[col_index][i] == value:
-                indices.append(i)
-
-    var new_table = Table(table.schema, len(indices))
-    for row in range(len(indices)):
-        let old_row = indices[row]
-        for col in range(len(table.columns)):
-            new_table.columns[col][row] = table.columns[col][old_row]
-
-    return new_table, ""
+        for row in range(table.num_rows()):
+            if table.columns[col_index][row] == value:
+                for c in range(len(table.columns)):
+                    filtered.columns[c].append(table.columns[c][row])
+    return QueryResult(filtered^, "")
 
 # Filter with function: WHERE func(column) == value
 async fn select_where_func_eq(table: Table, func_name: String, column_name: String, value: Int64) -> Table:
