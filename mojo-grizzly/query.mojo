@@ -5,17 +5,13 @@ from arrow import Table, Int64Array, Schema
 from pl import call_function
 from index import HashIndex
 
-struct QueryResult(Copyable, Movable):
+struct QueryResult(Movable):
     var table: Table
     var error: String
 
     fn __init__(out self, var table: Table, error: String):
         self.table = table^
         self.error = error
-
-    fn __copyinit__(out self, existing: QueryResult):
-        self.table = existing.table
-        self.error = existing.error
 
     fn __moveinit__(out self, deinit existing: QueryResult):
         self.table = existing.table^
@@ -159,7 +155,7 @@ fn select_where_greater(table: Table, column_name: String, value: Int64) -> Tupl
     return new_table
 
 # Simple filter: SELECT * FROM table WHERE column == value
-fn select_where_eq(var table: Table, column_name: String, value: Int64) raises -> QueryResult:
+fn select_where_eq(var table: Table, column_name: String, value: Int64) raises -> Table:
     var filtered = Table(table.schema.clone(), 0)
     var col_index = -1
     for i in range(len(table.schema.field_names)):
@@ -167,11 +163,10 @@ fn select_where_eq(var table: Table, column_name: String, value: Int64) raises -
             col_index = i
             break
     if col_index == -1:
-        return QueryResult(Table(Schema(), 0)^, "Column not found: " + column_name)
+        return Table(table.schema, 0)
     # Use index if available
     if column_name in table.indexes:
-        var index = table.indexes[column_name]
-        var row_indices = index.lookup(value)
+        var row_indices = table.indexes[column_name].lookup(value)
         for row in row_indices:
             for c in range(len(table.columns)):
                 filtered.columns[c].append(table.columns[c][row])
@@ -180,7 +175,7 @@ fn select_where_eq(var table: Table, column_name: String, value: Int64) raises -
             if table.columns[col_index][row] == value:
                 for c in range(len(table.columns)):
                     filtered.columns[c].append(table.columns[c][row])
-    return QueryResult(filtered^, "")
+    return filtered^
 
 # Filter with function: WHERE func(column) == value
 async fn select_where_func_eq(table: Table, func_name: String, column_name: String, value: Int64) -> Table:

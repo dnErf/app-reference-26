@@ -1,7 +1,7 @@
 # Format Interoperability for Mojo Arrow Database
 # Readers for JSONL, AVRO, ORC, etc.
 
-from arrow import Schema, Table, Int64Array, DataType, Buffer
+from arrow import Schema, Table, Int64Array
 
 # ... existing code ...
 
@@ -136,7 +136,7 @@ fn write_csv(table: Table) -> String:
     for row in range(table.num_rows()):
         for col in range(len(table.columns)):
             # Assume int64 for now
-            var arr = table.columns[col]
+            var arr = table.columns[col].copy()
             csv += String(arr[row])
             if col < len(table.columns) - 1:
                 csv += ","
@@ -154,11 +154,6 @@ struct JsonValue(Copyable, Movable):
         self.type = type
         self.number = number
         self.string_val = string_val
-
-    fn __copyinit__(out self, existing: JsonValue):
-        self.type = existing.type
-        self.number = existing.number
-        self.string_val = existing.string_val
 
     fn __copyinit__(out self, existing: JsonValue):
         self.type = existing.type
@@ -199,7 +194,7 @@ fn read_jsonl(content: String) raises -> Table:
     var schema = Schema()
     for key in first_dict.keys():
         # Assume all numbers for now
-        schema.add_field(key[], DataType.int64)
+        schema.add_field(key, "int64")
 
     # Create table
     var table = Table(schema.clone(), len(lines))
@@ -211,7 +206,6 @@ fn read_jsonl(content: String) raises -> Table:
         for j in range(len(schema.field_names)):
             var key = schema.field_names[j]
             if key in dict:
-                let val = dict[key]
-                if val.type == JsonValue.Type.number:
-                    table.columns[j][i] = val.number
+                if dict[key].type == "number":
+                    table.columns[j].append(dict[key].number)
     return table^

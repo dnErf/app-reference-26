@@ -71,12 +71,8 @@ struct Int64Array(Copyable, Movable):
         self.validity = List[Bool]()
 
     fn __copyinit__(out self, existing: Int64Array):
-        self.data = List[Int64]()
-        for x in existing.data:
-            self.data.append(x)
-        self.validity = List[Bool]()
-        for v in existing.validity:
-            self.validity.append(v)
+        self.data = existing.data.copy()
+        self.validity = existing.validity.copy()
 
     fn __moveinit__(out self, deinit existing: Int64Array):
         self.data = existing.data^
@@ -96,13 +92,19 @@ struct Int64Array(Copyable, Movable):
         self.data[index] = value
 
 # Schema
-struct Schema(Movable):
+struct Schema(Copyable, Movable):
     var field_names: List[String]
     var field_types: Dict[String, String]
 
     fn __init__(out self):
         self.field_names = List[String]()
         self.field_types = Dict[String, String]()
+
+    fn __copyinit__(out self, existing: Schema):
+        self.field_names = List[String]()
+        for n in existing.field_names:
+            self.field_names.append(n)
+        self.field_types = existing.field_types.copy()
 
     fn __moveinit__(out self, deinit existing: Schema):
         self.field_names = existing.field_names^
@@ -118,7 +120,7 @@ struct Schema(Movable):
             s.field_names.append(n)
         for k in self.field_types.keys():
             s.field_types[k] = self.field_types[k]
-        return s
+        return s^
 
 from collections import Dict
 from index import HashIndex
@@ -126,16 +128,25 @@ from index import HashIndex
 # ... existing ...
 
 # Table (simplified: all columns Int64 for now)
-struct Table(Movable):
+struct Table(Copyable, Movable):
     var schema: Schema
     var columns: List[Int64Array]
     var indexes: Dict[String, HashIndex]
 
     fn __init__(out self, schema: Schema, num_rows: Int):
-        self.schema = schema
+        self.schema = Schema()
+        self.schema.field_names = schema.field_names.copy()
+        self.schema.field_types = schema.field_types.copy()
         self.columns = List[Int64Array]()
         for _ in schema.field_names:
             self.columns.append(Int64Array())
+        self.indexes = Dict[String, HashIndex]()
+
+    fn __copyinit__(out self, existing: Table):
+        self.schema = Schema()
+        self.schema.field_names = existing.schema.field_names.copy()
+        self.schema.field_types = existing.schema.field_types.copy()
+        self.columns = List[Int64Array]()
         self.indexes = Dict[String, HashIndex]()
 
     fn __moveinit__(out self, deinit existing: Table):

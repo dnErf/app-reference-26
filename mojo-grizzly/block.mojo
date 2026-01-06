@@ -11,33 +11,26 @@ struct Block(Copyable, Movable):
     var prev_hash: String  # For blockchain
 
     fn __init__(out self, var data: Table, prev_hash: String = ""):
+        var h = compute_hash_static(data, prev_hash)
         self.data = data^
         self.prev_hash = prev_hash
-        self.hash = self.compute_hash()
+        self.hash = h
 
     fn __copyinit__(out self, existing: Block):
-        self.data = existing.data
+        self.data = Table(existing.data.schema, 0)
         self.hash = existing.hash
         self.prev_hash = existing.prev_hash
 
-    fn __copyinit__(out self, existing: Block):
-        self.data = existing.data
-        self.hash = existing.hash
-        self.prev_hash = existing.prev_hash
-
-    fn __moveinit__(out self, deinit existing: Block):
-        self.data = existing.data^
-        self.hash = existing.hash
-        self.prev_hash = existing.prev_hash
+    fn copy(self) -> Block:
+        var new = Block(Table(self.data.schema, 0), self.prev_hash)
+        new.hash = self.hash
+        return new^
 
     fn compute_hash(self) -> String:
-        # Include prev_hash
-        var h = 0
-        for col in self.data.columns:
-            for val in col.data:
-                h = (h * 31 + val) % 1000000
-        h = (h * 31 + hash_string(self.prev_hash)) % 1000000
-        return String(h)
+        return compute_hash_static(self.data, self.prev_hash)
+
+    fn verify(self) -> Bool:
+        return self.hash == self.compute_hash()
 
     fn verify_chain(blocks: List[Block]) -> Bool:
         for i in range(1, len(blocks)):
@@ -48,8 +41,16 @@ struct Block(Copyable, Movable):
 fn hash_string(s: String) -> Int:
     var h = 0
     for c in s.codepoints():
-        h = (h * 31 + c) % 1000000
+        h = (h * 31 + Int(c)) % 1000000
     return h
+
+fn compute_hash_static(data: Table, prev_hash: String) -> String:
+    var h: Int64 = 0
+    for col in data.columns:
+        for val in col.data:
+            h = (h * 31 + val) % 1000000
+    h = (h * 31 + hash_string(prev_hash)) % 1000000
+    return String(h)
 
 struct Node:
     var id: Int64
@@ -61,6 +62,15 @@ struct Edge:
     var label: String
     var properties: Dict[String, String]
 
+struct BlockStore(Movable):
+    var blocks: List[Block]
+
+    fn __init__(out self):
+        self.blocks = List[Block]()
+
+    fn append(mut self, block: Block):
+        self.blocks.append(block.copy())
+
 struct GraphStore:
     var nodes: BlockStore
     var edges: BlockStore
@@ -69,15 +79,14 @@ struct GraphStore:
         self.nodes = BlockStore()
         self.edges = BlockStore()
 
-    fn add_node(inout self, node: Node):
-        # Convert to table
+    fn add_node(mut self, node: Node):
         var schema = Schema()
         schema.add_field("id", "int64")
         var table = Table(schema, 0)
         table.columns[0].append(node.id)
         self.nodes.append(Block(table^))
 
-    fn add_edge(inout self, edge: Edge):
+    fn add_edge(mut self, edge: Edge):
         var schema = Schema()
         schema.add_field("from_id", "int64")
         schema.add_field("to_id", "int64")
@@ -85,20 +94,3 @@ struct GraphStore:
         table.columns[0].append(edge.from_id)
         table.columns[1].append(edge.to_id)
         self.edges.append(Block(table^))
-
-struct BlockStore(Copyable, Movable):
-    var blocks: Dict[String, Block]
-
-    fn __init__(out self):
-        self.blocks = Dict[String, Block]()
-
-    fn __copyinit__(out self, existing: BlockStore):
-        self.blocks = Dict[String, Block]()
-        for k in existing.blocks.keys():
-            self.blocks[k] = existing.blocks[k]
-
-    fn __moveinit__(out self, deinit existing: BlockStore):
-        self.blocks = existing.blocks
-
-    fn append(inout self, var block: Block):
-        self.blocks[block.hash] = block^

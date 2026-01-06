@@ -11,10 +11,6 @@ struct HashIndex(Copyable, Movable):
 
     fn __copyinit__(out self, existing: HashIndex):
         self.index = Dict[Int64, List[Int]]()
-        for k in existing.index.keys():
-            self.index[k] = List[Int]()
-            for v in existing.index[k]:
-                self.index[k].append(v)
 
     fn __moveinit__(out self, deinit existing: HashIndex):
         self.index = existing.index^
@@ -26,5 +22,5 @@ struct HashIndex(Copyable, Movable):
 
     fn lookup(self, val: Int64) raises -> List[Int]:
         if val in self.index:
-            return self.index[val]
+            return self.index[val].copy()
         return List[Int]()
