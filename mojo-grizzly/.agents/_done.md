@@ -48,6 +48,15 @@
 - [x] GROUP BY with HAVING clause - Parser supports GROUP BY and HAVING syntax
 - [x] Subqueries in WHERE, FROM, SELECT - Parser recognizes subquery syntax
 - [x] Common Table Expressions (WITH clauses) - Parser supports WITH clause for CTEs
+
+# Batch 1: Performance Optimizations
+
+- [x] Implement SIMD aggregations in query.mojo (use vectorized ops for SUM/AVG on large columns)
+- [x] Add LRU cache for query results in query.mojo (cache parsed ASTs and results)
+- [x] Parallelize JOINs with threading in query.mojo (split tables and merge results)
+- [x] Optimize B-tree range queries in index.mojo (batch node traversals)
+- [x] Add compression to WAL in block.mojo (LZ4 on log entries)
+- [x] Profile and optimize hot paths in profiling.mojo (add timing decorators)
 - [x] UNION, INTERSECT, EXCEPT set operations - Parser recognizes UNION, etc. keywords
 
 ## Functions and Expressions

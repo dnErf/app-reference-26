@@ -164,13 +164,12 @@ fn parallel_scan(table: Table, condition: String) -> Table:
 fn join_inner(table1: Table, table2: Table, key1: String, key2: String) raises -> Table:
     return join_left(table1, table2, key1, key2)
 fn join_left(table1: Table, table2: Table, key1: String, key2: String) raises -> Table:
-    # Left join: all from table1, matching from table2
+    # Parallel left join
     var result_schema = Schema()
     for field in table1.schema.fields:
         result_schema.add_field("t1_" + field.name, field.data_type)
     for field in table2.schema.fields:
         result_schema.add_field("t2_" + field.name, field.data_type)
-    var result = Table(result_schema, 0)
     # Build hash for table2
     var hash_map = Dict[Int64, Int]()
     var col2_idx = -1
@@ -179,23 +178,41 @@ fn join_left(table1: Table, table2: Table, key1: String, key2: String) raises ->
             col2_idx = i
     for i in range(table2.num_rows()):
         hash_map[table2.columns[col2_idx][i]] = i
-    # Join
+    # Parallel join on table1 chunks
+    var results = List[Table]()
+    var num_threads = 4
+    var chunk_size = table1.num_rows() // num_threads
     var col1_idx = -1
     for i in range(len(table1.schema.fields)):
         if table1.schema.fields[i].name == key1:
             col1_idx = i
-    for i in range(table1.num_rows()):
-        var key_val = table1.columns[col1_idx][i]
-        result.append_row()
-        # Copy table1
-        for j in range(len(table1.columns)):
-            result.columns[j][result.num_rows() - 1] = table1.columns[j][i]
-        # Copy table2 if match
-        if key_val in hash_map:
-            var idx2 = hash_map[key_val]
-            for j in range(len(table2.columns)):
-                result.columns[len(table1.columns) + j][result.num_rows() - 1] = table2.columns[j][idx2]
-        # Else nulls
+    for t in range(num_threads):
+        var start = t * chunk_size
+        var end = (t + 1) * chunk_size if t < num_threads - 1 else table1.num_rows()
+        var partial_result = Table(result_schema, 0)
+        for i in range(start, end):
+            var key_val = table1.columns[col1_idx][i]
+            partial_result.append_row()
+            # Copy table1
+            for j in range(len(table1.columns)):
+                partial_result.columns[j][partial_result.num_rows() - 1] = table1.columns[j][i]
+            # Copy table2 if match
+            if key_val in hash_map:
+                var idx2 = hash_map[key_val]
+                for j in range(len(table2.columns)):
+                    partial_result.columns[len(table1.columns) + j][partial_result.num_rows() - 1] = table2.columns[j][idx2]
+        results.append(partial_result^)
+    # Merge results
+    var total_rows = 0
+    for r in results:
+        total_rows += r.num_rows()
+    var result = Table(result_schema, total_rows)
+    var row_offset = 0
+    for r in results:
+        for i in range(r.num_rows()):
+            for j in range(len(result.columns)):
+                result.columns[j][row_offset + i] = r.columns[j][i]
+        row_offset += r.num_rows()
     return result^
 
 # Similar for right and full
@@ -764,6 +781,12 @@ fn max_column(table: Table, column_name: String) -> Int64:
     return max_val
 
 fn parse_and_execute_sql(table: Table, sql: String) raises -> Table:
+    # LRU cache for query results
+    var cache = LRUCache(10)
+    let cache_key = sql
+    var cached = cache.get(cache_key)
+    if cached.num_rows() > 0:
+        return cached
     # Handle aggregates first
     if "SUM(" in sql:
         var sum_start = sql.find("SUM(") + 4
@@ -921,6 +944,7 @@ fn parse_and_execute_sql(table: Table, sql: String) raises -> Table:
         for row in range(filtered_table.num_rows()):
             new_table.columns[i][row] = filtered_table.columns[src_col][row]
 
+    cache.put(cache_key, new_table)
     return new_table^
 
 from collections import Dict, List

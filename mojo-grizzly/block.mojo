@@ -2,7 +2,7 @@
 # Persistent storage using ORC under the hood, extensible to blockchain/graph.
 
 from arrow import Table, Schema
-from formats import write_orc, read_orc
+from formats import write_orc, read_orc, compress_lz4, decompress_lz4
 import hashlib  # Assume Mojo has hashlib or implement simple hash
 
 struct Block(Copyable, Movable):
@@ -179,8 +179,9 @@ struct WAL(Movable):
 
     fn append(inout self, operation: String):
         self.log.append(operation)
+        let compressed = compress_lz4(operation)
         with open(self.filename, "a") as f:
-            f.write(operation + "\n")
+            f.write(compressed + "\n")
 
     fn replay(inout self, store: BlockStore):
         with open(self.filename, "r") as f:
@@ -188,11 +189,12 @@ struct WAL(Movable):
         let lines = content.split("\n")
         for line in lines:
             if line != "":
-                self.log.append(line)
+                let decompressed = decompress_lz4(line)
+                self.log.append(decompressed)
                 # Apply to store, e.g., parse INSERT and add block
-                if line.startswith("INSERT"):
+                if decompressed.startswith("INSERT"):
                     # Parse INSERT timestamp
-                    let parts = line.split(" ")
+                    let parts = decompressed.split(" ")
                     if len(parts) >= 2:
                         let timestamp = parts[1]
                         # Create block from current store data

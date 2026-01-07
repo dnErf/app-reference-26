@@ -150,15 +150,19 @@ struct BTreeNode(Copyable, Movable):
         return results
 
     fn traverse_range(self, min_val: Int64, max_val: Int64, inout results: List[Int]):
+        var local_results = List[Int]()
         var i = 0
         while i < len(self.keys):
             if not self.is_leaf:
                 self.children[i].traverse_range(min_val, max_val, results)
             if self.keys[i] >= min_val and self.keys[i] <= max_val:
-                results.append(self.values[i])
+                local_results.append(self.values[i])
             i += 1
         if not self.is_leaf:
             self.children[i].traverse_range(min_val, max_val, results)
+        # Batch append to reduce overhead
+        for val in local_results:
+            results.append(val)
 
 struct CompositeIndex(Copyable, Movable):
     var indexes: List[HashIndex]  # For multiple columns

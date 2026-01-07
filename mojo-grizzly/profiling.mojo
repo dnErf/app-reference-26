@@ -3,6 +3,14 @@
 
 import time
 
+fn timeit(func: fn() -> None) -> fn() -> None:
+    fn wrapper():
+        let start = time.now()
+        func()
+        let end = time.now()
+        print("Function", func.__name__, "took", end - start, "seconds")
+    return wrapper
+
 struct Profiler:
     var start_time: Float64
     var events: List[String]

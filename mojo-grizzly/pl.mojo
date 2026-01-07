@@ -167,10 +167,21 @@ fn rank_func() -> Int64:
     return 1  # Rank function
 
 fn sum_agg(values: List[Int64]) -> Int64:
-    var s = 0
-    for v in values:
-        s += v
-    return s
+    # SIMD vectorized sum
+    var total = 0
+    let vec_size = 4  # SIMD width
+    var i = 0
+    while i + vec_size <= len(values):
+        var vec = SIMD[DType.int64, 4](0)
+        for j in range(vec_size):
+            vec[j] = values[i + j]
+        total += vec.reduce_add()
+        i += vec_size
+    # Remainder
+    while i < len(values):
+        total += values[i]
+        i += 1
+    return total
 
 fn count_agg(values: List[Int64]) -> Int64:
     return len(values)
