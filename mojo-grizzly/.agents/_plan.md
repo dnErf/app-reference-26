@@ -20,6 +20,8 @@
 - [x] Batch 5: AI/ML Integration (vector search, ML inference, predictive queries, anomaly detection, extensions)
 - [x] Batch 6: Security and Encryption (RLS, AES encryption, auth, audit)
 - [x] Batch 11: Observability and Monitoring (metrics, health checks, tracing, alerting, dashboards)
+- [x] Batch 7: Advanced Analytics (time-series, geospatial, complex agg, stats, data quality)
+- [x] Batch 9: Extensions Ecosystem Expansion (time-series ext, geospatial ext, blockchain, ETL, APIs)
 
 ## Current TODOs (Immediate Fixes/Refinements)
 - Integrate Variant for mixed string/float columns in Table
@@ -43,27 +45,6 @@
 - Performance profiling tools
 
 ## Future Batches (Reorganized by Impact & Dependencies)
-### Batch 7: Advanced Analytics (Depends on Queries)
-- Implement time-series aggregations
-- Add geospatial queries
-- Support complex aggregations (percentiles, medians)
-- Integrate statistical functions
-- Add data quality checks
-
-### Batch 9: Extensions Ecosystem Expansion (Ecosystem Growth)
-- Implement time-series aggregations
-- Add geospatial queries
-- Support complex aggregations (percentiles, medians)
-- Integrate statistical functions
-- Add data quality checks
-
-### Batch 9: Extensions Ecosystem Expansion (Ecosystem Growth)
-- Add time-series extension
-- Implement geospatial extension
-- Support blockchain smart contracts
-- Add ETL pipelines
-- Integrate with external APIs
-
 ### Batch 12: Multi-Format Data Lake (Advanced Storage)
 - Enhance lakehouse with ACID transactions
 - Support schema-on-read for unstructured data

@@ -327,8 +327,19 @@ struct WAL(Movable):
                 var decrypted = decrypt_data(line, "my_secret_key_32_bytes_long!!!")
                 var decompressed = decompress_lz4(decrypted)
                 self.log.append(decompressed)
-                # Apply to store, e.g., parse INSERT and add block
-                if decompressed.startswith("INSERT"):
+                # Apply to store, e.g., parse operations
+                if decompressed.startswith("TXN"):
+                    # Transaction operation, log but don't apply yet
+                    print("Replayed TXN:", decompressed)
+                elif decompressed.startswith("COMMIT"):
+                    # Apply all operations for this txn
+                    var txn_id = decompressed.split(" ")[1]
+                    print("Committed TXN:", txn_id)
+                    # Apply pending operations
+                elif decompressed.startswith("ROLLBACK"):
+                    var txn_id = decompressed.split(" ")[1]
+                    print("Rolled back TXN:", txn_id)
+                elif decompressed.startswith("INSERT"):
                     # Parse INSERT timestamp
                     var parts = decompressed.split(" ")
                     if len(parts) >= 2:

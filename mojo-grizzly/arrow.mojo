@@ -3,6 +3,24 @@
 # Based on Apache Arrow Columnar Format v1.5
 
 from memory import memset_zero
+from python import Python, PythonObject
+
+# Variant for mixed types
+alias Variant = PythonObject  # Use Python for flexibility
+
+struct VariantArray(Copyable, Movable):
+    var data: List[Variant]
+
+    fn __init__(out self, size: Int):
+        self.data = List[Variant]()
+        for _ in range(size):
+            self.data.append(Variant())
+
+    fn __getitem__(self, index: Int) -> Variant:
+        return self.data[index]
+
+    fn __setitem__(inout self, index: Int, value: Variant):
+        self.data[index] = value
 
 struct RefCounted[T: Copyable]:
     var data: T
@@ -49,13 +67,13 @@ fn process_large_table_in_chunks(table: Table, chunk_size: Int, func: fn(Table) 
         # Create chunk table
         var chunk = Table(table.schema, end - start)
         for row in range(start, end):
-            chunk.append_row(table, row)
+            chunk.append_row(table.get_row_values(row))
         # Process chunk
         var processed = func(chunk)
         # Append to result
         for row in range(processed.num_rows()):
-            result.append_row(processed, row)
-    return result
+            result.append_row(processed.get_row_values(row))
+    return result^
 
 # Data Types
 # enum DataType:
@@ -273,7 +291,7 @@ struct Schema(Copyable, Movable):
         return s^
 
 from collections import Dict
-from index import HashIndex
+from index import HashIndex, BTreeIndex
 
 # ... existing ...
 
@@ -281,16 +299,21 @@ from index import HashIndex
 struct Table(Copyable, Movable):
     var schema: Schema
     var columns: List[Int64Array]
-    var indexes: Dict[String, HashIndex]
+    var mixed_columns: List[VariantArray]  # For mixed types
+    var indexes: Dict[String, BTreeIndex]
 
     fn __init__(out self, schema: Schema, num_rows: Int):
         self.schema = Schema()
         for f in schema.fields:
             self.schema.fields.append(f.copy())
         self.columns = List[Int64Array]()
-        for _ in schema.fields:
-            self.columns.append(Int64Array(num_rows))
-        self.indexes = Dict[String, HashIndex]()
+        self.mixed_columns = List[VariantArray]()
+        for f in schema.fields:
+            if f.data_type == "mixed":
+                self.mixed_columns.append(VariantArray(num_rows))
+            else:
+                self.columns.append(Int64Array(num_rows))
+        self.indexes = Dict[String, BTreeIndex]()
 
     fn __copyinit__(out self, existing: Table):
         self.schema = Schema()
@@ -299,7 +322,7 @@ struct Table(Copyable, Movable):
         self.columns = List[Int64Array]()
         for col in existing.columns:
             self.columns.append(col.copy())
-        self.indexes = Dict[String, HashIndex]()
+        self.indexes = Dict[String, BTreeIndex]()
         for key in existing.indexes.keys():
             try:
                 self.indexes[key] = existing.indexes[key].copy()
@@ -321,7 +344,7 @@ struct Table(Copyable, Movable):
             i += 1
         if col_index == -1:
             return
-        var index = HashIndex()
+        var index = BTreeIndex()
         for j in range(len(self.columns[col_index].data)):
             index.insert(self.columns[col_index][j], j)
         self.indexes[column_name] = index^
@@ -329,9 +352,16 @@ struct Table(Copyable, Movable):
     fn num_rows(self) -> Int:
         return len(self.columns[0].data) if len(self.columns) > 0 else 0
 
-    fn append_row(mut self):
-        for i in range(len(self.columns)):
-            self.columns[i].append(0)
+    fn append_row(mut self, values: List[Int64]):
+        for i in range(len(values)):
+            self.columns[i].append(values[i])
+        # For mixed, assume not appending here
+
+    fn get_row_values(self, row: Int) -> List[Int64]:
+        var values = List[Int64]()
+        for col in self.columns:
+            values.append(col[row])
+        return values
 
     fn snapshot(self) -> Table:
         var new_schema = Schema()

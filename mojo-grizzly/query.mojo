@@ -3,7 +3,7 @@
 
 from arrow import Table, Int64Array, Float64Array, Schema, Field
 from pl import call_function
-from index import HashIndex
+from index import BTreeIndex
 from threading import Thread
 from network import RemoteNode, query_remote
 from extensions.ml import predict

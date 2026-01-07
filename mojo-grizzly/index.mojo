@@ -147,7 +147,7 @@ struct BTreeNode(Copyable, Movable):
     fn search_range(self, min_val: Int64, max_val: Int64) -> List[Int]:
         var results = List[Int]()
         self.traverse_range(min_val, max_val, results)
-        return results
+        return results^
 
     fn traverse_range(self, min_val: Int64, max_val: Int64, inout results: List[Int]):
         var local_results = List[Int]()

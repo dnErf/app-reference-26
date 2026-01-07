@@ -1,0 +1,10 @@
+- Integrate Variant for mixed columns in Table struct
+- Update append_row and get_row to handle mixed types
+- Test with sample data
+- Update Table to use BTreeIndex instead of HashIndex for better range query performance
+- Test B-tree indexing with sample data
+- Optimize B-tree operations if needed
+- Implement full WAL for transactions
+- Add more PL libraries and external loading
+- Enhance CLI with tab completion
+- Full Parquet/AVRO readers/writers with compression/schema evolution

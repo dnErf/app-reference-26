@@ -123,6 +123,8 @@ fn execute_sql(sql: String):
                 pass  # Placeholder
             elif ext_name == "analytics":
                 pass  # Placeholder
+            elif ext_name == "ecosystem":
+                pass  # Placeholder
             else:
                 print("Unknown extension:", ext_name)    elif sql.upper().startswith("ATTACH"):
         # ATTACH 'path' AS alias
@@ -422,40 +424,84 @@ fn tab_complete(input: String) -> List[String]:
     if input.startswith("SELECT"):
         suggestions.append("SELECT * FROM")
         suggestions.append("SELECT COUNT(*) FROM")
+        suggestions.append("SELECT AVG(column) FROM")
+        suggestions.append("SELECT SUM(column) FROM")
     elif input.startswith("LOAD EXTENSION"):
         suggestions.append("LOAD EXTENSION column_store")
         suggestions.append("LOAD EXTENSION row_store")
         suggestions.append("LOAD EXTENSION graph")
         suggestions.append("LOAD EXTENSION blockchain")
         suggestions.append("LOAD EXTENSION lakehouse")
+        suggestions.append("LOAD EXTENSION rest_api")
+        suggestions.append("LOAD EXTENSION ml")
     elif input.startswith("CREATE"):
         suggestions.append("CREATE TABLE test (id INT, name STRING)")
-        suggestions.append("CREATE FUNCTION")
+        suggestions.append("CREATE FUNCTION myfunc AS SELECT * FROM table")
     elif input.startswith("ADD"):
         suggestions.append("ADD NODE 1 '{\"prop\": \"value\"}'")
         suggestions.append("ADD EDGE 1 2 'label' '{\"prop\": \"value\"}'")
     elif input.startswith("INSERT"):
         suggestions.append("INSERT INTO LAKE test VALUES (1, 'name')")
+        suggestions.append("INSERT INTO test VALUES (1, 'name')")
     elif input.startswith("OPTIMIZE"):
         suggestions.append("OPTIMIZE test")
+    elif input.startswith("ATTACH"):
+        suggestions.append("ATTACH 'file.db' AS db")
+    elif input.startswith("DETACH"):
+        suggestions.append("DETACH db")
+    elif input.startswith("SHOW"):
+        suggestions.append("SHOW TABLES")
+        suggestions.append("SHOW EXTENSIONS")
     # More completions added
     return suggestions
 
 fn repl():
     print("Grizzly DB REPL. Type 'exit' to quit.")
+    # Enable tab completion with readline
+    try:
+        var py_readline = Python.import_module("readline")
+        # Define completer in Python
+        var completer_code = """
+def completer(text, state):
+    suggestions = []
+    if text.startswith("SELECT"):
+        suggestions = ["SELECT * FROM", "SELECT COUNT(*) FROM", "SELECT AVG(column) FROM", "SELECT SUM(column) FROM"]
+    elif text.startswith("LOAD EXTENSION"):
+        suggestions = ["LOAD EXTENSION column_store", "LOAD EXTENSION row_store", "LOAD EXTENSION graph", "LOAD EXTENSION blockchain", "LOAD EXTENSION lakehouse", "LOAD EXTENSION rest_api", "LOAD EXTENSION ml"]
+    elif text.startswith("CREATE"):
+        suggestions = ["CREATE TABLE test (id INT, name STRING)", "CREATE FUNCTION myfunc AS SELECT * FROM table"]
+    elif text.startswith("ADD"):
+        suggestions = ["ADD NODE 1 '{\\"prop\\": \\"value\\"}'", "ADD EDGE 1 2 'label' '{\\"prop\\": \\"value\\"}'"]
+    elif text.startswith("INSERT"):
+        suggestions = ["INSERT INTO LAKE test VALUES (1, 'name')", "INSERT INTO test VALUES (1, 'name')"]
+    elif text.startswith("OPTIMIZE"):
+        suggestions = ["OPTIMIZE test"]
+    elif text.startswith("ATTACH"):
+        suggestions = ["ATTACH 'file.db' AS db"]
+    elif text.startswith("DETACH"):
+        suggestions = ["DETACH db"]
+    elif text.startswith("SHOW"):
+        suggestions = ["SHOW TABLES", "SHOW EXTENSIONS"]
+    if state < len(suggestions):
+        return suggestions[state]
+    return None
+"""
+        Python.evaluate(completer_code)
+        var py_completer = Python.evaluate("completer")
+        py_readline.set_completer(py_completer)
+        py_readline.parse_and_bind("tab: complete")
+    except:
+        print("Readline not available, using basic completion.")
     while True:
-        print("grizzly> ", end="")
-        let input = input()  # Assume input function
-        if input == "exit":
+        try:
+            print("grizzly> ", end="")
+            var py_input = Python.import_module("builtins").input
+            var input = py_input()
+            if input == "exit":
+                break
+            if input == "":
+                continue
+            execute_sql(input)
+        except KeyboardInterrupt:
+            print("\nExiting...")
             break
-        if input == "":
-            continue
-        # Handle tab for completion
-        if "\t" in input:
-            let prefix = input.split("\t")[0]
-            let suggestions = tab_complete(prefix)
-            print("Suggestions:")
-            for s in suggestions:
-                print("  ", s)
-            continue
-        execute_sql(input)

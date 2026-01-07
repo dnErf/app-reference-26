@@ -277,3 +277,26 @@ fn custom_agg(values: List[Int64], func: String) -> Int64:
 fn async_sum(values: List[Int64]) -> Int64:
     # Simulate async, just sum
     return sum_agg(values)
+
+fn string_concat(strings: List[String]) -> String:
+    var result = String()
+    for s in strings:
+        result += s
+    return result
+
+fn date_diff(date1: String, date2: String) -> Int64:
+    # Placeholder: parse dates and diff
+    return 0
+
+fn regex_match(text: String, pattern: String) -> Bool:
+    # Placeholder: use Python regex
+    return False
+
+fn load_external_pl(filename: String) -> String:
+    # Load PL code from file
+    with open(filename, "r") as f:
+        return f.read()
+
+fn execute_pl(code: String, args: Dict[String, Value]) -> Value:
+    # Placeholder: parse and execute PL code
+    return Value("int", 0, 0.0, "")

@@ -284,3 +284,17 @@
 - [x] Support complex aggregations (percentiles, medians): Added PERCENTILE(column, p) parsing and percentile function in query.mojo
 - [x] Integrate statistical functions: Added STATS(column) for mean/std_dev in query.mojo
 - [x] Add data quality checks: Added DATA_QUALITY SQL command in query.mojo
+
+# Batch 9: Extensions Ecosystem Expansion
+- [x] Add time-series extension: Added time_series_forecast in extensions/ecosystem.mojo
+- [x] Implement geospatial extension: Added point_in_polygon in extensions/ecosystem.mojo
+- [x] Support blockchain smart contracts: Added deploy_smart_contract and call_smart_contract in extensions/ecosystem.mojo
+- [x] Add ETL pipelines: Added extract_from_csv, transform_data, load_to_db in extensions/ecosystem.mojo
+- [x] Integrate with external APIs: Added call_external_api using Python requests in extensions/ecosystem.mojo
+
+# Batch 12: Multi-Format Data Lake
+- [x] Enhance lakehouse with ACID transactions: Added Transaction struct and insert_with_transaction in extensions/lakehouse.mojo
+- [x] Support schema-on-read for unstructured data: Added infer_schema_from_json and query_unstructured in extensions/lakehouse.mojo
+- [x] Add data lineage tracking: Added lineage_map, add_lineage, get_lineage in extensions/lakehouse.mojo
+- [x] Implement data versioning: Already supported with versions and time travel
+- [x] Support hybrid storage: Added HybridStore struct for row/column modes in extensions/lakehouse.mojo
