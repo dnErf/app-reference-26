@@ -9,13 +9,13 @@ from python import Python, PythonObject
 alias Variant = PythonObject  # Use Python for flexibility
 
 # Result type for error handling
-enum Result[T: AnyType, E: AnyType]:
-    case ok(T)
-    case err(E)
+# enum Result[T: AnyType, E: AnyType]:
+#     case ok(T)
+#     case err(E)
 
-# Alias for common types
-alias ResultInt = Result[Int, String]
-alias ResultTable = Result[Table, String]
+# # Alias for common types
+# alias ResultInt = Result[Int, String]
+# alias ResultTable = Result[Table, String]
 
 struct VariantArray(Copyable, Movable):
     var data: List[Variant]
@@ -310,6 +310,7 @@ struct Table(Copyable, Movable):
     var columns: List[Int64Array]
     var mixed_columns: List[VariantArray]  # For mixed types
     var indexes: Dict[String, BTreeIndex]
+    var row_versions: List[Int64]  # MVCC: version for each row
 
     fn __init__(out self, schema: Schema, num_rows: Int):
         self.schema = Schema()
@@ -323,6 +324,9 @@ struct Table(Copyable, Movable):
             else:
                 self.columns.append(Int64Array(num_rows))
         self.indexes = Dict[String, BTreeIndex]()
+        self.row_versions = List[Int64](capacity=num_rows)
+        for _ in range(num_rows):
+            self.row_versions.append(1)  # Initial version
 
     fn __copyinit__(out self, existing: Table):
         self.schema = Schema()
@@ -331,17 +335,25 @@ struct Table(Copyable, Movable):
         self.columns = List[Int64Array]()
         for col in existing.columns:
             self.columns.append(col.copy())
+        self.mixed_columns = List[VariantArray]()
+        for col in existing.mixed_columns:
+            self.mixed_columns.append(col.copy())
         self.indexes = Dict[String, BTreeIndex]()
         for key in existing.indexes.keys():
             try:
                 self.indexes[key] = existing.indexes[key].copy()
             except:
                 pass
+        self.row_versions = List[Int64]()
+        for v in existing.row_versions:
+            self.row_versions.append(v)
 
     fn __moveinit__(out self, deinit existing: Table):
         self.schema = existing.schema^
         self.columns = existing.columns^
+        self.mixed_columns = existing.mixed_columns^
         self.indexes = existing.indexes^
+        self.row_versions = existing.row_versions^
 
     fn build_index(mut self, column_name: String):
         var col_index = -1
@@ -361,10 +373,20 @@ struct Table(Copyable, Movable):
     fn num_rows(self) -> Int:
         return len(self.columns[0].data) if len(self.columns) > 0 else 0
 
+    # MVCC functions
+    fn get_row_version(self, row: Int) -> Int64:
+        return self.row_versions[row]
+
+    fn set_row_version(mut self, row: Int, version: Int64):
+        self.row_versions[row] = version
+
+    fn increment_version(mut self, row: Int):
+        self.row_versions[row] += 1
+
     fn append_row(mut self, values: List[Int64]):
         for i in range(len(values)):
             self.columns[i].append(values[i])
-        # For mixed, assume not appending here
+        self.row_versions.append(1)  # New row starts at version 1
 
     fn get_row_values(self, row: Int) -> List[Int64]:
         var values = List[Int64]()

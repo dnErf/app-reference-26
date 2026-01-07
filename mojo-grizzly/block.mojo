@@ -30,6 +30,42 @@ fn decrypt_data(encrypted: String, key: String) -> String:
 from extensions.security import encrypt_data, decrypt_data
 from extensions.security import encrypt_data, decrypt_data
 
+struct MemoryMappedStore:
+    var filename: String
+    var mapped_data: PythonObject  # mmap object
+
+    fn __init__(out self, filename: String):
+        self.filename = filename
+        self.mapped_data = PythonObject()
+
+    fn map_file(mut self):
+        try:
+            var py_mmap = Python.import_module("mmap")
+            var py_os = Python.import_module("os")
+            var fd = py_os.open(self.filename, py_os.O_RDWR | py_os.O_CREAT)
+            var size = py_os.fstat(fd).st_size
+            if size == 0:
+                size = 1024 * 1024  # 1MB default
+                py_os.ftruncate(fd, size)
+            self.mapped_data = py_mmap.mmap(fd, size)
+            py_os.close(fd)
+        except:
+            print("Failed to memory map file")
+
+    fn read_data(self, offset: Int, length: Int) -> String:
+        if self.mapped_data:
+            return String(self.mapped_data[offset:offset+length])
+        return ""
+
+    fn write_data(mut self, offset: Int, data: String):
+        if self.mapped_data:
+            for i in range(len(data)):
+                self.mapped_data[offset + i] = ord(data[i])
+
+    fn unmap(mut self):
+        if self.mapped_data:
+            self.mapped_data.close()
+
 struct PartitionedBlockStore(Copyable, Movable):
     var partitions: Dict[String, BlockStore]  # Key by time/hash
 
@@ -374,3 +410,33 @@ struct WAL(Movable):
         # Truncate file
         with open(self.filename, "w") as f:
             f.write("")
+
+    # Incremental backup from WAL
+    fn incremental_backup(self, backup_path: String):
+        with open(backup_path, "w") as f:
+            for entry in self.log:
+                f.write(entry + "\n")
+        print("Incremental backup created at", backup_path)
+
+    fn replay_to_timestamp(inout self, store: BlockStore, target_timestamp: String):
+        with open(self.filename, "r") as f:
+            var content = f.read()
+        var lines = content.split("\n")
+        for line in lines:
+            if line != "":
+                var decrypted = decrypt_data(line, "my_secret_key_32_bytes_long!!!")
+                var decompressed = decompress_lz4(decrypted)
+                # Extract timestamp from operation, assume format "timestamp operation"
+                var parts = decompressed.split(" ")
+                if len(parts) >= 2:
+                    var op_timestamp = parts[0]
+                    if op_timestamp <= target_timestamp:
+                        self.log.append(decompressed)
+                        # Apply operation
+                        if decompressed.startswith("INSERT"):
+                            # Apply insert
+                            print("Replayed to timestamp:", op_timestamp)
+                        # Add more operation types
+                    else:
+                        break  # Stop at target
+        print("Replayed WAL to timestamp", target_timestamp)

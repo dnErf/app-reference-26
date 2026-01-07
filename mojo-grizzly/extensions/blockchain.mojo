@@ -8,6 +8,18 @@ from formats import write_orc
 var blockchain_store: BlockStore
 var memory_head: Block  # Copy of latest block for fast reads
 
+struct NFT:
+    var id: String
+    var metadata: String
+    var owner: String
+
+struct SmartContract:
+    var id: String
+    var code: String
+
+var nfts = List[NFT]()
+var contracts = List[SmartContract]()
+
 fn init():
     blockchain_store = BlockStore()
     memory_head = Block(Table(Schema(), 0), "")
@@ -31,3 +43,15 @@ fn save_chain(filename: String):
         write_orc(block[].data, block_filename)
         i += 1
     print("Chain saved to", filename + ".grz")
+
+fn mint_nft(metadata: String) -> String:
+    let id = "nft_" + str(len(nfts))
+    nfts.append(NFT(id, metadata, "owner_default"))
+    print("NFT minted:", id)
+    return id
+
+fn deploy_contract(code: String) -> String:
+    let id = "contract_" + str(len(contracts))
+    contracts.append(SmartContract(id, code))
+    print("Contract deployed:", id)
+    return id

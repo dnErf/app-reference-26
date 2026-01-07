@@ -2,7 +2,7 @@
 # Readers for JSONL, AVRO, ORC, etc.
 
 import os
-from arrow import Schema, Table, Int64Array, ResultTable
+from arrow import Schema, Table, Int64Array
 from python import Python
 
 fn write_parquet(table: Table, filename: String, compression: String = "snappy") raises:
@@ -40,7 +40,7 @@ fn write_parquet(table: Table, filename: String, compression: String = "snappy")
         file.close()
         print("Simple Parquet written to", filename)
 
-fn read_parquet(filename: String) -> ResultTable:
+fn read_parquet(filename: String) raises -> Table:
     # Use pyarrow for full Parquet reading with schema evolution
     try:
         var py_pandas = Python.import_module("pandas")
@@ -482,6 +482,61 @@ struct PartitionedTable:
         if key in self.partitions:
             return self.partitions[key]
         return Table(Schema(), 0)
+
+    # Sharding: distribute rows based on shard key
+    fn shard_table(mut self, table: Table, shard_column: String, num_shards: Int):
+        var col_index = -1
+        for i in range(len(table.schema.fields)):
+            if table.schema.fields[i].name == shard_column:
+                col_index = i
+                break
+        if col_index == -1:
+            return
+        for row in range(table.num_rows()):
+            var shard_key = String(table.columns[col_index][row] % num_shards)
+            if shard_key not in self.partitions:
+                self.partitions[shard_key] = Table(table.schema, 0)
+            self.partitions[shard_key].append_row(table.get_row_values(row))
+
+    # Range partitioning: partition based on ranges
+    fn range_partition(mut self, table: Table, column: String, ranges: List[Int64]):
+        var col_index = -1
+        for i in range(len(table.schema.fields)):
+            if table.schema.fields[i].name == column:
+                col_index = i
+                break
+        if col_index == -1:
+            return
+        for row in range(table.num_rows()):
+            var val = table.columns[col_index][row]
+            var partition_key = "range_0"
+            for i in range(len(ranges)):
+                if val <= ranges[i]:
+                    partition_key = "range_" + String(i)
+                    break
+            if partition_key not in self.partitions:
+                self.partitions[partition_key] = Table(table.schema, 0)
+            self.partitions[partition_key].append_row(table.get_row_values(row))
+
+    # List partitioning: partition based on specific values
+    fn list_partition(mut self, table: Table, column: String, value_lists: Dict[String, List[Int64]]):
+        var col_index = -1
+        for i in range(len(table.schema.fields)):
+            if table.schema.fields[i].name == column:
+                col_index = i
+                break
+        if col_index == -1:
+            return
+        for row in range(table.num_rows()):
+            var val = table.columns[col_index][row]
+            var partition_key = "default"
+            for key in value_lists.keys():
+                if val in value_lists[key]:
+                    partition_key = key
+                    break
+            if partition_key not in self.partitions:
+                self.partitions[partition_key] = Table(table.schema, 0)
+            self.partitions[partition_key].append_row(table.get_row_values(row))
 
 # Bucketing
 struct BucketedTable:

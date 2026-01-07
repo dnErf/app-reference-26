@@ -17,6 +17,18 @@ from extensions.lakehouse import create_lake_table, insert_into_lake, optimize_l
 from extensions.rest_api import init as init_rest_api
 from network import add_replica
 from extensions.ml import init as init_ml
+from extensions.scm import init as init_scm
+from extensions.packaging import init as init_packaging, package_init, add_python_dep, add_mojo_file, package_build, package_install
+
+struct Trigger:
+    var name: String
+    var table: String
+    var event: String  # INSERT, UPDATE, DELETE
+    var action: String  # SQL to execute
+
+var triggers = List[Trigger]()
+var cron_jobs = List[String]()  # Simple list of cron commands
+var scm_repo = ""  # Current SCM repo path
 
 # Security functions inline
 fn generate_token(user_id: String) -> String:
@@ -148,8 +160,131 @@ fn execute_sql(sql: String):
                 pass  # Placeholder
             elif ext_name == "ecosystem":
                 pass  # Placeholder
+            elif ext_name == "scm":
+                init_scm()
+            elif ext_name == "packaging":
+                init_packaging()
             else:
-                print("Unknown extension:", ext_name)    elif sql.upper().startswith("ATTACH"):
+                print("Unknown extension:", ext_name)
+    elif sql.upper().startswith("CREATE TRIGGER"):
+        # CREATE TRIGGER name ON table FOR event EXECUTE action
+        let parts = sql.split(" ")
+        if len(parts) >= 7:
+            let name = parts[2]
+            let table = parts[4]
+            let event = parts[6]
+            let action_start = sql.find("EXECUTE ")
+            if action_start != -1:
+                let action = sql[action_start+8:].strip()
+                triggers.append(Trigger(name, table, event, action))
+                print("Trigger", name, "created on", table, "for", event)
+            else:
+                print("Invalid CREATE TRIGGER syntax")
+        else:
+            print("Invalid CREATE TRIGGER syntax")
+    elif sql.upper().startswith("DROP TRIGGER"):
+        # DROP TRIGGER name
+        let name = sql[13:].strip()
+        for i in range(len(triggers)):
+            if triggers[i].name == name:
+                triggers.__delitem__(i)
+                print("Trigger", name, "dropped")
+                break
+        else:
+            print("Trigger", name, "not found")
+    elif sql.upper().startswith("CRON ADD"):
+        # CRON ADD 'schedule' 'command'
+        let parts = sql.split("'")
+        if len(parts) >= 4:
+            let schedule = parts[1]
+            let command = parts[3]
+            cron_jobs.append(schedule + " " + command)
+            print("Cron job added:", schedule, command)
+        else:
+            print("Invalid CRON ADD syntax")
+    elif sql.upper().startswith("GIT INIT"):
+        # GIT INIT [path]
+        let path = sql[9:].strip()
+        if path == "":
+            path = "."
+        scm_repo = path
+        print("SCM repo initialized at", path)
+    elif sql.upper().startswith("GIT COMMIT"):
+        # GIT COMMIT 'message'
+        let message_start = sql.find("'")
+        let message_end = sql.rfind("'")
+        if message_start != -1 and message_end != -1:
+            let message = sql[message_start+1:message_end]
+            print("Committed with message:", message)
+        else:
+            print("Invalid GIT COMMIT syntax")
+    elif sql.upper().startswith("BLOCKCHAIN MINT NFT"):
+        # BLOCKCHAIN MINT NFT 'metadata'
+        let metadata_start = sql.find("'")
+        let metadata_end = sql.rfind("'")
+        if metadata_start != -1 and metadata_end != -1:
+            let metadata = sql[metadata_start+1:metadata_end]
+            from extensions.blockchain import mint_nft
+            let nft_id = mint_nft(metadata)
+            print("NFT minted with ID:", nft_id)
+        else:
+            print("Invalid BLOCKCHAIN MINT NFT syntax")
+    elif sql.upper().startswith("BLOCKCHAIN DEPLOY CONTRACT"):
+        # BLOCKCHAIN DEPLOY CONTRACT 'code'
+        let code_start = sql.find("'")
+        let code_end = sql.rfind("'")
+        if code_start != -1 and code_end != -1:
+            let code = sql[code_start+1:code_end]
+            from extensions.blockchain import deploy_contract
+            let contract_id = deploy_contract(code)
+            print("Smart contract deployed with ID:", contract_id)
+        else:
+            print("Invalid BLOCKCHAIN DEPLOY CONTRACT syntax")    elif sql.upper().startswith("PACKAGE INIT"):
+        # PACKAGE INIT 'name' 'version'
+        let parts = sql.split("'")
+        if len(parts) >= 4:
+            let name = parts[1]
+            let version = parts[3]
+            package_init(name, version)
+        else:
+            print("Invalid PACKAGE INIT syntax")
+    elif sql.upper().startswith("PACKAGE ADD DEP"):
+        # PACKAGE ADD DEP 'dep'
+        let dep_start = sql.find("'")
+        let dep_end = sql.rfind("'")
+        if dep_start != -1 and dep_end != -1:
+            let dep = sql[dep_start+1:dep_end]
+            add_python_dep(dep)
+        else:
+            print("Invalid PACKAGE ADD DEP syntax")
+    elif sql.upper().startswith("PACKAGE ADD FILE"):
+        # PACKAGE ADD FILE 'file'
+        let file_start = sql.find("'")
+        let file_end = sql.rfind("'")
+        if file_start != -1 and file_end != -1:
+            let file = sql[file_start+1:file_end]
+            add_mojo_file(file)
+        else:
+            print("Invalid PACKAGE ADD FILE syntax")
+    elif sql.upper().startswith("PACKAGE BUILD"):
+        package_build()
+    elif sql.upper().startswith("PACKAGE INSTALL"):
+        package_install()    elif sql.upper().startswith("RUN CRON"):
+        # RUN CRON - execute all cron jobs in background
+        @parameter
+        fn run_job(job: String):
+            let parts = job.split(" ")
+            if len(parts) >= 2:
+                let schedule = parts[0]
+                let command = " ".join(parts[1:])
+                # Simple: just execute the command
+                let result = execute_query(global_table, command, tables, current_user)
+                print("Cron job executed:", command)
+        for job in cron_jobs:
+            var t = Thread(run_job, job)
+            t.start()
+        print("Cron jobs started")
+    elif sql.upper().startswith("ATTACH"):
         # ATTACH 'path' AS alias
         let path_start = sql.find("'")
         let path_end = sql.find("'", path_start+1)
@@ -375,6 +510,11 @@ fn execute_sql(sql: String):
                     values.append(v[].strip().strip("'\""))
                 insert_into_lake(table_name, values)
                 print("Inserted into lake table", table_name)
+                # Execute triggers
+                for t in triggers:
+                    if t.table == table_name and t.event.upper() == "INSERT":
+                        let result = execute_query(global_table, t.action, tables, current_user)
+                        print("Trigger", t.name, "executed")
         else:
             print("Invalid INSERT INTO LAKE syntax")
     elif sql.startswith("SELECT") and "AS OF" in sql:
