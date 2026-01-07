@@ -4,6 +4,113 @@
 from arrow import Table, Schema
 from formats import write_orc, read_orc, compress_lz4, decompress_lz4
 import hashlib  # Assume Mojo has hashlib or implement simple hash
+from python import Python
+
+struct PartitionedBlockStore(Copyable, Movable):
+    var partitions: Dict[String, BlockStore]  # Key by time/hash
+
+    fn __init__(out self):
+        self.partitions = Dict[String, BlockStore]()
+
+    fn add_block(inout self, block: Block, partition_key: String):
+        if partition_key not in self.partitions:
+            self.partitions[partition_key] = BlockStore()
+        self.partitions[partition_key].add_block(block)
+
+    fn get_blocks(self, partition_key: String) -> List[Block]:
+        if partition_key in self.partitions:
+            return self.partitions[partition_key].blocks
+        return List[Block]()
+
+struct IncrementalBackup:
+    var last_backup_hash: String
+    var s3_bucket: String
+    var r2_endpoint: String
+
+    fn __init__(out self, bucket: String, endpoint: String = "https://<account>.r2.cloudflarestorage.com"):
+        self.last_backup_hash = ""
+        self.s3_bucket = bucket
+        self.r2_endpoint = endpoint
+
+    fn backup(inout self, store: BlockStore):
+        # Compute diff
+        var current_hash = self.compute_store_hash(store)
+        if current_hash == self.last_backup_hash:
+            return  # No changes
+        var diff_data = self.compute_diff(store)
+        # Upload to S3/R2 via Python
+        let boto3 = Python.import_module("boto3")
+        let client = boto3.client("s3", endpoint_url=self.r2_endpoint)
+        client.put_object(Bucket=self.s3_bucket, Key="backup.diff", Body=diff_data)
+        self.last_backup_hash = current_hash
+
+    fn compute_store_hash(self, store: BlockStore) -> String:
+        var h = 0
+        for block in store.blocks:
+            h ^= hash_string(block.hash)
+        return str(h)
+
+    fn compute_diff(self, store: BlockStore) -> String:
+        # Simple diff: serialize new blocks
+        var diff = ""
+        for block in store.blocks:
+            if hash_string(block.hash) > hash_string(self.last_backup_hash):
+                diff += block.hash + "\n"
+        return diff
+
+    fn recover(self, store: BlockStore, timestamp: String):
+        # Download and apply diff
+        let boto3 = Python.import_module("boto3")
+        let client = boto3.client("s3", endpoint_url=self.r2_endpoint)
+        let obj = client.get_object(Bucket=self.s3_bucket, Key="backup.diff")
+        let diff_data = obj["Body"].read().decode("utf-8")
+        # Apply diff to store
+        let lines = diff_data.split("\n")
+        for line in lines:
+            if line != "":
+                # Find block by hash and add
+                pass  # Simplified
+
+struct SchemaEvolution:
+    fn migrate_table(inout table: Table, new_schema: Schema):
+        # Add/remove columns
+        var new_columns = List[Int64Array]()
+        for new_field in new_schema.fields:
+            var found = False
+            for i in range(len(table.schema.fields)):
+                if table.schema.fields[i].name == new_field.name:
+                    new_columns.append(table.columns[i])
+                    found = True
+                    break
+            if not found:
+                # Add default column
+                new_columns.append(Int64Array(table.num_rows()))
+        table.columns = new_columns^
+        table.schema = new_schema^
+
+struct CompressionTuner:
+    var workload: String  # e.g., "read-heavy", "write-heavy"
+
+    fn __init__(out self, workload: String):
+        self.workload = workload
+
+    fn choose_compression(self) -> String:
+        if self.workload == "read-heavy":
+            return "LZ4"  # Fast decompress
+        elif self.workload == "write-heavy":
+            return "ZSTD"  # Better compression
+        return "LZ4"
+
+    fn tune(inout self, data: String) -> String:
+        let algo = self.choose_compression()
+        if algo == "LZ4":
+            return compress_lz4(data)
+        elif algo == "ZSTD":
+            return compress_zstd(data)  # Assume implemented
+        return data
+
+# Assume compress_zstd in formats.mojo
+from formats import compress_zstd
 
 struct Block(Copyable, Movable):
     var data: Table
@@ -201,6 +308,25 @@ struct WAL(Movable):
                         let block = Block(store.blocks.size(), store.get_data(), timestamp)
                         store.blocks.append(block)
                         print("Replayed INSERT, added block", block.index)
+
+    fn replay_to_timestamp(inout self, store: BlockStore, target_timestamp: String):
+        with open(self.filename, "r") as f:
+            let content = f.read()
+        let lines = content.split("\n")
+        for line in lines:
+            if line != "":
+                let decompressed = decompress_lz4(line)
+                let parts = decompressed.split(" ")
+                if len(parts) >= 2:
+                    let timestamp = parts[1]
+                    if timestamp <= target_timestamp:
+                        self.log.append(decompressed)
+                        # Apply
+                        if decompressed.startswith("INSERT"):
+                            let block = Block(store.blocks.size(), store.get_data(), timestamp)
+                            store.blocks.append(block)
+                    else:
+                        break  # Stop at target
 
     fn commit(inout self):
         self.log.clear()

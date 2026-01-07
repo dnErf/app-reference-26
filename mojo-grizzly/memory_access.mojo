@@ -2,6 +2,26 @@
 # Demonstrates allocation, deallocation, read/write with dynamic arrays
 # Based on Mojo's List for memory management
 
+struct MemoryPool:
+    var pool: List[MemoryAccess]
+    var max_size: Int
+
+    fn __init__(out self, max_size: Int = 100):
+        self.pool = List[MemoryAccess]()
+        self.max_size = max_size
+
+    fn acquire(mut self, size: Int) -> MemoryAccess:
+        for i in range(len(self.pool)):
+            if self.pool[i].size >= size:
+                var mem = self.pool[i]
+                self.pool.remove(i)
+                return mem^
+        return MemoryAccess(size)
+
+    fn release(mut self, mem: MemoryAccess):
+        if len(self.pool) < self.max_size:
+            self.pool.append(mem^)
+
 struct MemoryAccess:
     var data: List[UInt8]
     var size: Int

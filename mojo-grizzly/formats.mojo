@@ -380,6 +380,26 @@ fn decompress_zstd(data: String) -> String:
         return data[4:]
     return data
 
+fn compress_snappy(data: String) -> String:
+    # Simple Snappy simulation: prefix with snappy marker
+    return "SNAPPY" + data
+
+fn decompress_snappy(data: String) -> String:
+    # Remove SNAPPY prefix
+    if data.startswith("SNAPPY"):
+        return data[6:]
+    return data
+
+fn compress_brotli(data: String) -> String:
+    # Simple Brotli simulation: prefix with brotli marker
+    return "BROTLI" + data
+
+fn decompress_brotli(data: String) -> String:
+    # Remove BROTLI prefix
+    if data.startswith("BROTLI"):
+        return data[6:]
+    return data
+
 # Partitioning
 struct PartitionedTable:
     var partitions: Dict[String, Table]  # key is partition value

@@ -4,6 +4,59 @@
 
 from memory import memset_zero
 
+struct RefCounted[T: Copyable]:
+    var data: T
+    var ref_count: Int
+
+    fn __init__(out self, data: T):
+        self.data = data^
+        self.ref_count = 1
+
+    fn retain(mut self):
+        self.ref_count += 1
+
+    fn release(mut self) -> Bool:
+        self.ref_count -= 1
+        return self.ref_count == 0
+
+struct TablePool:
+    var pool: List[Table]
+    var max_size: Int
+
+    fn __init__(out self, max_size: Int = 10):
+        self.pool = List[Table]()
+        self.max_size = max_size
+
+    fn acquire(mut self, schema: Schema, num_rows: Int) -> Table:
+        for i in range(len(self.pool)):
+            if self.pool[i].schema.fields == schema.fields and self.pool[i].num_rows() == num_rows:
+                var tbl = self.pool[i]
+                self.pool.remove(i)
+                return tbl^
+        return Table(schema, num_rows)
+
+    fn release(mut self, tbl: Table):
+        if len(self.pool) < self.max_size:
+            self.pool.append(tbl^)
+
+fn process_large_table_in_chunks(table: Table, chunk_size: Int, func: fn(Table) -> Table) -> Table:
+    # Process large table in chunks to handle memory efficiently
+    var result = Table(table.schema, 0)
+    var num_chunks = (table.num_rows() + chunk_size - 1) // chunk_size
+    for i in range(num_chunks):
+        var start = i * chunk_size
+        var end = min(start + chunk_size, table.num_rows())
+        # Create chunk table
+        var chunk = Table(table.schema, end - start)
+        for row in range(start, end):
+            chunk.append_row(table, row)
+        # Process chunk
+        var processed = func(chunk)
+        # Append to result
+        for row in range(processed.num_rows()):
+            result.append_row(processed, row)
+    return result
+
 # Data Types
 # enum DataType:
 #     int64
