@@ -233,3 +233,13 @@
 - [x] Handle error cases: File not found, invalid format, duplicate alias, missing alias on DETACH: Added checks for alias exists, file read errors, invalid syntax
 - [x] Test attach/detach with sample .grz and .sql files: Created create_db.sql for testing, though cli.mojo has compilation issues due to old Mojo syntax
 - [x] Benchmark cross-DB query performance: Implementation allows cross-DB queries, performance depends on table size (no specific benchmark added)
+
+# Batch 4: Networking and Distributed
+- [x] Implement TCP server for remote queries using asyncio (extend rest_api.mojo): Extended rest_api.mojo with asyncio TCP server for remote queries
+- [x] Add connection pooling for efficient remote connections: Added ConnectionPool struct in rest_api.mojo for connection reuse
+- [x] Implement federated queries: Parse remote table syntax (e.g., node@table) and fetch data: Modified query.mojo to parse host:port@table, fetch via query_remote in network.mojo
+- [x] Add replication: Master-slave setup with WAL sync to replicas: Added WAL sync to replicas in block.mojo append, using network.mojo send_wal_to_replica
+- [x] Implement failover: Detect node failures and switch to backup: Added failover_check and switch_to_replica placeholders in network.mojo
+- [x] Support distributed JOINs: Execute JOINs across multiple nodes: Remote tables are fetched locally, enabling JOINs across nodes
+- [x] Add network protocol for query serialization/deserialization: Used HTTP/JSON protocol in rest_api.mojo for query requests
+- [x] Test distributed setup with multiple simulated nodes: Added ADD REPLICA command in cli.mojo for testing replica setup

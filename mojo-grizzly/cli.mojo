@@ -14,6 +14,8 @@ from extensions.row_store import RowStoreConfig, init as init_row_store
 from extensions.graph import add_node, add_edge, init as init_graph
 from extensions.blockchain import append_block, get_head, save_chain, init as init_blockchain
 from extensions.lakehouse import create_lake_table, insert_into_lake, optimize_lake, init as init_lakehouse
+from extensions.rest_api import init as init_rest_api
+from network import add_replica
 
 # Global database state
 var global_table = Table(Schema(), 0)
@@ -273,6 +275,20 @@ fn execute_sql(sql: String):
             print("Optimized lake table", table_name)
         else:
             print("Invalid OPTIMIZE syntax")
+    elif sql.startswith("ADD REPLICA"):
+        let parts = sql.split(" ")
+        if len(parts) >= 3:
+            let addr = parts[2]
+            let addr_parts = addr.split(":")
+            if len(addr_parts) == 2:
+                let host = addr_parts[0]
+                let port = atol(addr_parts[1])
+                add_replica(host, port)
+                print("Added replica", addr)
+            else:
+                print("Invalid address format")
+        else:
+            print("Invalid ADD REPLICA syntax")
     else:
         print("Unsupported SQL:", sql)
 
@@ -288,6 +304,8 @@ fn load_extension(name: String):
         init_blockchain()
     elif name == "lakehouse":
         init_lakehouse()
+    elif name == "rest_api":
+        init_rest_api()
     else:
         print("Unknown extension:", name)
 

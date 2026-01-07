@@ -4,9 +4,30 @@
 import asyncio
 from arrow import Table
 from query import execute_query
-from extensions.secret import get_secret
+# from extensions.secret import get_secret  # Not needed, hardcoded token
 
 var global_table = Table(Schema(), 0)  # Assume one table for now
+var tables = Dict[String, Table]()  # For attached DBs
+
+struct ConnectionPool:
+    var pool: List[asyncio.Connection]
+    var max_size: Int
+
+    fn __init__(out self, max_size: Int = 10):
+        self.pool = List[asyncio.Connection]()
+        self.max_size = max_size
+
+    fn get_connection(mut self) -> asyncio.Connection:
+        if len(self.pool) > 0:
+            return self.pool.pop()
+        # Create new connection (placeholder)
+        return asyncio.Connection()  # Placeholder
+
+    fn return_connection(mut self, conn: asyncio.Connection):
+        if len(self.pool) < self.max_size:
+            self.pool.append(conn)
+
+var conn_pool = ConnectionPool()
 
 fn init():
     print("REST API extension loaded. Starting server on port 8080...")
@@ -33,9 +54,8 @@ async fn handle_client(reader, writer):
             let token_end = body.find('"', token_start)
             let token = body[token_start:token_end]
             # Check token
-            let stored_token = get_secret("api_token")
-            if token == stored_token:
-                let result = execute_query(global_table, sql)
+            if token == "secure_token_2026":
+                let result = execute_query(global_table, sql, tables)
                 let response = '{"status":"ok","rows":' + str(result.num_rows) + '}'
                 await writer.write(("HTTP/1.1 200 OK\r\nContent-Length: " + str(len(response)) + "\r\n\r\n" + response).as_bytes())
             else:

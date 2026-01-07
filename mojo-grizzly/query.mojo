@@ -5,6 +5,7 @@ from arrow import Table, Int64Array, Float64Array, Schema, Field
 from pl import call_function
 from index import HashIndex
 from threading import Thread
+from network import RemoteNode, query_remote
 # from extensions.column_store import init as init_column_store
 # from extensions.row_store import init as init_row_store
 # from extensions.graph import init as init_graph
@@ -970,6 +971,25 @@ fn parse_and_execute_sql(table: Table, sql: String, tables: Dict[String, Table])
             return Table(Schema(), 0)
     elif table_spec.name in tables:
         query_table = tables[table_spec.name]^
+    elif "@" in table_spec.name:
+        var parts = table_spec.name.split("@")
+        if len(parts) == 2:
+            var node_str = String(parts[0])
+            table_spec.name = String(parts[1])
+            var node_parts = node_str.split(":")
+            if len(node_parts) == 2:
+                var host = String(node_parts[0])
+                var port = atol(node_parts[1])
+                var node = RemoteNode(host, port)
+                # Fetch remote table
+                var remote_sql = "SELECT * FROM " + table_spec.name
+                query_table = query_remote(node, remote_sql)
+            else:
+                print("Invalid node format: " + node_str)
+                return Table(Schema(), 0)
+        else:
+            print("Invalid remote table format: " + table_spec.name)
+            return Table(Schema(), 0)
 
     # Parse SELECT
     var column_specs = List[ColumnSpec]()

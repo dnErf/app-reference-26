@@ -5,6 +5,7 @@ from arrow import Table, Schema
 from formats import write_orc, read_orc, compress_lz4, decompress_lz4
 import hashlib  # Assume Mojo has hashlib or implement simple hash
 from python import Python
+from network import send_wal_to_replica, replicas
 
 struct PartitionedBlockStore(Copyable, Movable):
     var partitions: Dict[String, BlockStore]  # Key by time/hash
@@ -289,6 +290,9 @@ struct WAL(Movable):
         let compressed = compress_lz4(operation)
         with open(self.filename, "a") as f:
             f.write(compressed + "\n")
+        # Replicate to replicas
+        for replica in replicas:
+            send_wal_to_replica(replica, operation)
 
     fn replay(inout self, store: BlockStore):
         with open(self.filename, "r") as f:

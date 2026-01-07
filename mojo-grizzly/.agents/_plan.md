@@ -37,6 +37,13 @@
 - Performance profiling tools
 
 ## Future Batches (Reorganized by Impact & Dependencies)
+### Batch 4: Networking and Distributed (Depends on Async)
+- Add TCP server for remote queries
+- Implement distributed JOINs
+- Add replication and failover
+- Support federated queries
+- Implement connection pooling
+
 ### Batch 13: Attach/Detach Ecosystem (Depends on Networking/Storage)
 - Implement ATTACH/DETACH for .grz files (attach external DBs)
 - Support attaching .sql files (as scripts or virtual tables)
