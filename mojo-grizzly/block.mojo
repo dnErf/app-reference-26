@@ -52,15 +52,31 @@ fn compute_hash_static(data: Table, prev_hash: String) -> String:
     h = (h * 31 + hash_string(prev_hash)) % 1000000
     return String(h)
 
-struct Node:
-    var id: Int64
-    var properties: Dict[String, String]
+struct Plugin:
+    var name: String
+    var version: String
+    var dependencies: List[String]
+    var capabilities: List[String]
+    var loaded: Bool
 
-struct Edge:
-    var from_id: Int64
-    var to_id: Int64
-    var label: String
-    var properties: Dict[String, String]
+    fn __init__(out self, name: String, version: String, dependencies: List[String], capabilities: List[String]):
+        self.name = name
+        self.version = version
+        self.dependencies = dependencies
+        self.capabilities = capabilities
+        self.loaded = False
+
+    fn load(mut self):
+        # Check dependencies - assume all are loaded for simplicity
+        for dep in self.dependencies:
+            # In real impl, check global registry
+            pass
+        self.loaded = True
+        print("Plugin", self.name, "loaded")
+
+    fn unload(mut self):
+        self.loaded = False
+        print("Plugin", self.name, "unloaded")
 
 struct BlockStore(Movable):
     var blocks: List[Block]
@@ -70,6 +86,36 @@ struct BlockStore(Movable):
 
     fn append(mut self, block: Block):
         self.blocks.append(block.copy())
+
+    fn save(self, filename: String) raises:
+        # Save all blocks to ORC files with indices
+        for i in range(len(self.blocks)):
+            let block_file = filename + "_block_" + str(i) + ".orc"
+            write_orc(self.blocks[i].data, block_file)
+        # Save metadata: hashes and prev_hashes
+        var meta = ""
+        for block in self.blocks:
+            meta += block.hash + "," + block.prev_hash + "\n"
+        # Write meta to file
+        let meta_file = filename + "_meta.txt"
+        with open(meta_file, "w") as f:
+            f.write(meta)
+
+    fn load(filename: String) raises:
+        let meta_file = filename + "_meta.txt"
+        with open(meta_file, "r") as f:
+            let meta = f.read()
+        let lines = meta.split("\n")
+        self.blocks = List[Block]()
+        for i in range(len(lines)):
+            if lines[i] != "":
+                let parts = lines[i].split(",")
+                if len(parts) == 2:
+                    let block_file = filename + "_block_" + str(i) + ".orc"
+                    let data = read_orc(block_file)
+                    var block = Block(data^, parts[1])
+                    block.hash = parts[0]  # Assume hash is correct
+                    self.blocks.append(block)
 
 struct GraphStore:
     var nodes: BlockStore
@@ -107,6 +153,14 @@ struct GraphStore:
         table.columns[3].append(props_str)
         self.edges.append(Block(table^))
 
+    fn save(self, path: String) raises:
+        self.nodes.save(path + "_nodes")
+        self.edges.save(path + "_edges")
+
+    fn load(path: String) raises:
+        self.nodes.load(path + "_nodes")
+        self.edges.load(path + "_edges")
+
 fn save_block(block: Block, filename: String) raises:
     # Save to ORC file
     write_orc(block.data, filename)
@@ -125,13 +179,29 @@ struct WAL(Movable):
 
     fn append(inout self, operation: String):
         self.log.append(operation)
-        # Stub: write to file
+        with open(self.filename, "a") as f:
+            f.write(operation + "\n")
 
     fn replay(inout self, store: BlockStore):
-        for op in self.log:
-            # Stub: parse and apply op
-            pass
+        with open(self.filename, "r") as f:
+            let content = f.read()
+        let lines = content.split("\n")
+        for line in lines:
+            if line != "":
+                self.log.append(line)
+                # Apply to store, e.g., parse INSERT and add block
+                if line.startswith("INSERT"):
+                    # Parse INSERT timestamp
+                    let parts = line.split(" ")
+                    if len(parts) >= 2:
+                        let timestamp = parts[1]
+                        # Create block from current store data
+                        let block = Block(store.blocks.size(), store.get_data(), timestamp)
+                        store.blocks.append(block)
+                        print("Replayed INSERT, added block", block.index)
 
     fn commit(inout self):
         self.log.clear()
-        # Stub: flush
+        # Truncate file
+        with open(self.filename, "w") as f:
+            f.write("")

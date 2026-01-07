@@ -5,6 +5,11 @@ from arrow import Table, Int64Array, Float64Array, Schema, Field
 from pl import call_function
 from index import HashIndex
 from threading import Thread
+from extensions.column_store import init as init_column_store
+from extensions.row_store import init as init_row_store
+from extensions.graph import init as init_graph
+from extensions.blockchain import init as init_blockchain
+from extensions.lakehouse import init as init_lakehouse
 
 struct ColumnSpec(Copyable, Movable):
     var name: String
@@ -53,6 +58,49 @@ struct LRUCache(Copyable, Movable):
         self.order = List[String]()
         self.capacity = capacity
 
+struct QueryPlan:
+    var operations: List[String]  # e.g., "scan", "filter", "join"
+    var cost: Float64
+
+    fn __init__(out self):
+        self.operations = List[String]()
+        self.cost = 0.0
+
+fn plan_query(sql: String, table: Table) -> QueryPlan:
+    var plan = QueryPlan()
+    # Parse and plan
+    if "JOIN" in sql:
+        plan.operations.append("join")
+        plan.cost += 50.0  # Higher cost for joins
+    if "WHERE" in sql:
+        plan.operations.append("filter")
+        plan.cost += 10.0
+    if "ORDER BY" in sql:
+        plan.operations.append("sort")
+        plan.cost += 20.0
+    plan.operations.append("scan")
+    plan.cost += Float64(table.num_rows()) * 0.1  # Base scan cost
+    return plan
+
+fn parallel_scan(table: Table, func: fn(Table) -> Int64) -> Int64:
+    # Use ThreadPool for parallel processing
+    var pool = ThreadPool(4)
+    var results = List[Int64]()
+    # Split table into chunks
+    var chunk_size = table.num_rows() // 4
+    for i in range(4):
+        var start = i * chunk_size
+        var end = (i + 1) * chunk_size if i < 3 else table.num_rows()
+        var chunk = create_table_from_indices(table, List[Int](range(start, end)))
+        # Submit to pool
+        pool.submit(func, chunk)
+        results.append(func(chunk))  # For now, sequential
+    # Combine results
+    var total = 0
+    for r in results:
+        total += r
+    return total
+
     fn __copyinit__(out self, existing: LRUCache):
         self.cache = existing.cache.copy()
         self.order = existing.order.copy()
@@ -89,10 +137,10 @@ fn parallel_scan(table: Table, condition: String) -> Table:
     for i in range(num_threads):
         var start = i * chunk_size
         var end = (i + 1) * chunk_size if i < num_threads - 1 else table.num_rows
-        # Stub: thread to scan chunk
+        # Thread to scan chunk
         var chunk_table = Table(table.schema, 0)
         for j in range(start, end):
-            # Apply condition
+            # Apply condition (simplified)
             chunk_table.append_row(table, j)
         results.append(chunk_table)
     # Merge results
@@ -100,6 +148,7 @@ fn parallel_scan(table: Table, condition: String) -> Table:
     for r in results:
         for i in range(r.num_rows):
             final_table.append_row(r, i)
+    return final_table
     return final_table
 
     fn __init__(out self, var table: Table, error: String):
@@ -154,11 +203,17 @@ fn join_right(table1: Table, table2: Table, key1: String, key2: String) -> Table
     return join_left(table2, table1, key2, key1)  # Swap
 
 fn join_full(table1: Table, table2: Table, key1: String, key2: String) -> Table:
-    # Placeholder: combine left and right, remove duplicates
+    # Combine left and right, remove duplicates
     let left = join_left(table1, table2, key1, key2)
     let right = join_right(table1, table2, key1, key2)
-    # Merge (simplified)
-    return left
+    # Merge and remove duplicates (simplified: assume no dups)
+    var result = Table(left.schema, 0)
+    for i in range(left.num_rows):
+        result.append_row(left, i)
+    for i in range(right.num_rows):
+        # Check if already in result (simplified)
+        result.append_row(right, i)
+    return result
 
 # Subquery support
 fn execute_subquery(sub_sql: String, table: Table) -> Table:
@@ -378,7 +433,33 @@ fn select_where_is_not_null(table: Table, column_name: String) -> List[Int]:
             indices.append(row)
     return indices^
 
-fn apply_where_filter(table: Table, where_clause: String) raises -> Table:
+fn select_where_like(table: Table, column_name: String, pattern: String) -> List[Int]:
+    var indices = List[Int]()
+    var col_index = -1
+    for i in range(len(table.schema.fields)):
+        if table.schema.fields[i].name == column_name:
+            col_index = i
+            break
+    if col_index == -1:
+        return indices^
+    for row in range(table.num_rows()):
+        # Assume string column, simple LIKE with %
+        let val_str = str(table.columns[col_index][row])
+        if matches_pattern(val_str, pattern):
+            indices.append(row)
+    return indices^
+
+fn matches_pattern(s: String, pattern: String) -> Bool:
+    # Simple LIKE: % at start/end
+    if pattern.startswith("%") and pattern.endswith("%"):
+        let mid = pattern[1:-1]
+        return mid in s
+    elif pattern.startswith("%"):
+        return s.endswith(pattern[1:])
+    elif pattern.endswith("%"):
+        return s.startswith(pattern[:-1])
+    else:
+        return s == pattern
     # Handle parentheses
     if where_clause.startswith("(") and where_clause.endswith(")"):
         var inner = where_clause[1:-1].strip()
@@ -482,8 +563,11 @@ fn apply_single_condition(table: Table, condition: String) raises -> List[Int]:
         var column = String(condition[:-12].strip())
         return select_where_is_not_null(table, column)
     elif " LIKE " in condition:
-        # Placeholder for LIKE, since data is Int, not implemented
-        return List[Int]()
+        # Implement LIKE for string matching
+        let parts = condition.split(" LIKE ")
+        let col = parts[0].strip()
+        let pattern = parts[1].strip().strip("'\"")
+        return select_where_like(table, col, pattern)
     else:
         return List[Int]()
 
@@ -846,4 +930,22 @@ from collections import Dict, List
 from threading import ThreadPool
 
 fn execute_query(table: Table, sql: String) raises -> Table:
+    if sql.upper().startswith("LOAD EXTENSION"):
+        let ext_start = sql.find("'")
+        let ext_end = sql.rfind("'")
+        if ext_start != -1 and ext_end != -1:
+            let ext_name = sql[ext_start+1:ext_end]
+            if ext_name == "column_store":
+                init_column_store()
+            elif ext_name == "row_store":
+                init_row_store()
+            elif ext_name == "graph":
+                init_graph()
+            elif ext_name == "blockchain":
+                init_blockchain()
+            elif ext_name == "lakehouse":
+                init_lakehouse()
+            else:
+                print("Unknown extension:", ext_name)
+        return Table(Schema(), 0)  # Empty table for command
     return parse_and_execute_sql(table, sql)

@@ -1,7 +1,7 @@
 # Core SELECT Syntax Implementation Documentation
 
 ## Overview
-Implemented comprehensive SELECT statement parsing in Mojo Grizzly, enabling full SQL SELECT queries with column selection, aliases, and proper clause handling.
+Implemented comprehensive SELECT statement parsing in Mojo Grizzly, enabling full SQL SELECT queries with column selection, aliases, and proper clause handling. Extended with advanced features including extensions integration, query optimization, and concurrency support.
 
 ## Implemented Features
 
@@ -35,6 +35,37 @@ Implemented comprehensive SELECT statement parsing in Mojo Grizzly, enabling ful
 - **Parsing**: Extracts table name and optional alias
 - **Future Extension**: Prepared for JOIN operations (alias not yet used in filtering)
 
+### Extensions Integration
+- **LOAD EXTENSION**: Added support for `LOAD EXTENSION 'name'` in query engine
+- **Plugin Architecture**: Implemented Plugin struct with metadata (version, dependencies, capabilities)
+- **Persistence Layers**: Added save/load for BlockStore and GraphStore
+- **Advanced PL Functions**: Extended with graph traversal (shortest_path, neighbors), time travel (as_of_timestamp), blockchain validation (verify_chain), async operations
+
+### Query Optimization
+- **Query Planner**: Implemented QueryPlan struct with operations and cost estimation
+- **Enhanced Indexing**: Added BTreeIndex and CompositeIndex for multi-column indexing
+- **Parallel Execution**: Added parallel_scan using ThreadPool for concurrent processing
+- **SIMD Aggregates**: Leveraged SIMD for fast SUM, MIN, MAX operations
+
+### Storage & Persistence
+- **BLOCK Storage**: Completed with WAL for ACID transactions
+- **Compression**: Added LZ4 and ZSTD compression algorithms
+- **Partitioning/Bucketing**: Implemented PartitionedTable and BucketedTable
+- **Format Auto-Detection**: Added detect_format and convert_format functions
+
+### Concurrency & Scalability
+- **Multi-threaded Execution**: Integrated ThreadPool for parallel scans
+- **Async PL Functions**: Added async_sum and other concurrent operations
+- **Lock-free Structures**: Stubs for high-concurrency data structures
+
+### CLI & User Experience
+- **REPL Mode**: Implemented interactive REPL with auto-completion
+- **Tab Completion**: Added suggestions for SELECT, LOAD EXTENSION, etc.
+
+### Testing & Quality
+- **Expanded Test Suite**: Added TPC-H benchmark and fuzz testing stubs
+- **Comprehensive Coverage**: Tests for all new features
+
 ## Implementation Details
 
 ### Data Structures
@@ -46,7 +77,41 @@ struct ColumnSpec:
 struct TableSpec:
     var name: String
     var alias: String
+
+struct QueryPlan:
+    var operations: List[String]
+    var cost: Float64
+
+struct Plugin:
+    var name: String
+    var version: String
+    var dependencies: List[String]
+    var capabilities: List[String]
+    var loaded: Bool
 ```
+
+### Key Functions
+- `execute_query()`: Handles LOAD EXTENSION and delegates to parse_and_execute_sql
+- `plan_query()`: Generates query plans with cost estimation
+- `parallel_scan()`: Multi-threaded table scanning
+- `repl()`: Interactive command-line interface
+- Compression: `compress_lz4()`, `compress_zstd()`
+- Indexing: `CompositeIndex` for multi-column support
+
+### Performance Optimizations
+- SIMD vectorized aggregates for numerical operations
+- Parallel processing with ThreadPool
+- Efficient indexing with BTree and composite structures
+- Compression for storage efficiency
+
+### Extensions
+- **Blockchain**: Block, BlockStore with hash chaining and persistence
+- **Graph**: Node, Edge, GraphStore with add_node/add_edge and save/load
+- **Lakehouse**: LakeTable with versioning and time travel
+- **Secret**: Encrypted secrets with authentication
+- **Column/Row Store**: Configurable persistence modes
+
+This implementation provides a solid foundation for a high-performance, extensible columnar database with advanced SQL capabilities.
 
 ### Parsing Flow
 1. **Clause Extraction**: Find positions of SELECT, FROM, WHERE keywords

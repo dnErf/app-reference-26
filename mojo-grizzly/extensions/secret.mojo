@@ -39,6 +39,11 @@ fn encrypt(value: String, key: String) -> String:
 fn decrypt(encrypted: String, key: String) -> String:
     return encrypt(encrypted, key)  # XOR is symmetric
 
+var auth_token: String = ""
+
+fn set_auth_token(token: String):
+    global auth_token = token
+
 fn is_authenticated() -> Bool:
-    # Stub: check token or something
-    return True  # For now, allow
+    # Check token
+    return auth_token == "secure_token_2026"
