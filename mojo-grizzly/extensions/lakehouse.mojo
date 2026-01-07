@@ -22,12 +22,15 @@ struct LakeTable:
         let timestamp = "2026-01-06"  # Stub
         self.versions.append(timestamp)
         self.wal.append("INSERT " + timestamp)
-        # Stub: write Parquet to .grz
+        # Write Parquet to .grz
+        let filename = self.name + "_" + timestamp + ".parquet"
+        write_parquet(data, filename)
         print("Inserted into lake table", self.name, "version", timestamp)
 
     fn query_as_of(self, timestamp: String) -> Table:
-        # Stub: find version, load Parquet
-        return Table(self.schema, 0)
+        # Find version, load Parquet
+        let filename = self.name + "_" + timestamp + ".parquet"
+        return read_parquet(filename)
 
     fn optimize(inout self):
         # Stub: compaction

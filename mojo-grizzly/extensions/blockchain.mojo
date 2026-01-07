@@ -3,6 +3,7 @@
 
 from block import Block, BlockStore
 from arrow import Table, Schema
+from formats import write_orc
 
 var blockchain_store: BlockStore
 var memory_head: Block  # Copy of latest block for fast reads
@@ -23,5 +24,10 @@ fn get_head() -> Block:
     return memory_head.copy()
 
 fn save_chain(filename: String):
-    # Stub: save all blocks to .grz file
+    # Save all blocks to .grz file
+    var i = 0
+    for block in blockchain_store.blocks:
+        var block_filename = filename + "_" + str(i) + ".orc"
+        write_orc(block[].data, block_filename)
+        i += 1
     print("Chain saved to", filename + ".grz")

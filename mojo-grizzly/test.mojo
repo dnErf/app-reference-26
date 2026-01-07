@@ -23,8 +23,8 @@ fn test_query() raises:
     table.columns[0][1] = 2
     table.columns[0][2] = 1
     try:
-        var filtered = select_where_eq(table^, "id", 1)
-        if filtered.num_rows() != 2:
+        var indices = select_where_eq(table^, "id", 1)
+        if len(indices) != 2:
             print("Query test fail: filter count")
         else:
             print("Query test pass")
@@ -39,8 +39,8 @@ fn test_query_greater() raises:
     table.columns[0][0] = 10
     table.columns[0][1] = 20
     table.columns[0][2] = 30
-    var filtered = select_where_greater(table^, "value", 15)
-    if filtered.num_rows() == 2:
+    var indices = select_where_greater(table^, "value", 15)
+    if len(indices) == 2:
         print("Query greater test pass")
     else:
         print("Query greater test fail")

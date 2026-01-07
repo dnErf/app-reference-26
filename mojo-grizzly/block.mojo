@@ -82,17 +82,29 @@ struct GraphStore:
     fn add_node(mut self, node: Node):
         var schema = Schema()
         schema.add_field("id", "int64")
+        schema.add_field("properties", "string")
         var table = Table(schema, 0)
         table.columns[0].append(node.id)
+        var props_str = String("")
+        for key in node.properties.keys():
+            props_str += key + ":" + node.properties[key] + ";"
+        table.columns[1].append(props_str)
         self.nodes.append(Block(table^))
 
     fn add_edge(mut self, edge: Edge):
         var schema = Schema()
         schema.add_field("from_id", "int64")
         schema.add_field("to_id", "int64")
+        schema.add_field("label", "string")
+        schema.add_field("properties", "string")
         var table = Table(schema, 0)
         table.columns[0].append(edge.from_id)
         table.columns[1].append(edge.to_id)
+        table.columns[2].append(edge.label)
+        var props_str = String("")
+        for key in edge.properties.keys():
+            props_str += key + ":" + edge.properties[key] + ";"
+        table.columns[3].append(props_str)
         self.edges.append(Block(table^))
 
 fn save_block(block: Block, filename: String) raises:

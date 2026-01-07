@@ -2,6 +2,7 @@
 # Opt-in graph database with nodes/edges.
 
 from block import GraphStore, Node, Edge
+from formats import write_orc
 
 var graph_store: GraphStore
 
@@ -14,7 +15,12 @@ fn add_node(id: Int64, properties: Dict[String, String]):
     graph_store.nodes.append(node)
     print("Node added:", id)
 
-fn add_edge(from_id: Int64, to_id: Int64, label: String, properties: Dict[String, String]):
-    var edge = Edge(from_id, to_id, label, properties)
-    graph_store.edges.append(edge)
-    print("Edge added:", from_id, "->", to_id)
+fn neighbors(id: Int64) -> List[Int64]:
+    var neigh = List[Int64]()
+    for block in graph_store.edges.blocks:
+        for row in range(block[].data.num_rows()):
+            var from_ = block[].data.columns[0][row]
+            var to_ = block[].data.columns[1][row]
+            if from_ == id:
+                neigh.append(to_)
+    return neigh

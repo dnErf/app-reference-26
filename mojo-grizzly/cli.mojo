@@ -9,11 +9,11 @@ from query import execute_query
 from formats import read_jsonl, write_parquet
 from pl import create_function
 from ipc import serialize_table, deserialize_table
-from extensions.column_store import ColumnStoreConfig
-from extensions.row_store import RowStoreConfig
-from extensions.graph import add_node, add_edge
-from extensions.blockchain import append_block, get_head, save_chain
-from extensions.lakehouse import create_lake_table
+from extensions.column_store import ColumnStoreConfig, init as init_column_store
+from extensions.row_store import RowStoreConfig, init as init_row_store
+from extensions.graph import add_node, add_edge, init as init_graph
+from extensions.blockchain import append_block, get_head, save_chain, init as init_blockchain
+from extensions.lakehouse import create_lake_table, init as init_lakehouse
 
 # Global database state (simple: one table)
 var global_table = Table(Schema(), 0)
@@ -91,6 +91,13 @@ fn execute_sql(sql: String):
         if start != -1 and end != -1:
             let name = sql[start+1:end]
             load_extension(name)
+    elif sql.startswith("UNLOAD EXTENSION"):
+        # UNLOAD EXTENSION 'name'
+        let start = sql.find("'")
+        let end = sql.rfind("'")
+        if start != -1 and end != -1:
+            let name = sql[start+1:end]
+            unload_extension(name)
     elif sql.startswith("CREATE TABLE"):
         # CREATE TABLE name (cols) STORAGE type
         # Placeholder
@@ -138,26 +145,30 @@ fn execute_sql(sql: String):
         print("Unsupported SQL:", sql)
 
 fn load_extension(name: String):
-    if name == "secret":
-        from extensions.secret import init
-        init()
-    elif name == "blockchain":
-        from extensions.blockchain import init
-        init()
-    elif name == "graph":
-        from extensions.graph import init
-        init()
-    elif name == "rest_api":
-        from extensions.rest_api import init
-        init()
-    elif name == "column_store":
-        from extensions.column_store import init
-        init()
+    # Basic loader that calls extension init routines where available
+    if name == "column_store":
+        init_column_store()
     elif name == "row_store":
-        from extensions.row_store import init
-        init()
+        init_row_store()
+    elif name == "graph":
+        init_graph()
+    elif name == "blockchain":
+        init_blockchain()
+    elif name == "lakehouse":
+        init_lakehouse()
     else:
         print("Unknown extension:", name)
+
+fn unload_extension(name: String):
+    # Basic unload: toggle configs off where applicable
+    if name == "column_store":
+        ColumnStoreConfig.is_default = False
+        print("Column store unloaded")
+    elif name == "row_store":
+        RowStoreConfig.is_default = False
+        print("Row store unloaded")
+    else:
+        print("Extension unloaded:", name)
 
 fn main():
     if len(sys.argv) != 2:
