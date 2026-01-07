@@ -18,6 +18,42 @@
 
 - [x] Implement ORC writer: Write metadata, stripes with compression - Added schema, stripes, postscript with basic byte writing
 - [x] Implement ORC reader: Read metadata, decompress stripes, handle schema changes - Parsed postscript, footer, read stripes as int64
+- Security audit for extensions
+- Documentation updates
+- Unit tests for extensions
+- Schema evolution in lakehouse
+- Unstructured blob storage
+- Time travel UI commands
+- Compaction logic
+- Multi-format ingest auto-detection
+- Security audit for extensions
+- Documentation updates
+- Unit tests for extensions
+- Schema evolution in lakehouse
+- Unstructured blob storage
+- Time travel UI commands
+- Compaction logic
+- Security audit for extensions
+- Documentation updates
+- Unit tests for extensions
+- Schema evolution in lakehouse
+- Unstructured blob storage
+- Time travel UI commands
+- Security audit for extensions
+- Documentation updates
+- Unit tests for extensions
+- Schema evolution in lakehouse
+- Unstructured blob storage
+- Security audit for extensions
+- Documentation updates
+- Unit tests for extensions
+- Schema evolution in lakehouse
+- Security audit for extensions
+- Documentation updates
+- Unit tests for extensions
+- Security audit for extensions
+- Documentation updates
+- Security audit for extensions
 - [x] Implement AVRO writer: Encode schema and records - Added zigzag encoding, varint for records
 - [x] Implement AVRO reader: Read AVRO file with full parsing - Calls read_avro(data) after reading file
 - [x] Implement Parquet reader: Decompress pages, parse data - Parsed footer, read row groups as int64

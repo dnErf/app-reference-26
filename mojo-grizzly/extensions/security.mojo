@@ -1,6 +1,7 @@
 from python import Python
 from python import PythonObject
 import time
+import random
 
 # Row-Level Security (RLS) Policies
 struct RLSPolicy:
@@ -24,7 +25,7 @@ fn check_rls(table: String, user_id: String) -> Bool:
         if policy[].table_name == table:
             # Simple check: if user_id matches, allow
             # In real, parse condition
-            return True  # Placeholder
+            return True  # Placeholder - TODO: implement proper condition parsing
     return True  # No policy, allow
 
 # Data Encryption at Rest (AES)
@@ -36,7 +37,8 @@ fn encrypt_data(data: String, key: String) -> String:
         encrypted = fernet.encrypt(data.encode())
         return encrypted.decode()
     except:
-        return data  # Fallback
+        # Secure fallback: do not return original data
+        raise Error("Encryption failed")
 
 fn decrypt_data(encrypted: String, key: String) -> String:
     try:
@@ -46,7 +48,8 @@ fn decrypt_data(encrypted: String, key: String) -> String:
         decrypted = fernet.decrypt(encrypted.encode())
         return decrypted.decode()
     except:
-        return encrypted  # Fallback
+        # Secure fallback: do not return original
+        raise Error("Decryption failed")
 
 # Token-Based Authentication
 struct AuthToken:
@@ -55,17 +58,25 @@ struct AuthToken:
     var expires: Int64
 
 var active_tokens = Dict[String, AuthToken]()
+var jwt_secret: String = generate_jwt_secret()
+
+fn generate_jwt_secret() -> String:
+    # Generate a random 32-byte secret
+    var secret = ""
+    for _ in range(32):
+        secret += chr(random.randint(33, 126))  # Printable chars
+    return secret
 
 fn generate_token(user_id: String) -> String:
     try:
         py_jwt = Python.import_module("jwt")
         py_datetime = Python.import_module("datetime")
         payload = {"user_id": user_id, "exp": py_datetime.datetime.utcnow() + py_datetime.timedelta(hours=1)}
-        token = py_jwt.encode(payload, "secret", algorithm="HS256")
+        token = py_jwt.encode(payload, jwt_secret, algorithm="HS256")
         active_tokens[token] = AuthToken(token, user_id, time.time() + 3600)
         return token
     except:
-        return "token_" + user_id  # Fallback
+        raise Error("Token generation failed")
 
 fn validate_token(token: String) -> String:
     if token in active_tokens:
@@ -74,7 +85,7 @@ fn validate_token(token: String) -> String:
             return auth.user_id
     try:
         py_jwt = Python.import_module("jwt")
-        decoded = py_jwt.decode(token, "secret", algorithms=["HS256"])
+        decoded = py_jwt.decode(token, jwt_secret, algorithms=["HS256"])
         return decoded["user_id"]
     except:
         return ""  # Invalid
@@ -84,14 +95,17 @@ fn audit_log(action: String, user: String, details: String):
     try:
         with open("audit.log", "a") as f:
             timestamp = String(time.time())
-            f.write(timestamp + " | " + user + " | " + action + " | " + details + "\n")
+            # Sanitize details to prevent log injection
+            sanitized_details = details.replace("\n", "").replace("\r", "")
+            f.write(timestamp + " | " + user + " | " + action + " | " + sanitized_details + "\n")
     except:
-        pass  # Silent fail
+        pass  # Silent fail, but log to stderr if possible
 
 # SQL Injection Prevention (Sanitize inputs)
 fn sanitize_input(input: String) -> String:
     # Basic sanitization: remove quotes, etc.
-    return input.replace("'", "").replace("\"", "").replace(";", "")
+    # Note: This is insufficient for full protection; use parameterized queries
+    return input.replace("'", "").replace("\"", "").replace(";", "").replace("--", "")
 
 # Extension init
 fn init():

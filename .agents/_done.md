@@ -11,3 +11,4 @@
 - Parallel query execution with Mojo threading
 - Memory management optimizations (zero-copy)
 - Error handling with Result types
+- Expanded benchmark suite

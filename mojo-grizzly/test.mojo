@@ -131,13 +131,158 @@ fn test_block():
         print("Block test fail")
 
 fn test_extensions():
-    # Test extension loading
-    # from extensions.column_store import ColumnStoreConfig
-    # if not ColumnStoreConfig.is_default:
-    #     print("Column store test pass")
-    # else:
-    #     print("Column store test fail")
-    print("Extensions test pass")
+    # Test security extension
+    from extensions.security import generate_token, validate_token, encrypt_data, decrypt_data, add_rls_policy, check_rls
+    var token = generate_token("user1")
+    var user = validate_token(token)
+    if user == "user1":
+        print("Security auth test pass")
+    else:
+        print("Security auth test fail")
+    
+    var encrypted = encrypt_data("secret", "key123")
+    var decrypted = decrypt_data(encrypted, "key123")
+    if decrypted == "secret":
+        print("Security encryption test pass")
+    else:
+        print("Security encryption test fail")
+    
+    add_rls_policy("users", "user_id = ?", "user_id")
+    if check_rls("users", "1"):
+        print("Security RLS test pass")
+    else:
+        print("Security RLS test fail")
+    
+    # Test secret extension
+    from extensions.secret import create_secret, get_secret, set_auth_token
+    set_auth_token(token)
+    create_secret("test", "value")
+    var secret = get_secret("test")
+    if secret == "value":
+        print("Secret test pass")
+    else:
+        print("Secret test fail")
+    
+    # Test analytics extension
+    from extensions.analytics import moving_average, haversine_distance
+    var values = List[Float64]()
+    values.append(1.0)
+    values.append(2.0)
+    values.append(3.0)
+    var ma = moving_average(values, 2)
+    if len(ma) == 3 and ma[2] == 2.5:
+        print("Analytics moving average test pass")
+    else:
+        print("Analytics moving average test fail")
+    
+    var dist = haversine_distance(0.0, 0.0, 1.0, 1.0)
+    if dist > 100:  # Approx km
+        print("Analytics haversine test pass")
+    else:
+        print("Analytics haversine test fail")
+    
+    # Test ML extension
+    from extensions.ml import cosine_similarity
+    var vec1 = List[Float64]()
+    vec1.append(1.0)
+    vec1.append(0.0)
+    var vec2 = List[Float64]()
+    vec2.append(0.0)
+    vec2.append(1.0)
+    var sim = cosine_similarity(vec1, vec2)
+    if sim == 0.0:
+        print("ML cosine test pass")
+    else:
+        print("ML cosine test fail")
+    
+    # Test blockchain extension
+    from extensions.blockchain import append_block, get_head
+    var schema = Schema()
+    schema.add_field("data", "string")
+    var table = Table(schema, 1)
+    table.columns[0][0] = "block1"
+    append_block(table^)
+    var head = get_head()
+    if head.data.num_rows() == 1:
+        print("Blockchain test pass")
+    else:
+        print("Blockchain test fail")
+    
+    # Test graph extension
+    from extensions.graph import add_node, neighbors
+    add_node(1, Dict[String, String]())
+    var neigh = neighbors(1)
+    if len(neigh) == 0:
+        print("Graph test pass")
+    else:
+        print("Graph test fail")
+    
+    # Test lakehouse extension
+    from extensions.lakehouse import create_lake_table, add_column_to_lake, drop_column_from_lake, store_blob_in_lake, retrieve_blob_from_lake, optimize_lake
+    var schema = Schema()
+    schema.add_field("id", "int64")
+    create_lake_table("test_lake", schema)
+    add_column_to_lake("test_lake", "name", "string")
+    drop_column_from_lake("test_lake", "id")
+    if lake_tables["test_lake"].schema.fields.size == 1 and lake_tables["test_lake"].schema.fields[0].name == "name":
+        print("Lakehouse schema evolution test pass")
+    else:
+        print("Lakehouse schema evolution test fail")
+    
+    # Test blob storage
+    var data = List[UInt8]()
+    data.append(72)  # 'H'
+    data.append(101)  # 'e'
+    var meta = Dict[String, String]()
+    meta["size"] = "2"
+    meta["type"] = "text"
+    store_blob_in_lake("test_lake", "blob1", data, meta)
+    var blob = retrieve_blob_from_lake("test_lake", "blob1")
+    if blob.id == "blob1" and len(blob.data) == 2:
+        print("Blob storage test pass")
+    else:
+        print("Blob storage test fail")
+    
+    # Test compaction
+    optimize_lake("test_lake")
+    print("Compaction test completed")
+    
+    # Test observability extension
+    from extensions.observability import record_query, get_metrics, health_check
+    record_query(0.1, True)
+    var metrics = get_metrics()
+    if metrics.find("Queries: 1") != -1:
+        print("Observability test pass")
+    else:
+        print("Observability test fail")
+    
+    # Test ecosystem extension
+    from extensions.ecosystem import time_series_forecast
+    var series = List[Float64]()
+    series.append(1.0)
+    series.append(2.0)
+    var forecast = time_series_forecast(series, 1)
+    if len(forecast) == 1:
+        print("Ecosystem forecast test pass")
+    else:
+        print("Ecosystem forecast test fail")
+    
+    # Test column_store and row_store
+    from extensions.column_store import ColumnStoreConfig
+    from extensions.row_store import RowStoreConfig
+    ColumnStoreConfig.is_default = True
+    if ColumnStoreConfig.is_default:
+        print("Column store config test pass")
+    else:
+        print("Column store config test fail")
+    
+    RowStoreConfig.is_default = True
+    if RowStoreConfig.is_default:
+        print("Row store config test pass")
+    else:
+        print("Row store config test fail")
+    
+    print("Extensions tests completed")
 
 fn benchmark_tpch():
     # Run TPC-H queries

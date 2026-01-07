@@ -5,6 +5,8 @@ import time
 
 from arrow import Schema, Table, Int64Array
 from query import execute_query
+from formats import write_parquet, read_parquet, write_avro, read_avro
+from index import BTreeIndex
 
 fn generate_large_table(num_rows: Int) -> Table:
     var schema = Schema()
@@ -40,6 +42,34 @@ fn benchmark_sum(table: Table, runs: Int) raises -> Float64:
         total_time += end - start
     return total_time / runs
 
+fn benchmark_format_io(table: Table, runs: Int) raises -> (Float64, Float64):
+    var write_times = 0.0
+    var read_times = 0.0
+    for _ in range(runs):
+        let start = time.now()
+        write_parquet(table, "temp.parquet")
+        let end = time.now()
+        write_times += end - start
+        
+        let start_read = time.now()
+        let result = read_parquet("temp.parquet")
+        let end_read = time.now()
+        read_times += end_read - start_read
+    return write_times / runs, read_times / runs
+
+fn benchmark_indexing(table: Table, runs: Int) raises -> Float64:
+    var total_time = 0.0
+    for _ in range(runs):
+        let start = time.now()
+        var index = BTreeIndex()
+        for i in range(table.num_rows()):
+            index.insert(table.columns[0][i], i)
+        let lookup_time = time.now()
+        let _ = index.lookup(50000)
+        let end = time.now()
+        total_time += end - start
+    return total_time / runs
+
 fn main() raises:
     print("Running comprehensive benchmarks...")
     
@@ -54,6 +84,15 @@ fn main() raises:
 
     let sum_time = benchmark_sum(table, 10)
     print("Average SIMD sum time:", sum_time, "seconds, sum:", simple_sum(table.columns[1]))
+
+    # Format I/O benchmarks
+    let write_time, read_time = benchmark_format_io(table, 5)
+    print("Average Parquet write time:", write_time, "seconds")
+    print("Average Parquet read time:", read_time, "seconds")
+
+    # Indexing benchmarks
+    let index_time = benchmark_indexing(table, 5)
+    print("Average B-tree indexing time:", index_time, "seconds")
 
     # Join benchmark
     let sql_join = "SELECT * FROM table t1 JOIN table t2 ON t1.id = t2.id"
@@ -97,5 +136,20 @@ fn main() raises:
             count += 1
     let end = time.now()
     print("Simple scan time:", end - start, "seconds, results:", count)
+
+    # Generate report
+    print("\n=== Benchmark Report ===")
+    print("Dataset size:", num_rows, "rows")
+    print("Query performance:", avg_time, "s avg")
+    print("Sum performance:", sum_time, "s avg")
+    print("Join performance:", join_time, "s avg")
+    print("Aggregate performance:", agg_time, "s avg")
+    print("TPC-H Q1-like:", q1_time, "s avg")
+    print("TPC-H Q6-like:", q6_time, "s avg")
+    print("Throughput:", throughput, "qps")
+    print("Estimated memory:", mem_usage / 1024 / 1024, "MB")
+    print("Parquet write:", write_time, "s avg")
+    print("Parquet read:", read_time, "s avg")
+    print("B-tree indexing:", index_time, "s avg")
 
     print("Comprehensive benchmarks complete.")

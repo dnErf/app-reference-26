@@ -502,6 +502,7 @@ struct BucketedTable:
 
 # Auto-detection
 fn detect_format(filename: String) -> String:
+    # First, by extension
     if filename.endswith(".parquet") or filename.endswith(".grz"):
         return "parquet"
     elif filename.endswith(".avro"):
@@ -510,6 +511,22 @@ fn detect_format(filename: String) -> String:
         return "orc"
     elif filename.endswith(".jsonl"):
         return "jsonl"
+    elif filename.endswith(".csv"):
+        return "csv"
+    # Then, by content (magic bytes)
+    try:
+        let file = open(filename, "rb")
+        var magic = file.read(4)
+        file.close()
+        if len(magic) >= 4:
+            if magic[0] == 80 and magic[1] == 65 and magic[2] == 82 and magic[3] == 49:  # PAR1
+                return "parquet"
+            elif magic[0] == 79 and magic[1] == 82 and magic[2] == 67:  # ORC
+                return "orc"
+            elif magic[0] == 123 or magic[0] == 91:  # { or [
+                return "json"
+    except:
+        pass
     return "unknown"
 
 fn convert_format(table: Table, from_fmt: String, to_fmt: String) -> Table:

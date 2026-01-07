@@ -92,9 +92,32 @@ fn execute_sql(sql: String):
     elif sql.upper().startswith("HEALTH CHECK"):
         print("Health:", health_check())
         return
-    elif sql.upper().startswith("DASHBOARD"):
-        show_dashboard()
-        return
+    elif sql.upper().startswith("TIME TRAVEL TO"):
+        # TIME TRAVEL TO timestamp
+        let timestamp = sql[15:].strip()
+        # Set global time travel point
+        print("Time traveled to", timestamp)
+        # In real, set context for queries
+    elif sql.upper().startswith("QUERY AS OF"):
+        # QUERY AS OF timestamp SQL
+        let as_of_pos = sql.upper().find(" AS OF ")
+        let timestamp = sql[as_of_pos+7:].strip()
+        let query = sql[:as_of_pos].strip()
+        # Execute query with time travel
+        from extensions.lakehouse import query_as_of_lake
+        let result = query_as_of_lake("default_lake", timestamp)  # Assume default lake
+        print("Time travel query result:")
+        for i in range(result.num_rows()):
+            print("Row", i, ":", result.columns[0][i])
+    elif sql.upper().startswith("BLOB AS OF"):
+        # BLOB AS OF timestamp blob_id
+        let parts = sql.split(" ")
+        if len(parts) >= 4:
+            let timestamp = parts[2]
+            let blob_id = parts[3]
+            from extensions.lakehouse import retrieve_blob_version
+            let blob = retrieve_blob_version("default_lake", blob_id, timestamp)
+            print("Blob", blob_id, "as of", timestamp, "size:", len(blob.data))
     if sql.startswith("CREATE FUNCTION"):
         create_function(sql)
         print("Function created")
@@ -219,14 +242,25 @@ fn execute_sql(sql: String):
                 print("Table loaded from AVRO", grz_file)
             else:
                 # Auto-detect format
-                if filename.endswith(".jsonl"):
-                    global_table = read_jsonl(filename)
-                    print("Auto-loaded JSONL")
-                elif filename.endswith(".parquet"):
+                from formats import detect_format
+                let fmt = detect_format(filename)
+                if fmt == "parquet":
                     global_table = read_parquet(filename)
                     print("Auto-loaded Parquet")
+                elif fmt == "avro":
+                    global_table = read_avro(filename)
+                    print("Auto-loaded AVRO")
+                elif fmt == "orc":
+                    global_table = read_orc(filename)
+                    print("Auto-loaded ORC")
+                elif fmt == "jsonl":
+                    global_table = read_jsonl(filename)
+                    print("Auto-loaded JSONL")
+                elif fmt == "csv":
+                    global_table = read_csv(filename)
+                    print("Auto-loaded CSV")
                 else:
-                    print("Unknown format")
+                    print("Unknown format for", filename)
     elif sql.startswith("SELECT"):
         let result = execute_query(global_table, sql, tables, current_user)
         print("Query result:")
