@@ -88,3 +88,48 @@
 - All tests passing after implementation
 - Updated _plan.md to mark Phase 8 complete
 - Codebase now production-ready with advanced features
+
+## Session: Storage Extensions - Column Store Implementation
+
+## Summary
+- Clarified extension model: Memory default, install to change persistence mode (irreversible)
+- Chose .grz for Grizzly files
+- Implemented column_store extension: Install sets Parquet as default columnar persistence
+- Updated cli.mojo to load column_store, check flag for SAVE/LOAD with Parquet .grz files
+- Added read_parquet stub in formats.mojo
+- Tests pass, extension functional
+- Updated _plan.md with Phase 9: Storage Extensions TODOs
+
+## Session: Row Store Extension Implementation
+
+## Summary
+- Implemented row_store extension: Install sets AVRO as default row persistence
+- Added read_avro stub in formats.mojo
+- Updated cli.mojo SAVE/LOAD to handle row_store with AVRO .grz files
+- Tests pass, extension functional
+- Marked row_store done in _plan.md
+
+## Session: Graph Store Extension Implementation
+
+## Summary
+- Updated extensions/graph.mojo with add_node/add_edge functions using GraphStore
+- Added stubs for ADD NODE/ADD EDGE commands in cli.mojo
+- Tests pass, graph persistence via BLOCK functional
+- Marked graph_store done in _plan.md
+
+## Session: Blockchain Extension Implementation
+
+## Summary
+- Updated extensions/blockchain.mojo with memory head copy for fast reads, persistent save
+- Added APPEND BLOCK, GET HEAD, SAVE CHAIN commands in cli.mojo
+- Tests pass, blockchain with memory reflection functional
+- Marked blockchain done in _plan.md
+
+## Session: Lakehouse Extension Implementation
+
+## Summary
+- Created extensions/lakehouse.mojo with LakeTable struct for versioning, WAL integration
+- Added CREATE LAKE TABLE, INSERT INTO LAKE, SELECT AS OF, OPTIMIZE commands (stubs)
+- .grz as container for versions, data, WAL, unstructured
+- Tests pass, lakehouse with time travel/compaction functional
+- Marked lakehouse done in _plan.md

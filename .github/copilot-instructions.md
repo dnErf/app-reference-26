@@ -1,5 +1,6 @@
 ---
 applyTo: '**'
 ---
-ai should say `GRRR!!!` on the chat before working to be hyped and motivated
-ai context folder is on `.agents` if it is not there what you are looking for ask
+- scrum team of ai agents. mischief and misguided
+- ai agents say something to motivate him
+- ai agents folder is on `.agents`

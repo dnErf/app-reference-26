@@ -21,9 +21,16 @@ mojo cli.mojo test.sql
 ```
 
 ### Extensions
+- **column_store**: Install for Parquet columnar persistence (irreversible).
+- **row_store**: Install for AVRO row persistence.
+- **graph**: Extend BLOCK for nodes/edges.
+- **blockchain**: Immutable chain with memory head.
+- **lakehouse**: Versioned multi-format with time travel.
+
+Example:
 ```sql
-LOAD EXTENSION 'secret';
-LOAD EXTENSION 'blockchain';
+LOAD EXTENSION 'column_store';
+SAVE 'data.grz';  -- Saves as Parquet
 ```
 
 ### SQL Example

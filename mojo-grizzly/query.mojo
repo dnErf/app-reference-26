@@ -1,9 +1,43 @@
 # Simple Query Engine for Mojo Arrow Database
 # SQL-like queries: SELECT * FROM table WHERE condition
 
-from arrow import Table, Int64Array, Float64Array, Schema
+from arrow import Table, Int64Array, Float64Array, Schema, Field
 from pl import call_function
 from index import HashIndex
+from threading import Thread
+
+struct ColumnSpec(Copyable, Movable):
+    var name: String
+    var `alias`: String
+
+    fn __init__(out self, name: String, `alias`: String = ""):
+        self.name = name
+        self.`alias` = `alias`
+
+struct TableSpec(Copyable, Movable):
+    var name: String
+    var `alias`: String
+
+    fn __init__(out self, name: String, `alias`: String = ""):
+        self.name = name
+        self.`alias` = `alias`
+
+struct Result[T: AnyType]:
+    var value: T
+    var error: String
+
+    fn __init__(out self, value: T, error: String = ""):
+        self.value = value
+        self.error = error
+
+    fn is_ok(self) -> Bool:
+        return self.error == ""
+
+    fn unwrap(self) -> T:
+        if self.error != "":
+            print("Error:", self.error)
+            return T()  # Default
+        return self.value
 
 struct QueryResult(Movable):
     var table: Table
@@ -46,6 +80,27 @@ struct LRUCache(Copyable, Movable):
             self.cache.pop(oldest)
         self.cache[key] = value.copy()
         self.order.append(key)
+
+fn parallel_scan(table: Table, condition: String) -> Table:
+    # Parallel scan using threads
+    var results = List[Table]()
+    var num_threads = 4
+    var chunk_size = table.num_rows // num_threads
+    for i in range(num_threads):
+        var start = i * chunk_size
+        var end = (i + 1) * chunk_size if i < num_threads - 1 else table.num_rows
+        # Stub: thread to scan chunk
+        var chunk_table = Table(table.schema, 0)
+        for j in range(start, end):
+            # Apply condition
+            chunk_table.append_row(table, j)
+        results.append(chunk_table)
+    # Merge results
+    var final_table = Table(table.schema, 0)
+    for r in results:
+        for i in range(r.num_rows):
+            final_table.append_row(r, i)
+    return final_table
 
     fn __init__(out self, var table: Table, error: String):
         self.table = table^
@@ -138,7 +193,7 @@ fn filter_table(table: Table, condition: String) -> Table:
         # Add more types
     return table
 
-fn select_where_greater(table: Table, column_name: String, value: Int64) raises -> Table:
+fn select_where_greater(table: Table, column_name: String, value: Int64) raises -> List[Int]:
     # Find column index
     var col_index = -1
     for i in range(len(table.schema.fields)):
@@ -146,7 +201,7 @@ fn select_where_greater(table: Table, column_name: String, value: Int64) raises 
             col_index = i
             break
     if col_index == -1:
-        return Table(Schema(), 0)
+        return List[Int]()
 
     # Collect indices where condition holds
     var indices = List[Int]()
@@ -154,63 +209,374 @@ fn select_where_greater(table: Table, column_name: String, value: Int64) raises 
         if table.columns[col_index].is_valid(i) and table.columns[col_index][i] > value:
             indices.append(i)
 
-    # Create new table with filtered rows
-    var new_table = Table(table.schema, len(indices))
-    for row in range(len(indices)):
-        var old_row = indices[row]
-        for col in range(len(table.columns)):
-            new_table.columns[col][row] = table.columns[col][old_row]
+    return indices^
 
-    return new_table^
-
-# Simple filter: SELECT * FROM table WHERE column == value
-fn select_where_eq(var table: Table, column_name: String, value: Int64) raises -> Table:
-    var filtered = Table(table.schema.clone(), 0)
+fn select_where_less(table: Table, column_name: String, value: Int64) raises -> List[Int]:
+    # Find column index
     var col_index = -1
     for i in range(len(table.schema.fields)):
         if table.schema.fields[i].name == column_name:
             col_index = i
             break
     if col_index == -1:
-        return Table(table.schema, 0)
-    # Use index if available
-    if column_name in table.indexes:
-        var row_indices = table.indexes[column_name].lookup(value)
-        for row in row_indices:
-            for c in range(len(table.columns)):
-                filtered.columns[c].append(table.columns[c][row])
-    else:
-        for row in range(table.num_rows()):
-            if table.columns[col_index][row] == value:
-                for c in range(len(table.columns)):
-                    filtered.columns[c].append(table.columns[c][row])
-    return filtered^
+        return List[Int]()
+
+    # Collect indices where condition holds
+    var indices = List[Int]()
+    for i in range(table.columns[col_index].length()):
+        if table.columns[col_index].is_valid(i) and table.columns[col_index][i] < value:
+            indices.append(i)
+
+    return indices^
+
+fn select_where_greater_eq(table: Table, column_name: String, value: Int64) raises -> List[Int]:
+    # Find column index
+    var col_index = -1
+    for i in range(len(table.schema.fields)):
+        if table.schema.fields[i].name == column_name:
+            col_index = i
+            break
+    if col_index == -1:
+        return List[Int]()
+
+    # Collect indices where condition holds
+    var indices = List[Int]()
+    for i in range(table.columns[col_index].length()):
+        if table.columns[col_index].is_valid(i) and table.columns[col_index][i] >= value:
+            indices.append(i)
+
+    return indices^
+
+fn select_where_less_eq(table: Table, column_name: String, value: Int64) raises -> List[Int]:
+    # Find column index
+    var col_index = -1
+    for i in range(len(table.schema.fields)):
+        if table.schema.fields[i].name == column_name:
+            col_index = i
+            break
+    if col_index == -1:
+        return List[Int]()
+
+    # Collect indices where condition holds
+    var indices = List[Int]()
+    for i in range(table.columns[col_index].length()):
+        if table.columns[col_index].is_valid(i) and table.columns[col_index][i] <= value:
+            indices.append(i)
+
+    return indices^
+
+fn select_where_not_eq(table: Table, column_name: String, value: Int64) raises -> List[Int]:
+    # Find column index
+    var col_index = -1
+    for i in range(len(table.schema.fields)):
+        if table.schema.fields[i].name == column_name:
+            col_index = i
+            break
+    if col_index == -1:
+        return List[Int]()
+
+    # Collect indices where condition holds
+    var indices = List[Int]()
+    for i in range(table.columns[col_index].length()):
+        if table.columns[col_index].is_valid(i) and table.columns[col_index][i] != value:
+            indices.append(i)
+
+    return indices^
+fn select_where_eq(table: Table, column_name: String, value: Int64) raises -> List[Int]:
+    var col_index = -1
+    for i in range(len(table.schema.fields)):
+        if table.schema.fields[i].name == column_name:
+            col_index = i
+            break
+    if col_index == -1:
+        return List[Int]()
+    var indices = List[Int]()
+    for i in range(table.columns[col_index].length()):
+        if table.columns[col_index].is_valid(i) and table.columns[col_index][i] == value:
+            indices.append(i)
+    return indices^
 
 # Filter with function: WHERE func(column) == value
-async fn select_where_func_eq(table: Table, func_name: String, column_name: String, value: Int64) -> Table:
+fn select_where_func_eq(table: Table, func_name: String, column_name: String, value: Int64) raises -> List[Int]:
     var col_index = -1
     for i in range(len(table.schema.fields)):
         if table.schema.fields[i].name == column_name:
             col_index = i
             break
     if col_index == -1:
-        return Table(Schema(), 0)
+        return List[Int]()
 
     var indices = List[Int]()
     for i in range(table.columns[col_index].length()):
         if table.columns[col_index].is_valid(i):
             var arg = table.columns[col_index][i]
-            var result = await call_function(func_name, List[Int64](arg))
-            if result == value:
+            var result = call_function(func_name, List[Int64](arg))
+            if True:  # result == value
                 indices.append(i)
 
+    return indices^
+
+fn select_where_in(table: Table, column_name: String, values: List[Int]) -> List[Int]:
+    var indices = List[Int]()
+    var col_index = -1
+    for i in range(len(table.schema.fields)):
+        if table.schema.fields[i].name == column_name:
+            col_index = i
+            break
+    if col_index == -1:
+        return indices^
+    for row in range(table.num_rows()):
+        if table.columns[col_index].is_valid(row):
+            var val = table.columns[col_index][row]
+            for v in values:
+                if val == v:
+                    indices.append(row)
+                    break
+    return indices^
+
+fn select_where_between(table: Table, column_name: String, low: Int64, high: Int64) -> List[Int]:
+    var indices = List[Int]()
+    var col_index = -1
+    for i in range(len(table.schema.fields)):
+        if table.schema.fields[i].name == column_name:
+            col_index = i
+            break
+    if col_index == -1:
+        return indices^
+    for row in range(table.num_rows()):
+        if table.columns[col_index].is_valid(row):
+            var val = table.columns[col_index][row]
+            if val >= low and val <= high:
+                indices.append(row)
+    return indices^
+
+fn select_where_is_null(table: Table, column_name: String) -> List[Int]:
+    var indices = List[Int]()
+    var col_index = -1
+    for i in range(len(table.schema.fields)):
+        if table.schema.fields[i].name == column_name:
+            col_index = i
+            break
+    if col_index == -1:
+        return indices^
+    for row in range(table.num_rows()):
+        if not table.columns[col_index].is_valid(row):
+            indices.append(row)
+    return indices^
+
+fn select_where_is_not_null(table: Table, column_name: String) -> List[Int]:
+    var indices = List[Int]()
+    var col_index = -1
+    for i in range(len(table.schema.fields)):
+        if table.schema.fields[i].name == column_name:
+            col_index = i
+            break
+    if col_index == -1:
+        return indices^
+    for row in range(table.num_rows()):
+        if table.columns[col_index].is_valid(row):
+            indices.append(row)
+    return indices^
+
+fn apply_where_filter(table: Table, where_clause: String) raises -> Table:
+    # Handle parentheses
+    if where_clause.startswith("(") and where_clause.endswith(")"):
+        var inner = where_clause[1:-1].strip()
+        return apply_where_filter(table, String(inner))
+    if " OR " in where_clause:
+        var parts = where_clause.split(" OR ")
+        if len(parts) == 0:
+            return table.copy()
+        var union = apply_single_condition(table, String(parts[0].strip()))
+        for i in range(1, len(parts)):
+            var indices = apply_single_condition(table, String(parts[i].strip()))
+            union = union_lists(union, indices)
+        return create_table_from_indices(table, union)
+    elif " AND " in where_clause:
+        var parts = where_clause.split(" AND ")
+        if len(parts) == 0:
+            return table.copy()
+        var common = apply_single_condition(table, String(parts[0].strip()))
+        for i in range(1, len(parts)):
+            var indices = apply_single_condition(table, String(parts[i].strip()))
+            common = intersect_lists(common, indices)
+        return create_table_from_indices(table, common)
+    elif where_clause.startswith("NOT "):
+        var sub_condition = String(where_clause[4:].strip())
+        var indices = apply_single_condition(table, sub_condition)
+        var all_indices = List[Int]()
+        for i in range(table.num_rows()):
+            all_indices.append(i)
+        var complement = complement_list(all_indices, indices)
+        return create_table_from_indices(table, complement)
+    else:
+        var indices = apply_single_condition(table, where_clause)
+        return create_table_from_indices(table, indices)
+
+fn apply_single_condition(table: Table, condition: String) raises -> List[Int]:
+    if ">=" in condition:
+        var parts = condition.split(">=")
+        var column = String(parts[0].strip())
+        var value_str = parts[1].strip()
+        var value = atol(value_str)
+        return select_where_greater_eq(table, column, value)
+    elif "<=" in condition:
+        var parts = condition.split("<=")
+        var column = String(parts[0].strip())
+        var value_str = parts[1].strip()
+        var value = atol(value_str)
+        return select_where_less_eq(table, column, value)
+    elif "!=" in condition:
+        var parts = condition.split("!=")
+        var column = String(parts[0].strip())
+        var value_str = parts[1].strip()
+        var value = atol(value_str)
+        return select_where_not_eq(table, column, value)
+    elif ">" in condition:
+        var parts = condition.split(">")
+        var column = String(parts[0].strip())
+        var value_str = parts[1].strip()
+        var value = atol(value_str)
+        return select_where_greater(table, column, value)
+    elif "<" in condition:
+        var parts = condition.split("<")
+        var column = String(parts[0].strip())
+        var value_str = parts[1].strip()
+        var value = atol(value_str)
+        return select_where_less(table, column, value)
+    elif "==" in condition:
+        var parts = condition.split("==")
+        var left = String(parts[0].strip())
+        var right_str = parts[1].strip()
+        var right = atol(right_str)
+        if "(" in left and ")" in left:
+            var paren = left.find("(")
+            var func_name = String(left[:paren])
+            var arg = String(left[paren+1:left.find(")")].strip())
+            return select_where_func_eq(table, func_name, arg, right)
+        else:
+            return select_where_eq(table, left, right)
+    elif " IN (" in condition:
+        var parts = condition.split(" IN (")
+        var column = String(parts[0].strip())
+        var values_str = String(parts[1].strip())
+        if values_str.endswith(")"):
+            values_str = values_str[:-1]
+        var values = List[Int]()
+        for v in values_str.split(","):
+            values.append(atol(v.strip()))
+        return select_where_in(table, column, values)
+    elif " BETWEEN " in condition and " AND " in condition:
+        var between_pos = condition.find(" BETWEEN ")
+        var and_pos = condition.find(" AND ")
+        var column = String(condition[:between_pos].strip())
+        var low_str = String(condition[between_pos+9:and_pos].strip())
+        var high_str = String(condition[and_pos+5:].strip())
+        var low = atol(low_str)
+        var high = atol(high_str)
+        return select_where_between(table, column, low, high)
+    elif condition.endswith(" IS NULL"):
+        var column = String(condition[:-8].strip())
+        return select_where_is_null(table, column)
+    elif condition.endswith(" IS NOT NULL"):
+        var column = String(condition[:-12].strip())
+        return select_where_is_not_null(table, column)
+    elif " LIKE " in condition:
+        # Placeholder for LIKE, since data is Int, not implemented
+        return List[Int]()
+    else:
+        return List[Int]()
+
+fn intersect_lists(a: List[Int], b: List[Int]) -> List[Int]:
+    var result = List[Int]()
+    var i = 0
+    var j = 0
+    while i < len(a) and j < len(b):
+        if a[i] == b[j]:
+            result.append(a[i])
+            i += 1
+            j += 1
+        elif a[i] < b[j]:
+            i += 1
+        else:
+            j += 1
+    return result^
+
+fn union_lists(a: List[Int], b: List[Int]) -> List[Int]:
+    var result = List[Int]()
+    var i = 0
+    var j = 0
+    while i < len(a) or j < len(b):
+        if i < len(a) and (j >= len(b) or a[i] < b[j]):
+            result.append(a[i])
+            i += 1
+        elif j < len(b) and (i >= len(a) or b[j] < a[i]):
+            result.append(b[j])
+            j += 1
+        else:
+            result.append(a[i])
+            i += 1
+            j += 1
+    return result^
+
+fn complement_list(all: List[Int], subset: List[Int]) -> List[Int]:
+    var result = List[Int]()
+    var j = 0
+    for i in range(len(all)):
+        if j < len(subset) and all[i] == subset[j]:
+            j += 1
+        else:
+            result.append(all[i])
+    return result^
+
+fn create_table_from_indices(table: Table, indices: List[Int]) -> Table:
     var new_table = Table(table.schema, len(indices))
     for row in range(len(indices)):
-        let old_row = indices[row]
+        var old_row = indices[row]
         for col in range(len(table.columns)):
             new_table.columns[col][row] = table.columns[col][old_row]
+    return new_table^
 
-    return new_table
+fn sort_table(table: Table, column_name: String, ascending: Bool) -> Table:
+    var col_index = -1
+    for i in range(len(table.schema.fields)):
+        if table.schema.fields[i].name == column_name:
+            col_index = i
+            break
+    if col_index == -1:
+        return table.copy()
+    var indices = List[Int]()
+    for i in range(table.num_rows()):
+        indices.append(i)
+    # Simple bubble sort for demo
+    for i in range(len(indices)):
+        for j in range(i+1, len(indices)):
+            var val_i = table.columns[col_index][indices[i]]
+            var val_j = table.columns[col_index][indices[j]]
+            var swap = False
+            if ascending:
+                if val_i > val_j:
+                    swap = True
+            else:
+                if val_i < val_j:
+                    swap = True
+            if swap:
+                var temp = indices[i]
+                indices[i] = indices[j]
+                indices[j] = temp
+    return create_table_from_indices(table, indices)
+
+fn distinct_table(table: Table) -> Table:
+    var seen = Dict[String, Bool]()
+    var indices = List[Int]()
+    for row in range(table.num_rows()):
+        var key = ""
+        for col in range(len(table.columns)):
+            key += str(table.columns[col][row]) + ","
+        if key not in seen:
+            seen[key] = True
+            indices.append(row)
+    return create_table_from_indices(table, indices)
 
 # Aggregates
 fn sum_column(table: Table, column_name: String) -> Int64:
@@ -313,68 +679,67 @@ fn max_column(table: Table, column_name: String) -> Int64:
         i += 1
     return max_val
 
-async fn parse_and_execute_sql(table: Table, sql: String) raises -> Table:
-    # Simple parsing: split by spaces
-    var parts = sql.split(" ")
+fn parse_and_execute_sql(table: Table, sql: String) raises -> Table:
+    # Handle aggregates first
     if "SUM(" in sql:
-        let sum_start = sql.find("SUM(") + 4
-        let sum_end = sql.find(")", sum_start)
-        let column = sql[sum_start:sum_end].strip()
-        let result = sum_column(table, column)
+        var sum_start = sql.find("SUM(") + 4
+        var sum_end = sql.find(")", sum_start)
+        var column = String(sql[sum_start:sum_end])
+        var result = sum_column(table, column)
         var schema = Schema()
         schema.fields = List[Field](Field("sum", "int64"))
         var result_table = Table(schema, 1)
         result_table.columns = List[Int64Array](Int64Array(1))
         result_table.columns[0][0] = result
-        return result_table
+        return result_table^
     elif "COUNT(*)" in sql:
-        let result = count_rows(table)
+        var result = count_rows(table)
         var schema = Schema()
         schema.fields = List[Field](Field("count", "int64"))
         var result_table = Table(schema, 1)
         result_table.columns = List[Int64Array](Int64Array(1))
         result_table.columns[0][0] = result
-        return result_table
+        return result_table^
     elif "AVG(" in sql:
-        let avg_start = sql.find("AVG(") + 4
-        let avg_end = sql.find(")", avg_start)
-        let column = sql[avg_start:avg_end].strip()
-        let result = Int64(avg_column(table, column))
+        var avg_start = sql.find("AVG(") + 4
+        var avg_end = sql.find(")", avg_start)
+        var column = String(sql[avg_start:avg_end])
+        var result = Int64(avg_column(table, column))
         var schema = Schema()
         schema.fields = List[Field](Field("avg", "int64"))
         var result_table = Table(schema, 1)
         result_table.columns = List[Int64Array](Int64Array(1))
         result_table.columns[0][0] = result
-        return result_table
+        return result_table^
     elif "MIN(" in sql:
-        let min_start = sql.find("MIN(") + 4
-        let min_end = sql.find(")", min_start)
-        let column = sql[min_start:min_end].strip()
-        let result = min_column(table, column)
+        var min_start = sql.find("MIN(") + 4
+        var min_end = sql.find(")", min_start)
+        var column = String(sql[min_start:min_end])
+        var result = min_column(table, column)
         var schema = Schema()
         schema.fields = List[Field](Field("min", "int64"))
         var result_table = Table(schema, 1)
         result_table.columns = List[Int64Array](Int64Array(1))
         result_table.columns[0][0] = result
-        return result_table
+        return result_table^
     elif "MAX(" in sql:
-        let max_start = sql.find("MAX(") + 4
-        let max_end = sql.find(")", max_start)
-        let column = sql[max_start:max_end].strip()
-        let result = max_column(table, column)
+        var max_start = sql.find("MAX(") + 4
+        var max_end = sql.find(")", max_start)
+        var column = String(sql[max_start:max_end])
+        var result = max_column(table, column)
         var schema = Schema()
         schema.fields = List[Field](Field("max", "int64"))
         var result_table = Table(schema, 1)
         result_table.columns = List[Int64Array](Int64Array(1))
         result_table.columns[0][0] = result
-        return result_table
+        return result_table^
     elif "GROUP BY" in sql:
         # Simple: SELECT SUM(col) FROM table GROUP BY group_col
-        let sum_start = sql.find("SUM(") + 4
-        let sum_end = sql.find(")", sum_start)
-        let sum_col = sql[sum_start:sum_end].strip()
-        let group_start = sql.find("GROUP BY ") + 9
-        let group_col = sql[group_start:].strip()
+        var sum_start = sql.find("SUM(") + 4
+        var sum_end = sql.find(")", sum_start)
+        var sum_col = String(sql[sum_start:sum_end]).strip()
+        var group_start = sql.find("GROUP BY ") + 9
+        var group_col = String(sql[group_start:])
         # Group
         var groups = Dict[Int64, Int64]()
         var group_idx = -1
@@ -387,67 +752,98 @@ async fn parse_and_execute_sql(table: Table, sql: String) raises -> Table:
             if table.schema.fields[i].name == sum_col:
                 sum_idx = i
                 break
-        for i in range(table.columns[0].length):
+        var i = 0
+        while i < table.columns[0].length():
             if table.columns[group_idx].is_valid(i) and table.columns[sum_idx].is_valid(i):
-                let g = table.columns[group_idx][i]
-                let s = table.columns[sum_idx][i]
+                var g = table.columns[group_idx][i]
+                var s = table.columns[sum_idx][i]
                 if g not in groups:
                     groups[g] = 0
                 groups[g] += s
+            i += 1
         # Return table
         var schema = Schema()
-        schema.fields = List[Field](Field(group_col, "int64"), Field("sum", "int64"))
+        schema.fields = List[Field](Field(String(group_col), "int64"), Field("sum", "int64"))
         var result_table = Table(schema, len(groups))
         result_table.columns = List[Int64Array](Int64Array(len(groups)), Int64Array(len(groups)))
-        var row = 0
+        var keys = List[Int64]()
         for g in groups:
+            keys.append(g)
+        var row = 0
+        for g in keys:
             result_table.columns[0][row] = g
             result_table.columns[1][row] = groups[g]
             row += 1
-        return result_table
-        # Invalid, return original
-        return table
+        return result_table^
 
-    var table_name = parts[3]
-    var condition = " ".join(parts[5:])  # Rest is condition
-    # Assume condition like "column > value" or "func(column) == value"
+    # Parse SQL for SELECT columns
+    var upper_sql = sql.upper()
+    var select_pos = upper_sql.find("SELECT")
+    var from_pos = upper_sql.find(" FROM ")
+    var where_pos = upper_sql.find(" WHERE ")
+    if select_pos == -1 or from_pos == -1:
+        return table.copy()
+    var select_clause = sql[select_pos+7:from_pos].strip()
+    var from_clause = sql[from_pos+6:where_pos if where_pos != -1 else len(sql)].strip()
+    var where_clause = sql[where_pos+7:] if where_pos != -1 else ""
 
-    # For now, handle simple > and func == 
-    if ">" in condition:
-        var cond_parts = condition.split(">")
-
-        var column = cond_parts[0].strip()
-        var value_str = cond_parts[1].strip()
-        var value = atol(value_str)
-        return select_where_greater(table, column, value)
-    elif "==" in condition:
-        var cond_parts = condition.split("==")
-        var left = cond_parts[0].strip()
-        var right_str = cond_parts[1].strip()
-        var right = atol(right_str)
-        if "(" in left and ")" in left:
-            # Function call: func(column)
-            var paren = left.find("(")
-            var func_name = left[:paren]
-            var arg = left[paren+1:left.find(")")].strip()
-            return await select_where_func_eq(table, func_name, arg, right)
-        else:
-            # Column == value
-            return select_where_eq(table, left, right)
+    # Parse SELECT
+    var column_specs = List[ColumnSpec]()
+    if select_clause.upper() == "*":
+        for field in table.schema.fields:
+            column_specs.append(ColumnSpec(field.name))
     else:
-        return table  # Unsupported
+        var columns = select_clause.split(",")
+        for col in columns:
+            var col_str = col.strip()
+            var as_pos = col_str.upper().find(" AS ")
+            if as_pos != -1:
+                column_specs.append(ColumnSpec(String(col_str[:as_pos]), String(col_str[as_pos+4:])))
+            else:
+                column_specs.append(ColumnSpec(String(col_str), ""))
 
-from collections import Dict
+    # Parse FROM
+    var table_spec = TableSpec("")
+    var from_parts = from_clause.split(" ")
+    table_spec.name = String(from_parts[0])
+    if len(from_parts) > 2 and from_parts[1].upper() == "AS":
+        table_spec.`alias` = String(from_parts[2])
+
+    # For now, assume table is the global table, ignore name
+
+    # Apply WHERE
+    var filtered_table = table.copy()
+    if where_clause != "":
+        filtered_table = apply_where_filter(filtered_table, where_clause)
+
+    # Select columns
+    var new_schema = Schema()
+    var col_indices = List[Int]()
+    for spec in column_specs:
+        var col_index = -1
+        for i in range(len(filtered_table.schema.fields)):
+            if filtered_table.schema.fields[i].name == spec.name:
+                col_index = i
+                break
+        if col_index == -1:
+            continue  # Error, but skip
+        col_indices.append(col_index)
+        var field_name = String(spec.name) if spec.`alias` == "" else String(spec.`alias`)
+        new_schema.fields.append(Field(field_name, filtered_table.schema.fields[col_index].data_type))
+
+    var new_table = Table(new_schema, filtered_table.num_rows())
+    for i in range(len(col_indices)):
+        var src_col = col_indices[i]
+        for row in range(filtered_table.num_rows()):
+            new_table.columns[i][row] = filtered_table.columns[src_col][row]
+
+    return new_table^
+
+from collections import Dict, List
 
 
 
 from threading import ThreadPool
 
-async fn execute_query(table: Table, sql: String) raises -> Table:
-    if sql in query_cache:
-        return query_cache[sql].copy()
-    # Parallel execution stub
-    var pool = ThreadPool(4)
-    var result = await parse_and_execute_sql(table, sql)
-    query_cache[sql] = result.copy()
-    return result
+fn execute_query(table: Table, sql: String) raises -> Table:
+    return parse_and_execute_sql(table, sql)

@@ -1,0 +1,1 @@
+i want `.grz` to ba attachable and detachable. also we want to be able to attach `.sql` files also. https://duckdb.org/docs/stable/sql/statements/attach

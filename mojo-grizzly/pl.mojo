@@ -107,15 +107,73 @@ fn eval_template(template: String, vars: Dict[String, String]) -> String:
         result = result[:if_start] + replacement + result[end_pos+5:]
     return result
 
-fn factorial(n: Int64) -> Int64:
-    if n <= 1:
-        return 1
-    return n * factorial(n - 1)
+fn abs_val(x: Float64) -> Float64:
+    return x if x >= 0 else -x
 
-fn load_lib(lib_name: String) -> Dict[String, PLFunction]:
-    var lib = Dict[String, PLFunction]()
-    if lib_name == "math":
-        lib["factorial"] = PLFunction("factorial", List[String]("n"), "factorial(n)")
-        lib["sqrt"] = PLFunction("sqrt", List[String]("x"), "x ** 0.5")  # Stub
-    # Stub: load from file or compile
-    return lib
+fn round_val(x: Float64) -> Int64:
+    return Int64(x + 0.5) if x >= 0 else Int64(x - 0.5)
+
+fn ceil_val(x: Float64) -> Int64:
+    return Int64(x) if x == Float64(Int64(x)) else Int64(x) + 1 if x > 0 else Int64(x)
+
+fn floor_val(x: Float64) -> Int64:
+    return Int64(x) if x == Float64(Int64(x)) else Int64(x) - 1 if x < 0 else Int64(x)
+
+fn upper_str(s: String) -> String:
+    return s.upper()
+
+fn lower_str(s: String) -> String:
+    return s.lower()
+
+fn concat_str(s1: String, s2: String) -> String:
+    return s1 + s2
+
+fn substr(s: String, start: Int, length: Int) -> String:
+    return s[start:start+length]
+
+fn now_date() -> String:
+    return "2023-01-01"  # Stub
+
+fn date_func(s: String) -> String:
+    return s  # Stub
+
+fn extract_date(part: String, date: String) -> Int:
+    return 1  # Stub
+
+fn case_func(when_conditions: List[Bool], then_values: List[Value], else_value: Value) -> Value:
+    for i in range(len(when_conditions)):
+        if when_conditions[i]:
+            return then_values[i]
+    return else_value
+
+fn row_number() -> Int64:
+    return 1  # Stub for window
+
+fn rank_func() -> Int64:
+    return 1  # Stub
+
+fn sum_agg(values: List[Int64]) -> Int64:
+    var s = 0
+    for v in values:
+        s += v
+    return s
+
+fn count_agg(values: List[Int64]) -> Int64:
+    return len(values)
+
+fn avg_agg(values: List[Int64]) -> Float64:
+    return Float64(sum_agg(values)) / len(values)
+
+fn min_agg(values: List[Int64]) -> Int64:
+    var m = values[0]
+    for v in values:
+        if v < m:
+            m = v
+    return m
+
+fn max_agg(values: List[Int64]) -> Int64:
+    var m = values[0]
+    for v in values:
+        if v > m:
+            m = v
+    return m
