@@ -8,3 +8,6 @@
 - Add more PL libraries and external loading
 - Enhance CLI with tab completion
 - Full Parquet/AVRO readers/writers with compression/schema evolution
+- Parallel query execution with Mojo threading
+- Memory management optimizations (zero-copy)
+- Error handling with Result types

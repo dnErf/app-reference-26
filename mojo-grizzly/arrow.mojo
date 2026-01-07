@@ -8,6 +8,15 @@ from python import Python, PythonObject
 # Variant for mixed types
 alias Variant = PythonObject  # Use Python for flexibility
 
+# Result type for error handling
+enum Result[T: AnyType, E: AnyType]:
+    case ok(T)
+    case err(E)
+
+# Alias for common types
+alias ResultInt = Result[Int, String]
+alias ResultTable = Result[Table, String]
+
 struct VariantArray(Copyable, Movable):
     var data: List[Variant]
 
@@ -375,12 +384,31 @@ struct Table(Copyable, Movable):
             new_table.indexes[key] = self.indexes[key]^
         return new_table^
 
-    fn slice(self, start: Int, end: Int) -> Table:
-        # Zero-copy slice
-        var new_table = Table(self.schema, 0)
-        for i in range(len(self.columns)):
-            var sliced = Int64Array(0)
-            for j in range(start, end):
-                sliced.append(self.columns[i][j])
-            new_table.columns[i] = sliced^
-        return new_table^
+    fn slice(self, start: Int, end: Int) -> TableView:
+        # Zero-copy slice using view
+        return TableView(self, start, end)
+
+struct TableView(Copyable, Movable):
+    var schema: Schema
+    var columns: List[Int64Array]  # References to original
+    var start: Int
+    var end: Int
+
+    fn __init__(out self, table: Table, start: Int, end: Int):
+        self.schema = Schema()
+        for f in table.schema.fields:
+            self.schema.fields.append(f.copy())
+        self.columns = List[Int64Array]()
+        for col in table.columns:
+            self.columns.append(col)  # Reference
+        self.start = start
+        self.end = end
+
+    fn num_rows(self) -> Int:
+        return self.end - self.start
+
+    fn get_row(self, index: Int) -> List[Int64]:
+        var row = List[Int64]()
+        for col in self.columns:
+            row.append(col[self.start + index])
+        return row

@@ -2,7 +2,7 @@
 # Readers for JSONL, AVRO, ORC, etc.
 
 import os
-from arrow import Schema, Table, Int64Array
+from arrow import Schema, Table, Int64Array, ResultTable
 from python import Python
 
 fn write_parquet(table: Table, filename: String, compression: String = "snappy") raises:
@@ -40,7 +40,7 @@ fn write_parquet(table: Table, filename: String, compression: String = "snappy")
         file.close()
         print("Simple Parquet written to", filename)
 
-fn read_parquet(filename: String) raises -> Table:
+fn read_parquet(filename: String) -> ResultTable:
     # Use pyarrow for full Parquet reading with schema evolution
     try:
         var py_pandas = Python.import_module("pandas")
@@ -59,27 +59,30 @@ fn read_parquet(filename: String) raises -> Table:
             for val in col_data:
                 table.columns[i].append(int(val))
         print("Parquet read from", filename, "with schema evolution")
-        return table
+        return ResultTable.ok(table^)
     except:
         # Fallback
         print("PyArrow not available, using simple read")
-        let content = os.read(filename)
-        let lines = content.split("\n")
-        if len(lines) < 2:
-            return Table(Schema(), 0)
-        var schema = Schema()
-        schema.add_field("id", "int64")
-        var table = Table(schema, len(lines) - 1)
-        for i in range(1, len(lines)):
-            let row_str = lines[i]
-            if row_str.strip() == "":
-                continue
-            let vals = row_str.split(",")
-            for j in range(len(vals)):
-                if j < len(table.columns):
-                    table.columns[j].append(atol(vals[j]))
-        print("Simple Parquet read from", filename)
-        return table
+        try:
+            let content = os.read(filename)
+            let lines = content.split("\n")
+            if len(lines) < 2:
+                return ResultTable.ok(Table(Schema(), 0))
+            var schema = Schema()
+            schema.add_field("id", "int64")
+            var table = Table(schema, len(lines) - 1)
+            for i in range(1, len(lines)):
+                let row_str = lines[i]
+                if row_str.strip() == "":
+                    continue
+                let vals = row_str.split(",")
+                for j in range(len(vals)):
+                    if j < len(table.columns):
+                        table.columns[j].append(atol(vals[j]))
+            print("Simple Parquet read from", filename)
+            return ResultTable.ok(table^)
+        except:
+            return ResultTable.err("Failed to read Parquet file")
 
 # AVRO Reader (full implementation)
 fn zigzag_encode(value: Int64) -> Int64:
@@ -100,10 +103,10 @@ fn read_varint(data: List[Int8], pos: inout Int) -> Int64:
         shift += 7
     return result
 
-fn read_avro(data: List[Int8]) -> Table:
+fn read_avro(data: List[Int8]) -> ResultTable:
     # AVRO magic: "Obj\x01"
     if len(data) < 4 or data[0] != 79 or data[1] != 98 or data[2] != 106 or data[3] != 1:
-        return Table(Schema(), 0)
+        return ResultTable.ok(Table(Schema(), 0))
     var pos = 4
     # Parse schema JSON
     var schema_str = ""
@@ -128,7 +131,7 @@ fn read_avro(data: List[Int8]) -> Table:
             let encoded = read_varint(data, pos)
             let value = zigzag_decode(encoded)
             table.columns[0][i] = value
-    return table
+    return ResultTable.ok(table^)
 
 # ORC Reader (full implementation)
 fn read_orc(data: List[Int8]) -> Table:
@@ -197,7 +200,7 @@ fn write_avro(table: Table, filename: String, compression: String = "null") rais
                 f.write(chr(b))
         print("Simple AVRO written to", filename)
 
-fn read_avro(filename: String) raises -> Table:
+fn read_avro(filename: String) -> ResultTable:
     # Use fastavro for full AVRO reading with schema evolution
     try:
         var py_fastavro = Python.import_module("fastavro")
@@ -206,7 +209,7 @@ fn read_avro(filename: String) raises -> Table:
             for record in py_fastavro.reader(f):
                 records.append(record)
         if len(records) == 0:
-            return Table(Schema(), 0)
+            return ResultTable.ok(Table(Schema(), 0))
         # Infer schema from first record
         var first = records[0]
         var schema = Schema()
@@ -220,15 +223,18 @@ fn read_avro(filename: String) raises -> Table:
                 var val = record[str(columns[j])]
                 table.columns[j].append(int(val))
         print("AVRO read from", filename, "with schema evolution")
-        return table
+        return ResultTable.ok(table^)
     except:
         # Fallback
         print("FastAVRO not available, using simple read")
-        let content = os.read(filename)
-        var data = List[Int8]()
-        for c in content:
-            data.append(ord(c))
-        return read_avro(data)
+        try:
+            let content = os.read(filename)
+            var data = List[Int8]()
+            for c in content:
+                data.append(ord(c))
+            return ResultTable.ok(read_avro(data))
+        except:
+            return ResultTable.err("Failed to read AVRO file")
 
 # ORC Writer (basic)
 fn write_orc(table: Table) -> List[Int8]:

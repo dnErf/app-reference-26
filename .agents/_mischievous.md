@@ -69,3 +69,34 @@ Next: Proceed with next refinement.
 Challenges: Handling schema evolution in fallbacks.
 
 Next: Proceed with next refinement.
+
+## Session: Parallel Query Execution with Mojo Threading
+
+- Updated parallel_scan to use Mojo Thread for concurrent chunk processing.
+- Implemented thread creation, execution, and result collection.
+- Marked done, documented in .agents/d/parallel-query-execution.md
+
+Challenges: Thread function closures and result aggregation.
+
+Next: Proceed with next refinement.
+
+## Session: Memory Management Optimizations (Zero-Copy)
+
+- Added TableView struct for zero-copy slicing with references to original columns.
+- Updated Table.slice() to return TableView instead of copying data.
+- Marked done, documented in .agents/d/zero-copy-memory.md
+
+Challenges: Ensuring views don't outlive original tables.
+
+Next: Proceed with next refinement.
+
+## Session: Error Handling with Result Types
+
+- Added Result enum for error handling in arrow.mojo.
+- Updated read_parquet and read_avro to return ResultTable.
+- Wrapped operations with try-except for explicit error propagation.
+- Marked done, documented in .agents/d/result-error-handling.md
+
+Challenges: Integrating Result with existing raises-based code.
+
+Next: Proceed with next refinement.

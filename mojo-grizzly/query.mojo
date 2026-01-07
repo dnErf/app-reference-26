@@ -197,19 +197,27 @@ fn plan_query(sql: String, table: Table) -> QueryPlan:
     return plan
 
 fn parallel_scan(table: Table, func: fn(Table) -> Int64) -> Int64:
-    # Use ThreadPool for parallel processing with more threads
-    var num_threads = 8  # Increased for better parallelism
-    var pool = ThreadPool(num_threads)
-    var results = List[Int64]()
+    # Use Mojo threading for parallel processing
+    var num_threads = 8
+    var results = List[Int64](capacity=num_threads)
+    for _ in range(num_threads):
+        results.append(0)
+    var threads = List[Thread[fn(Int64) -> None]](capacity=num_threads)
     # Split table into chunks
     var chunk_size = table.num_rows() // num_threads
     for i in range(num_threads):
         var start = i * chunk_size
         var end = (i + 1) * chunk_size if i < num_threads - 1 else table.num_rows()
         var chunk = create_table_from_indices(table, List[Int](range(start, end)))
-        # Submit to pool
-        pool.submit(func, chunk)
-        results.append(func(chunk))  # For now, sequential
+        # Create thread function
+        fn thread_func(idx: Int64):
+            results[int(idx)] = func(chunk)
+        var t = Thread(thread_func, i)
+        threads.append(t^)
+        t^.start()
+    # Wait for all
+    for t in threads:
+        t^.join()
     # Combine results
     var total = 0
     for r in results:
