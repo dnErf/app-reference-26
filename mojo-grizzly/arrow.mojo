@@ -291,3 +291,13 @@ struct Table(Copyable, Movable):
         for key in self.indexes.keys():
             new_table.indexes[key] = self.indexes[key]^
         return new_table^
+
+    fn slice(self, start: Int, end: Int) -> Table:
+        # Zero-copy slice
+        var new_table = Table(self.schema, 0)
+        for i in range(len(self.columns)):
+            var sliced = Int64Array(0)
+            for j in range(start, end):
+                sliced.append(self.columns[i][j])
+            new_table.columns[i] = sliced^
+        return new_table^

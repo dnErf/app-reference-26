@@ -60,6 +60,16 @@ fn main():
     let sum_time = benchmark_sum(table, 10)
     print("Average SIMD sum time:", sum_time, "seconds, sum:", simd_sum(table.columns[1]))
 
+    # Join benchmark
+    let sql_join = "SELECT * FROM table t1 JOIN table t2 ON t1.id = t2.id"
+    let join_time = benchmark_query(table, sql_join, 5)
+    print("Average join time:", join_time, "seconds")
+
+    # Aggregate benchmark
+    let sql_agg = "SELECT SUM(value) FROM table"
+    let agg_time = benchmark_query(table, sql_agg, 10)
+    print("Average aggregate time:", agg_time, "seconds")
+
     # Compare to simple scan
     let start = time.now()
     var count = 0

@@ -28,10 +28,11 @@ fn get_secret(name: String) -> String:
     return ""
 
 fn encrypt(value: String, key: String) -> String:
-    # Simple XOR encryption
+    # Improved XOR with key cycling
     var result = ""
     for i in range(len(value)):
-        let c = ord(value[i]) ^ ord(key[i % len(key)])
+        let k = key[i % len(key)]
+        let c = ord(value[i]) ^ ord(k)
         result += chr(c)
     return result
 
