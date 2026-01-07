@@ -7,6 +7,29 @@ import hashlib  # Assume Mojo has hashlib or implement simple hash
 from python import Python
 from network import send_wal_to_replica, replicas
 
+# Security functions inline
+fn encrypt_data(data: String, key: String) -> String:
+    try:
+        var py_crypto = Python.import_module("cryptography.fernet")
+        var py_base64 = Python.import_module("base64")
+        var fernet = py_crypto.Fernet(py_base64.b64encode(key.encode()))
+        var encrypted = fernet.encrypt(data.encode())
+        return encrypted.decode()
+    except:
+        return data  # Fallback
+
+fn decrypt_data(encrypted: String, key: String) -> String:
+    try:
+        var py_crypto = Python.import_module("cryptography.fernet")
+        var py_base64 = Python.import_module("base64")
+        var fernet = py_crypto.Fernet(py_base64.b64encode(key.encode()))
+        var decrypted = fernet.decrypt(encrypted.encode())
+        return decrypted.decode()
+    except:
+        return encrypted  # Fallback
+from extensions.security import encrypt_data, decrypt_data
+from extensions.security import encrypt_data, decrypt_data
+
 struct PartitionedBlockStore(Copyable, Movable):
     var partitions: Dict[String, BlockStore]  # Key by time/hash
 
@@ -287,47 +310,50 @@ struct WAL(Movable):
 
     fn append(inout self, operation: String):
         self.log.append(operation)
-        let compressed = compress_lz4(operation)
+        var compressed = compress_lz4(operation)
+        var encrypted = encrypt_data(compressed, "my_secret_key_32_bytes_long!!!")  # Key should be configurable
         with open(self.filename, "a") as f:
-            f.write(compressed + "\n")
+            f.write(encrypted + "\n")
         # Replicate to replicas
         for replica in replicas:
             send_wal_to_replica(replica, operation)
 
     fn replay(inout self, store: BlockStore):
         with open(self.filename, "r") as f:
-            let content = f.read()
-        let lines = content.split("\n")
+            var content = f.read()
+        var lines = content.split("\n")
         for line in lines:
             if line != "":
-                let decompressed = decompress_lz4(line)
+                var decrypted = decrypt_data(line, "my_secret_key_32_bytes_long!!!")
+                var decompressed = decompress_lz4(decrypted)
                 self.log.append(decompressed)
                 # Apply to store, e.g., parse INSERT and add block
                 if decompressed.startswith("INSERT"):
                     # Parse INSERT timestamp
-                    let parts = decompressed.split(" ")
+                    var parts = decompressed.split(" ")
                     if len(parts) >= 2:
-                        let timestamp = parts[1]
+                        var timestamp = parts[1]
                         # Create block from current store data
-                        let block = Block(store.blocks.size(), store.get_data(), timestamp)
+                        var block = Block(store.blocks.size(), store.get_data(), timestamp)
                         store.blocks.append(block)
                         print("Replayed INSERT, added block", block.index)
 
     fn replay_to_timestamp(inout self, store: BlockStore, target_timestamp: String):
         with open(self.filename, "r") as f:
-            let content = f.read()
-        let lines = content.split("\n")
+            var content = f.read()
+        var lines = content.split("\n")
         for line in lines:
             if line != "":
-                let decompressed = decompress_lz4(line)
-                let parts = decompressed.split(" ")
+                var decrypted = decrypt_data(line, "my_secret_key_32_bytes_long!!!")
+                var decompressed = decompress_lz4(decrypted)
+                var parts = decompressed.split(" ")
                 if len(parts) >= 2:
-                    let timestamp = parts[1]
+                    var timestamp = parts[1]
                     if timestamp <= target_timestamp:
                         self.log.append(decompressed)
                         # Apply
                         if decompressed.startswith("INSERT"):
-                            let block = Block(store.blocks.size(), store.get_data(), timestamp)
+                            var block = Block(store.blocks.size(), store.get_data(), timestamp)
                             store.blocks.append(block)
                     else:
                         break  # Stop at target

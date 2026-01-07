@@ -16,14 +16,85 @@ from extensions.blockchain import append_block, get_head, save_chain, init as in
 from extensions.lakehouse import create_lake_table, insert_into_lake, optimize_lake, init as init_lakehouse
 from extensions.rest_api import init as init_rest_api
 from network import add_replica
+from extensions.ml import init as init_ml
+
+# Security functions inline
+fn generate_token(user_id: String) -> String:
+    try:
+        var py_jwt = Python.import_module("jwt")
+        var py_datetime = Python.import_module("datetime")
+        var payload = {"user_id": user_id, "exp": py_datetime.datetime.utcnow() + py_datetime.timedelta(hours=1)}
+        var token = py_jwt.encode(payload, "secret", algorithm="HS256")
+        return token
+    except:
+        return "token_" + user_id  # Fallback
+
+fn validate_token(token: String) -> String:
+    try:
+        var py_jwt = Python.import_module("jwt")
+        var decoded = py_jwt.decode(token, "secret", algorithms=["HS256"])
+        return decoded["user_id"]
+    except:
+        return ""  # Invalid
+
+# Observability functions inline
+var query_count = 0
+var total_latency = 0.0
+var error_count = 0
+
+fn record_query(latency: Float64, success: Bool):
+    query_count += 1
+    total_latency += latency
+    if not success:
+        error_count += 1
+
+fn get_metrics() -> String:
+    var avg_latency = total_latency / query_count if query_count > 0 else 0.0
+    return "Queries: " + str(query_count) + ", Avg Latency: " + str(avg_latency) + "s, Errors: " + str(error_count)
+
+fn health_check() -> String:
+    return "OK"  # Simple
+
+fn show_dashboard():
+    print("=== Mojo Grizzly Dashboard ===")
+    print(get_metrics())
+    print("Health:", health_check())
+from extensions.security import validate_token, generate_token, init as init_security
+from extensions.security import validate_token, generate_token, init as init_security
 
 # Global database state
 var global_table = Table(Schema(), 0)
 var tables = Dict[String, Table]()
 var command_history = List[String]()
+var current_user = "admin"  # Default, should be set via auth
 
 fn execute_sql(sql: String):
     command_history.append(sql)
+    if sql.upper().startswith("AUTH"):
+        # AUTH token
+        let token = sql[5:].strip()
+        let user = validate_token(token)
+        if user != "":
+            current_user = user
+            print("Authenticated as", user)
+        else:
+            print("Invalid token")
+        return
+    elif sql.upper().startswith("LOGIN"):
+        # LOGIN user
+        let user = sql[6:].strip()
+        let token = generate_token(user)
+        print("Token:", token)
+        return
+    elif sql.upper().startswith("SHOW METRICS"):
+        print(get_metrics())
+        return
+    elif sql.upper().startswith("HEALTH CHECK"):
+        print("Health:", health_check())
+        return
+    elif sql.upper().startswith("DASHBOARD"):
+        show_dashboard()
+        return
     if sql.startswith("CREATE FUNCTION"):
         create_function(sql)
         print("Function created")
@@ -42,6 +113,16 @@ fn execute_sql(sql: String):
                 init_blockchain()
             elif ext_name == "lakehouse":
                 init_lakehouse()
+            elif ext_name == "rest_api":
+                init_rest_api()
+            elif ext_name == "ml":
+                init_ml()
+            elif ext_name == "security":
+                init_security()
+            elif ext_name == "observability":
+                pass  # Placeholder
+            elif ext_name == "analytics":
+                pass  # Placeholder
             else:
                 print("Unknown extension:", ext_name)    elif sql.upper().startswith("ATTACH"):
         # ATTACH 'path' AS alias
@@ -70,7 +151,7 @@ fn execute_sql(sql: String):
                     # Execute .sql file as virtual table
                     try:
                         let sql_content = os.read(path)
-                        let result = execute_query(global_table, sql_content)
+                        let result = execute_query(global_table, sql_content, tables, current_user)
                         tables[alias] = result
                         print("Executed", path, "and attached result as", alias)
                     except:
@@ -145,7 +226,7 @@ fn execute_sql(sql: String):
                 else:
                     print("Unknown format")
     elif sql.startswith("SELECT"):
-        let result = execute_query(global_table, sql, tables)
+        let result = execute_query(global_table, sql, tables, current_user)
         print("Query result:")
         for i in range(result.columns[0].length):
             print("Row", i, ": id =", result.columns[0][i], ", value =", result.columns[1][i])
@@ -306,6 +387,8 @@ fn load_extension(name: String):
         init_lakehouse()
     elif name == "rest_api":
         init_rest_api()
+    elif name == "ml":
+        init_ml()
     else:
         print("Unknown extension:", name)
 

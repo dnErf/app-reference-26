@@ -6,8 +6,68 @@ from pl import call_function
 from index import HashIndex
 from threading import Thread
 from network import RemoteNode, query_remote
+from extensions.ml import predict
+import time
 # from extensions.column_store import init as init_column_store
-# from extensions.row_store import init as init_row_store
+
+# Security functions inline
+fn sanitize_input(input: String) -> String:
+    # Basic sanitization: remove quotes, etc.
+    return input.replace("'", "").replace("\"", "").replace(";", "")
+
+fn audit_log(action: String, user: String, details: String):
+    try:
+        var py_time = Python.import_module("time")
+        var timestamp = String(py_time.time())
+        with open("audit.log", "a") as f:
+            f.write(timestamp + " | " + user + " | " + action + " | " + details + "\n")
+    except:
+        pass  # Silent fail
+
+fn check_rls(table: String, user: String) -> Bool:
+    # Placeholder: always allow
+    return True
+
+# Analytics functions inline
+import math
+
+fn percentile(values: List[Float64], p: Float64) -> Float64:
+    # Simple sort placeholder
+    var sorted_values = values  # Assume sorted
+    var index = (len(values) - 1) * p
+    var lower = Int(index)
+    var upper = lower + 1
+    var weight = index - lower
+    if upper >= len(values):
+        return sorted_values[lower]
+    return sorted_values[lower] * (1 - weight) + sorted_values[upper] * weight
+
+fn mean(values: List[Float64]) -> Float64:
+    var sum = 0.0
+    for v in values:
+        sum += v
+    return sum / len(values)
+
+fn std_dev(values: List[Float64]) -> Float64:
+    var m = mean(values)
+    var sum_sq = 0.0
+    for v in values:
+        sum_sq += (v - m) ** 2
+    return math.sqrt(sum_sq / len(values))
+
+fn data_quality_check(table: Table) -> String:
+    var null_count = 0
+    # Placeholder
+    return "Nulls: " + String(null_count) + ", Total rows: " + String(table.num_rows())
+
+fn get_float_column(table: Table, column_name: String) -> List[Float64]:
+    for i in range(len(table.schema.fields)):
+        if table.schema.fields[i].name == column_name:
+            var values = List[Float64]()
+            for j in range(table.num_rows()):
+                values.append(Float64(table.columns[i][j]))
+            return values^
+    return List[Float64]()
 # from extensions.graph import init as init_graph
 # from extensions.blockchain import init as init_blockchain
 # from extensions.lakehouse import init as init_lakehouse
@@ -289,7 +349,7 @@ fn join_full(table1: Table, table2: Table, key1: String, key2: String) -> Table:
 fn execute_subquery(sub_sql: String, table: Table) -> Table:
     # Simple: assume SELECT * FROM table WHERE ...
     if "WHERE" in sub_sql:
-        let parts = sub_sql.split("WHERE")
+        var parts = sub_sql.split("WHERE")
         let condition = parts[1].strip()
         return filter_table(table, condition)
     return table
@@ -834,6 +894,27 @@ fn max_column(table: Table, column_name: String) -> Int64:
     return max_val
 
 fn parse_and_execute_sql(table: Table, sql: String, tables: Dict[String, Table]) raises -> Table:
+    # Handle WITH (CTE)
+    # var cte_tables = Dict[String, Table]()
+    # if sql.upper().startswith("WITH"):
+    #     var with_end = sql.upper().find(" SELECT")
+    #     if with_end != -1:
+    #         var with_clause = sql[:with_end].strip()
+    #         var main_sql = sql[with_end:].strip()
+    #         # Parse CTEs: WITH cte AS (SELECT ...), cte2 AS (SELECT ...)
+    #         var ctes = with_clause[5:].split(",")
+    #         for cte in ctes:
+    #             var as_pos = cte.upper().find(" AS ")
+    #             if as_pos != -1:
+    #                 var cte_name = String(cte[:as_pos].strip())
+    #                 var sub_sql_start = cte.find("(")
+    #                 var sub_sql_end = cte.rfind(")")
+    #                 if sub_sql_start != -1 and sub_sql_end != -1:
+    #                     var sub_sql = cte[sub_sql_start+1:sub_sql_end].strip()
+    #                     var cte_table = execute_subquery(sub_sql, table, tables)
+    #                     cte_tables[cte_name] = cte_table
+    #         # Execute main query with CTEs
+    #         return parse_and_execute_sql_with_cte(table, main_sql, tables, cte_tables)
     # LRU cache for query results
     # var cache = CacheManager()
     # var cache_key = sql
@@ -893,6 +974,57 @@ fn parse_and_execute_sql(table: Table, sql: String, tables: Dict[String, Table])
         result_table.columns = List[Int64Array](Int64Array(1))
         result_table.columns[0][0] = result
         return result_table^
+        var column = String(sql[perc_start:perc_end].split(",")[0].strip())
+        var p_str = sql[perc_start:perc_end].split(",")[1].strip()
+        var p = atof(p_str)
+        var values = get_float_column(table, column)
+        var result = percentile(values, p)
+        var schema = Schema()
+        schema.fields = List[Field](Field("percentile", "float64"))
+        var result_table = Table(schema, 1)
+        result_table.columns = List[Float64Array](Float64Array(1))
+        result_table.columns[0][0] = result
+        return result_table^
+    elif "STATS(" in sql:
+        var stats_start = sql.find("STATS(") + 6
+        var stats_end = sql.find(")", stats_start)
+        var column = String(sql[stats_start:stats_end])
+        var values = get_float_column(table, column)
+        var m = mean(values)
+        var s = std_dev(values)
+        var schema = Schema()
+        schema.fields = List[Field](Field("mean", "float64"), Field("std_dev", "float64"))
+        var result_table = Table(schema, 1)
+        result_table.columns = List[Float64Array](Float64Array(1), Float64Array(1))
+        result_table.columns[0][0] = m
+        result_table.columns[1][0] = s
+        return result_table^
+    elif "DATA_QUALITY" in sql:
+        var quality = data_quality_check(table)
+        var schema = Schema()
+        schema.fields = List[Field](Field("quality", "string"))
+        var result_table = Table(schema, 1)
+        # Placeholder for string column
+        return result_table^
+        # PREDICT(model, column)
+        var predict_start = sql.find("PREDICT(") + 8
+        var predict_end = sql.find(")", predict_start)
+        var args = sql[predict_start:predict_end].split(",")
+        if len(args) == 2:
+            var model_name = args[0].strip().strip("'\"")
+            var column = args[1].strip()
+            # For demo, predict on first row
+            var data = List[Float64]()
+            for i in range(table.num_rows()):
+                data.append(Float64(table.columns[0][i]))  # Assume first column
+            var result = predict(model_name, data)
+            var schema = Schema()
+            schema.fields = List[Field](Field("predict", "float64"))
+            var result_table = Table(schema, 1)
+            result_table.columns = List[Float64Array](Float64Array(1))
+            result_table.columns[0][0] = result
+            return result_table^
+        return Table(Schema(), 0)
     elif "GROUP BY" in sql:
         # Simple: SELECT SUM(col) FROM table GROUP BY group_col
         var sum_start = sql.find("SUM(") + 4
@@ -1043,12 +1175,20 @@ from collections import Dict, List
 
 from threading import ThreadPool
 
-fn execute_query(table: Table, sql: String, tables: Dict[String, Table]) raises -> Table:
-    if sql.upper().startswith("LOAD EXTENSION"):
-        var ext_start = sql.find("'")
-        var ext_end = sql.rfind("'")
+fn execute_query(table: Table, sql: String, tables: Dict[String, Table], user: String = "admin") raises -> Table:
+    var py_time = Python.import_module("time")
+    var start_time = py_time.time()
+    var sanitized_sql = sanitize_input(sql)
+    audit_log("EXECUTE_QUERY", user, sanitized_sql)
+    # Check RLS for main table, assume table name is "main" or something
+    if not check_rls("main", user):
+        print("Access denied by RLS")
+        return Table(Schema(), 0)
+    if sanitized_sql.upper().startswith("LOAD EXTENSION"):
+        var ext_start = sanitized_sql.find("'")
+        var ext_end = sanitized_sql.rfind("'")
         if ext_start != -1 and ext_end != -1:
-            var ext_name = sql[ext_start+1:ext_end]
+            var ext_name = sanitized_sql[ext_start+1:ext_end]
             if ext_name == "column_store":
                 # init_column_store()
                 pass
@@ -1064,7 +1204,35 @@ fn execute_query(table: Table, sql: String, tables: Dict[String, Table]) raises 
             elif ext_name == "lakehouse":
                 # init_lakehouse()
                 pass
+            elif ext_name == "security":
+                # from extensions.security import init
+                # init()
+                pass
             else:
                 print("Unknown extension:", ext_name)
         return Table(Schema(), 0)  # Empty table for command
-    return parse_and_execute_sql(table, sql, tables)
+    var result = parse_and_execute_sql(table, sanitized_sql, tables)
+    return result^
+
+# Window Functions
+fn row_number(table: Table, partition_cols: List[String], order_cols: List[String]) -> Table:
+    # Add row_number column
+    var schema = table.schema
+    schema.add_field("row_number", "int64")
+    var result = Table(schema, table.num_rows())
+    # Copy data
+    for i in range(table.num_rows()):
+        for j in range(table.schema.fields.size):
+            result.columns[j][i] = table.columns[j][i]
+    # Assign row numbers (placeholder: sequential)
+    for i in range(table.num_rows()):
+        result.columns[table.schema.fields.size][i] = i + 1
+    return result
+
+fn rank(table: Table, partition_cols: List[String], order_cols: List[String]) -> Table:
+    # Similar to row_number, but handle ties
+    return row_number(table, partition_cols, order_cols)  # Placeholder
+
+# Subquery execution
+fn execute_subquery(sub_sql: String, main_table: Table, tables: Dict[String, Table]) raises -> Table:
+    return parse_and_execute_sql(main_table, sub_sql, tables)

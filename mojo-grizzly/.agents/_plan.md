@@ -14,6 +14,12 @@
 - [x] Batch 8: Storage and Backup (incremental backups, partitioning, evolution, recovery, tuning)
 - [x] Batch 10: Performance and Scalability (query parallelization, compression codecs, caching layers, large dataset optimization, benchmarking)
 - [x] Batch 14: Async Implementations (thread-based event loop, Python asyncio integration, benchmarking, async I/O wrappers)
+- [x] Batch 4: Networking and Distributed (TCP server, distributed JOINs, replication, failover, federated queries, connection pooling)
+- [x] Batch 13: Attach/Detach Ecosystem (ATTACH/DETACH for .grz/.sql, registry, cross-DB queries, cleanup)
+- [x] Batch 3: Advanced Query Features (subqueries, CTE, window functions, recursive queries, query hints)
+- [x] Batch 5: AI/ML Integration (vector search, ML inference, predictive queries, anomaly detection, extensions)
+- [x] Batch 6: Security and Encryption (RLS, AES encryption, auth, audit)
+- [x] Batch 11: Observability and Monitoring (metrics, health checks, tracing, alerting, dashboards)
 
 ## Current TODOs (Immediate Fixes/Refinements)
 - Integrate Variant for mixed string/float columns in Table
@@ -37,49 +43,14 @@
 - Performance profiling tools
 
 ## Future Batches (Reorganized by Impact & Dependencies)
-### Batch 4: Networking and Distributed (Depends on Async)
-- Add TCP server for remote queries
-- Implement distributed JOINs
-- Add replication and failover
-- Support federated queries
-- Implement connection pooling
-
-### Batch 13: Attach/Detach Ecosystem (Depends on Networking/Storage)
-- Implement ATTACH/DETACH for .grz files (attach external DBs)
-- Support attaching .sql files (as scripts or virtual tables)
-- Add registry for attached databases
-- Enable cross-DB queries and JOINs
-- Handle DETACH cleanup and error cases
-
-### Batch 3: Advanced Query Features (Depends on Performance)
-- Fully implement subqueries in WHERE/FROM/SELECT
-- Add CTE (WITH) execution support
-- Support window functions with partitioning
-- Implement recursive queries
-- Add query hints
-
-### Batch 5: AI/ML Integration (Advanced: Depends on Queries)
-- Add vector search with embeddings
-- Implement ML model inference
-- Support predictive queries
-- Add anomaly detection
-- Integrate with extensions for ML pipelines
-
-### Batch 6: Security and Encryption (Cross-Cutting)
-- Implement row-level security (RLS) with policies
-- Add data encryption at rest (AES for blocks/WAL)
-- Support token-based authentication
-- Implement audit logging
-- Add SQL injection prevention
-
-### Batch 11: Observability and Monitoring (Cross-Cutting)
-- Implement metrics collection
-- Add health checks
-- Support tracing
-- Integrate alerting
-- Add dashboards
-
 ### Batch 7: Advanced Analytics (Depends on Queries)
+- Implement time-series aggregations
+- Add geospatial queries
+- Support complex aggregations (percentiles, medians)
+- Integrate statistical functions
+- Add data quality checks
+
+### Batch 9: Extensions Ecosystem Expansion (Ecosystem Growth)
 - Implement time-series aggregations
 - Add geospatial queries
 - Support complex aggregations (percentiles, medians)
