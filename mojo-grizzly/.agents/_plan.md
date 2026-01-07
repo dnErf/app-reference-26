@@ -12,6 +12,8 @@
 - [x] Batch 1: Performance Optimizations (SIMD, LRU cache, parallel JOINs, B-tree opts, WAL compression, profiling)
 - [x] Batch 2: Memory Management Optimizations (pooling, refcounting, contiguous arrays, lazy loading, profiling)
 - [x] Batch 8: Storage and Backup (incremental backups, partitioning, evolution, recovery, tuning)
+- [x] Batch 10: Performance and Scalability (query parallelization, compression codecs, caching layers, large dataset optimization, benchmarking)
+- [x] Batch 14: Async Implementations (thread-based event loop, Python asyncio integration, benchmarking, async I/O wrappers)
 
 ## Current TODOs (Immediate Fixes/Refinements)
 - Integrate Variant for mixed string/float columns in Table
@@ -35,26 +37,6 @@
 - Performance profiling tools
 
 ## Future Batches (Reorganized by Impact & Dependencies)
-### Batch 10: Performance and Scalability (High Impact: Builds on Memory/Storage)
-- Implement query parallelization
-- Add columnar compression codecs
-- Support in-memory caching layers
-- Optimize for large datasets
-- Add benchmarking suite
-
-### Batch 14: Async Implementations (High Impact: Unlocks Networking/Distributed)
-- Implement Mojo thread-based event loop (futures, task queue, async I/O simulation)
-- Integrate Python asyncio/uvloop via interop
-- Benchmark both against synchronous ops
-- Add async wrappers for I/O in Grizzly
-
-### Batch 4: Networking and Distributed (Depends on Async)
-- Add TCP server for remote queries
-- Implement distributed JOINs
-- Add replication and failover
-- Support federated queries
-- Implement connection pooling
-
 ### Batch 13: Attach/Detach Ecosystem (Depends on Networking/Storage)
 - Implement ATTACH/DETACH for .grz files (attach external DBs)
 - Support attaching .sql files (as scripts or virtual tables)

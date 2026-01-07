@@ -39,8 +39,9 @@ fn demo() raises:
 
     # Query: SELECT * FROM table WHERE value > 15
     var sql = "SELECT * FROM table WHERE value > 15"
+    var tables = Dict[String, Table]()
     try:
-        var result = execute_query(table1, sql)
+        var result = execute_query(table1, sql, tables)
         print("\nQuery result (" + sql + "):")
         i = 0
         while i < result.num_rows():

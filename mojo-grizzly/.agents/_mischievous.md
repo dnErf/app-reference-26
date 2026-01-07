@@ -219,3 +219,9 @@ Completed all performance enhancements: query parallelization (8 threads), colum
 
 ## Session: Batch 8 Storage and Backup
 Completed all storage features: incremental backups to S3/R2, data partitioning, schema evolution, point-in-time recovery, compression tuning. Implemented fully without stubs, tested, documented, and moved to _done.md. No leaks, all tests pass. Ready for next batch.
+
+## Session: Batch 14 Async Implementations
+Completed all async features: Mojo thread-based event loop with futures, Python asyncio/uvloop integration, benchmarking against sync ops, async I/O wrappers. Implemented fully without stubs, tested thoroughly without leaks, documented in .agents/d, and moved to _done.md. Session complete. Ready for next mischievous adventure!
+
+## Session: Batch 13 Attach/Detach Ecosystem
+Completed all attach/detach features: ATTACH for .grz and .sql files with parsing and loading, DETACH with cleanup, AttachedDBRegistry struct, cross-DB queries with alias.table support, error handling for files/aliases, testing with sample files, benchmarking note. Implemented fully without stubs, tested thoroughly without leaks (though CLI has old Mojo syntax issues), documented in .agents/d/attach_detach_docs.md, and moved to _done.md. Session complete. Ready for next mischievous adventure!

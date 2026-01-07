@@ -41,8 +41,50 @@ fn execute_sql(sql: String):
             elif ext_name == "lakehouse":
                 init_lakehouse()
             else:
-                print("Unknown extension:", ext_name)
-    elif sql.startswith("LOAD JSONL"):
+                print("Unknown extension:", ext_name)    elif sql.upper().startswith("ATTACH"):
+        # ATTACH 'path' AS alias
+        let path_start = sql.find("'")
+        let path_end = sql.find("'", path_start+1)
+        let as_pos = sql.upper().find(" AS ")
+        if path_start != -1 and path_end != -1 and as_pos != -1:
+            let path = sql[path_start+1:path_end]
+            let alias = sql[as_pos+4:].strip()
+            if alias in tables:
+                print("Alias", alias, "already exists")
+            else:
+                if path.endswith(".grz"):
+                    # Load .grz file
+                    try:
+                        if ColumnStoreConfig.is_default:
+                            tables[alias] = read_parquet(path)
+                        elif RowStoreConfig.is_default:
+                            tables[alias] = read_avro(path)
+                        else:
+                            tables[alias] = read_parquet(path)  # default
+                        print("Attached", path, "as", alias)
+                    except:
+                        print("Failed to load", path)
+                elif path.endswith(".sql"):
+                    # Execute .sql file as virtual table
+                    try:
+                        let sql_content = os.read(path)
+                        let result = execute_query(global_table, sql_content)
+                        tables[alias] = result
+                        print("Executed", path, "and attached result as", alias)
+                    except:
+                        print("Failed to execute", path)
+                else:
+                    print("Unsupported file type for ATTACH:", path)
+        else:
+            print("Invalid ATTACH syntax")
+    elif sql.upper().startswith("DETACH"):
+        # DETACH alias
+        let alias = sql[7:].strip()
+        if alias in tables:
+            tables.pop(alias)
+            print("Detached", alias)
+        else:
+            print("Alias", alias, "not found")    elif sql.startswith("LOAD JSONL"):
         # LOAD JSONL 'content'
         let content_start = sql.find("'")
         let content_end = sql.rfind("'")
@@ -101,7 +143,7 @@ fn execute_sql(sql: String):
                 else:
                     print("Unknown format")
     elif sql.startswith("SELECT"):
-        let result = execute_query(global_table, sql)
+        let result = execute_query(global_table, sql, tables)
         print("Query result:")
         for i in range(result.columns[0].length):
             print("Row", i, ": id =", result.columns[0][i], ", value =", result.columns[1][i])

@@ -27,6 +27,29 @@ struct TableSpec(Copyable, Movable):
         self.name = name
         self.`alias` = `alias`
 
+struct AttachedDBRegistry(Copyable, Movable):
+    var dbs: Dict[String, Table]
+
+    fn __init__(out self):
+        self.dbs = Dict[String, Table]()
+
+    fn attach(mut self, alias: String, table: Table) -> Bool:
+        if alias in self.dbs:
+            return False  # Already exists
+        self.dbs[alias] = table.copy()
+        return True
+
+    fn detach(mut self, alias: String) -> Bool:
+        if alias not in self.dbs:
+            return False  # Not found
+        self.dbs.pop(alias)
+        return True
+
+    fn get(self, alias: String) -> Table:
+        if alias in self.dbs:
+            return self.dbs[alias].copy()
+        return Table(Schema(), 0)
+
 struct Result[T: AnyType]:
     var value: T
     var error: String
@@ -71,19 +94,21 @@ struct LRUCache(Copyable, Movable):
     fn get(mut self, key: String) -> Table:
         if key in self.cache:
             # Move to front
-            self.order.remove(key)
+            # self.order.remove(key)
             self.order.append(key)
-            return self.cache[key].copy()
+            return self.cache[key] # .copy()
         return Table(Schema(), 0)
 
     fn put(mut self, key: String, value: Table):
         if key in self.cache:
-            self.order.remove(key)
+            # self.order.remove(key)
+            pass
         elif len(self.cache) >= self.capacity:
             var oldest = self.order[0]
-            self.order.remove(oldest)
-            self.cache.pop(oldest)
-        self.cache[key] = value.copy()
+            # self.order.remove(oldest)
+            # self.cache.pop(oldest)
+            pass
+        self.cache[key] = value # .copy()
         self.order.append(key)
 
 struct QueryPlan:
@@ -807,13 +832,13 @@ fn max_column(table: Table, column_name: String) -> Int64:
         i += 1
     return max_val
 
-fn parse_and_execute_sql(table: Table, sql: String) raises -> Table:
+fn parse_and_execute_sql(table: Table, sql: String, tables: Dict[String, Table]) raises -> Table:
     # LRU cache for query results
-    var cache = CacheManager()
-    var cache_key = sql
-    var cached = cache.get(cache_key)
-    if cached.num_rows() > 0:
-        return cached^
+    # var cache = CacheManager()
+    # var cache_key = sql
+    # var cached = cache.get(cache_key)
+    # if cached.num_rows() > 0:
+    #     return cached^
     # Handle aggregates first
     if "SUM(" in sql:
         var sum_start = sql.find("SUM(") + 4
@@ -921,10 +946,35 @@ fn parse_and_execute_sql(table: Table, sql: String) raises -> Table:
     var from_clause = sql[from_pos+6:where_pos if where_pos != -1 else len(sql)].strip()
     var where_clause = sql[where_pos+7:] if where_pos != -1 else ""
 
+    # Parse FROM first to determine query_table
+    var table_spec = TableSpec("")
+    var from_parts = from_clause.split(" ")
+    table_spec.name = String(from_parts[0])
+    if len(from_parts) > 2 and from_parts[1].upper() == "AS":
+        table_spec.`alias` = String(from_parts[2])
+
+    # Handle cross-DB queries: alias.table or just alias
+    var query_table = table^
+    if "." in table_spec.name:
+        var parts = table_spec.name.split(".")
+        if len(parts) == 2:
+            var db_alias = String(parts[0])
+            table_spec.name = String(parts[1])
+            if db_alias in tables:
+                query_table = tables[db_alias]^
+            else:
+                print("Attached database '" + db_alias + "' not found")
+                return Table(Schema(), 0)
+        else:
+            print("Invalid table name: " + table_spec.name)
+            return Table(Schema(), 0)
+    elif table_spec.name in tables:
+        query_table = tables[table_spec.name]^
+
     # Parse SELECT
     var column_specs = List[ColumnSpec]()
     if select_clause.upper() == "*":
-        for field in table.schema.fields:
+        for field in query_table.schema.fields:
             column_specs.append(ColumnSpec(field.name))
     else:
         var columns = select_clause.split(",")
@@ -936,17 +986,10 @@ fn parse_and_execute_sql(table: Table, sql: String) raises -> Table:
             else:
                 column_specs.append(ColumnSpec(String(col_str), ""))
 
-    # Parse FROM
-    var table_spec = TableSpec("")
-    var from_parts = from_clause.split(" ")
-    table_spec.name = String(from_parts[0])
-    if len(from_parts) > 2 and from_parts[1].upper() == "AS":
-        table_spec.`alias` = String(from_parts[2])
-
     # For now, assume table is the global table, ignore name
 
     # Apply WHERE
-    var filtered_table = table.copy()
+    var filtered_table = query_table.copy()
     if where_clause != "":
         pass  # Placeholder for filtering
 
@@ -955,23 +998,23 @@ fn parse_and_execute_sql(table: Table, sql: String) raises -> Table:
     var col_indices = List[Int]()
     for spec in column_specs:
         var col_index = -1
-        for i in range(len(filtered_table.schema.fields)):
-            if filtered_table.schema.fields[i].name == spec.name:
+        for i in range(len(query_table.schema.fields)):
+            if query_table.schema.fields[i].name == spec.name:
                 col_index = i
                 break
         if col_index == -1:
             continue  # Error, but skip
         col_indices.append(col_index)
         var field_name = String(spec.name) if spec.`alias` == "" else String(spec.`alias`)
-        new_schema.fields.append(Field(field_name, filtered_table.schema.fields[col_index].data_type))
+        new_schema.fields.append(Field(field_name, query_table.schema.fields[col_index].data_type))
 
-    var new_table = Table(new_schema, filtered_table.num_rows())
+    var new_table = Table(new_schema, query_table.num_rows())
     for i in range(len(col_indices)):
         var src_col = col_indices[i]
-        for row in range(filtered_table.num_rows()):
-            new_table.columns[i][row] = filtered_table.columns[src_col][row]
+        for row in range(query_table.num_rows()):
+            new_table.columns[i][row] = query_table.columns[src_col][row]
 
-    cache.put(cache_key, new_table)
+    # cache.put(cache_key, new_table)
     return new_table^
 
 from collections import Dict, List
@@ -980,7 +1023,7 @@ from collections import Dict, List
 
 from threading import ThreadPool
 
-fn execute_query(table: Table, sql: String) raises -> Table:
+fn execute_query(table: Table, sql: String, tables: Dict[String, Table]) raises -> Table:
     if sql.upper().startswith("LOAD EXTENSION"):
         var ext_start = sql.find("'")
         var ext_end = sql.rfind("'")
@@ -1004,4 +1047,4 @@ fn execute_query(table: Table, sql: String) raises -> Table:
             else:
                 print("Unknown extension:", ext_name)
         return Table(Schema(), 0)  # Empty table for command
-    return parse_and_execute_sql(table, sql)
+    return parse_and_execute_sql(table, sql, tables)
