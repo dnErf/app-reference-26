@@ -5,8 +5,21 @@
 from memory import memset_zero
 from python import Python, PythonObject
 
-# Variant for mixed types
-alias Variant = PythonObject  # Use Python for flexibility
+# Variant for mixed types - simplified to avoid Python dependency
+struct StringVariant(Copyable, Movable, Writable):
+    var value: String
+    
+    fn __init__(out self, value: String = ""):
+        self.value = value
+    
+    fn __str__(self) -> String:
+        return self.value
+    
+    fn write_to[W: Writer](self, mut writer: W):
+        writer.write(self.value)
+
+# Alias for compatibility
+alias Variant = StringVariant
 
 # Result type for error handling
 # enum Result[T: AnyType, E: AnyType]:
@@ -26,10 +39,13 @@ struct VariantArray(Copyable, Movable):
             self.data.append(Variant())
 
     fn __getitem__(self, index: Int) -> Variant:
-        return self.data[index]
+        return self.data[index].copy()
 
-    fn __setitem__(inout self, index: Int, value: Variant):
-        self.data[index] = value
+    fn __setitem__(mut self, index: Int, value: Variant):
+        self.data[index] = value.copy()
+
+    fn append(mut self, value: Variant):
+        self.data.append(value.copy())
 
 struct RefCounted[T: Copyable]:
     var data: T
@@ -386,6 +402,17 @@ struct Table(Copyable, Movable):
     fn append_row(mut self, values: List[Int64]):
         for i in range(len(values)):
             self.columns[i].append(values[i])
+        self.row_versions.append(1)  # New row starts at version 1
+
+    fn append_mixed_row(mut self, int_values: List[Int64], mixed_values: List[Variant]):
+        # Append int64 values
+        for i in range(len(int_values)):
+            self.columns[i].append(int_values[i])
+        
+        # Append mixed values
+        for i in range(len(mixed_values)):
+            self.mixed_columns[i].append(mixed_values[i])
+        
         self.row_versions.append(1)  # New row starts at version 1
 
     fn get_row_values(self, row: Int) -> List[Int64]:

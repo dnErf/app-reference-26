@@ -1,5 +1,5 @@
 # Test Packaging
-from extensions.packaging import init, package_init, add_python_dep, package_build
+from packaging import init, package_init, add_python_dep, package_build
 
 fn main():
     init()
