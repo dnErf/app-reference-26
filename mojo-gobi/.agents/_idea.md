@@ -1,3 +1,0 @@
-- using mojo (https://docs.modular.com/mojo/manual/python/python-from-mojo)
-    - create an cli app simillar to uv (https://docs.astral.sh/uv/concepts/projects/init/) but stricter to ai.
-- use mojo and interop with cli framework rich (https://rich.readthedocs.io/en/latest/)(https://github.com/Textualize/rich)

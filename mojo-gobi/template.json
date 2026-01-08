@@ -1,15 +1,16 @@
 {
   "directories": [
-    "ai_models",
-    "data",
-    "scripts"
+    "scripts",
+    ".ai",
+    ".ai/agents",
+    ".ai/models"
   ],
   "files": {
-    "main.mojo": "",
+    "main.mojo": "fn main():\n    print(\"Hello from AI project!\")\n",
     "requirements.txt": "rich\n",
     "README.md": "# AI Project\n\nThis is an AI project created with Mojo Gobi CLI.\n",
-    ".ai": "{\n  \"ai_project\": true,\n  \"structure_version\": \"1.0\",\n  \"agent_hooks\": [\"validate_structure\", \"check_dependencies\"],\n  \"folders\": [\"ai_models\", \"data\", \"scripts\"],\n  \"contact\": \"Run 'mojo-gobi init --validate' for agent review\"\n}",
-    "scripts/ping_agent.py": "#!/usr/bin/env python3\n\n# Agent ping script for AI project validation\n# This script signals agents to review the project structure\n\nprint('Agent notified: Reviewing AI project structure...')\nprint('Bounds: ai_models/, data/, scripts/')\nprint('Validation: Check .ai beacon for metadata.')\n"
+    ".manifest.ai": "{\n  \"ai_project\": true,\n  \"structure_version\": \"1.0\",\n  \"agent_hooks\": [\"validate_structure\", \"check_dependencies\"],\n  \"folders\": [\"scripts\", \".ai\", \".ai/agents\", \".ai/models\"],\n  \"contact\": \"Run 'mojo-gobi init --validate' for agent review\"\n}",
+    "scripts/ai_agent.py": "#!/usr/bin/env python3\n\n# AI Agent script for project validation\n# This script signals AI agents to review the project structure\n\nprint('AI Agent notified: Reviewing AI project structure...')\nprint('Bounds: scripts/, .ai/')\nprint('Validation: Check .manifest.ai beacon for metadata.')\n"
   },
   "naming_rules": {
     "project_name": "^[a-zA-Z][a-zA-Z0-9_-]*$",
