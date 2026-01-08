@@ -2,6 +2,11 @@
 
 import sys
 import os
+
+# Change to the directory where this script is located
+script_dir = os.path.dirname(os.path.abspath(__file__))
+os.chdir(script_dir)
+
 sys.path.append(".")
 
 from args import parse_args

@@ -1,0 +1,3 @@
+rich
+cx-Freeze
+tomli-w

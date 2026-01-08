@@ -1,13 +1,63 @@
-from rich.console import Console
-from rich.panel import Panel
-from rich.spinner import Spinner
-from rich.tree import Tree
-from rich import print as rprint
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.spinner import Spinner
+    from rich.tree import Tree
+    from rich import print as rprint
+    RICH_AVAILABLE = True
+except ImportError:
+    # Fallback for when rich is not available
+    class DummyConsole:
+        def print(self, *args, **kwargs):
+            print(*args)
+        def status(self, *args, **kwargs):
+            return DummyStatus()
+    class DummyStatus:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def update(self, *args):
+            pass
+    class DummyPanel:
+        def __init__(self, content, title=None, **kwargs):
+            self.content = content
+            self.title = title
+        def __str__(self):
+            if self.title:
+                return f"{self.title}\n{self.content}"
+            return self.content
+    class DummySpinner:
+        pass
+    class DummyTree:
+        def __init__(self, root, **kwargs):
+            self.root = root
+            self.items = []
+        def add(self, item):
+            self.items.append(item)
+        def __str__(self):
+            lines = [self.root]
+            for item in self.items:
+                lines.append(f"├── {item}")
+            return "\n".join(lines)
+    def rprint(*args, **kwargs):
+        print(*args)
+    Console = DummyConsole
+    Panel = DummyPanel
+    Spinner = DummySpinner
+    Tree = DummyTree
+    RICH_AVAILABLE = False
+
 import traceback
 import json
 import os
 import re
 import subprocess
+import tomllib
+try:
+    import tomli_w
+except ImportError:
+    tomli_w = None
 from datetime import datetime
 
 console = Console()
@@ -31,7 +81,10 @@ def print_trace():
     print_panel("Error Trace", tb)
 
 def load_template():
-    with open('template.json', 'r') as f:
+    # Find template.json relative to this script's location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    template_path = os.path.join(script_dir, 'template.json')
+    with open(template_path, 'r') as f:
         return json.load(f)
 
 def validate_project_name(name):
@@ -106,6 +159,10 @@ def create_project_structure(name, path):
                 print_error("Project creation rolled back due to errors.")
         else:
             log_entry(f"Init command completed successfully for '{name}'")
+            
+            # Create venv
+            env_create(project_path)
+            
             tree = Tree(f"[bold green]{name}[/bold green]")
             for dir_name in template['directories']:
                 tree.add(f"[blue]{dir_name}/[/blue]")
@@ -173,6 +230,30 @@ def validate_project(path):
                 warnings.append("Project name does not match naming rules")
         except json.JSONDecodeError:
             errors.append(".manifest.ai is invalid JSON")
+    
+    # Execute agent hooks
+    if os.path.exists(manifest_path):
+        try:
+            with open(manifest_path, 'r') as f:
+                manifest = json.load(f)
+            agent_hooks = manifest.get('agent_hooks', [])
+            for hook in agent_hooks:
+                if hook == 'validate_structure':
+                    agent_script = os.path.join(path, '.gobi', 'scripts', 'ai_agent.py')
+                    if os.path.exists(agent_script):
+                        log_entry(f"Executing agent hook: {hook}")
+                        try:
+                            result = subprocess.run([agent_script], capture_output=True, text=True, cwd=path)
+                            if result.stdout:
+                                print_panel("AI Agent Output", result.stdout.strip())
+                            if result.stderr:
+                                print_error(f"Agent script error: {result.stderr.strip()}")
+                        except Exception as e:
+                            print_error(f"Failed to execute agent hook {hook}: {e}")
+                # Add other hooks here as needed
+        except json.JSONDecodeError:
+            pass  # Already handled above
+    
     if errors:
         print_error("Validation errors:")
         for error in errors:
@@ -187,7 +268,83 @@ def validate_project(path):
     else:
         log_entry(f"Validate command completed with issues at '{path}': {len(errors)} errors, {len(warnings)} warnings")
 
-def sync_dependencies(path):
+def build_project(path):
+    log_entry(f"Starting build command at '{path}'")
+    if not os.path.exists(path):
+        log_entry(f"Build command failed: path does not exist '{path}'")
+        print_error(f"Project path does not exist: {path}")
+        return
+    manifest_path = os.path.join(path, '.manifest.ai')
+    if not os.path.exists(manifest_path):
+        log_entry(f"Build command failed: no .manifest.ai at '{path}'")
+        print_error("No .manifest.ai found. Not an AI project.")
+        return
+    main_mojo = os.path.join(path, 'main.mojo')
+    if not os.path.exists(main_mojo):
+        log_entry(f"Build command failed: no main.mojo at '{path}'")
+        print_error("No main.mojo found in project.")
+        return
+    
+    build_dir = os.path.join(path, 'build')
+    os.makedirs(build_dir, exist_ok=True)
+    
+    with console.status("[bold green]Building Mojo project...") as status:
+        try:
+            # Step 1: Run mojo build
+            status.update("[bold green]Running mojo build...")
+            result = subprocess.run(['mojo', 'build', 'main.mojo'], cwd=path, capture_output=True, text=True)
+            if result.returncode != 0:
+                log_entry(f"Build command failed at mojo build: {result.stderr.strip()}")
+                print_error("Mojo build failed.")
+                console.print(result.stderr)
+                return
+            
+            # Assume build produces an executable, e.g., main
+            exe_path = os.path.join(path, 'main')
+            if not os.path.exists(exe_path):
+                log_entry(f"Build command failed: no executable produced at '{exe_path}'")
+                print_error("No executable found after mojo build.")
+                return
+            
+            # Step 2: Copy executable to build directory
+            status.update("[bold green]Copying executable to build directory...")
+            import shutil
+            shutil.copy2(exe_path, build_dir)
+            
+            # Step 3: Copy dependencies
+            status.update("[bold green]Copying dependencies...")
+            env_dir = os.path.join(path, '.gobi', 'env')
+            if os.path.exists(env_dir):
+                # Copy venv to build
+                build_env = os.path.join(build_dir, 'env')
+                shutil.copytree(env_dir, build_env, dirs_exist_ok=True)
+            
+            # Copy requirements.txt and other config files
+            for file in ['requirements.txt', 'pyproject.toml', 'pylock.toml']:
+                src = os.path.join(path, file)
+                if os.path.exists(src):
+                    shutil.copy2(src, build_dir)
+            
+            # Step 4: Create a simple launcher script or package
+            status.update("[bold green]Creating package...")
+            # For now, just create a simple run script
+            run_script = os.path.join(build_dir, 'run.sh')
+            with open(run_script, 'w') as f:
+                f.write('#!/bin/bash\n')
+                f.write('export PYTHONPATH="$(dirname "$0")/env/lib/python*/site-packages:$PYTHONPATH"\n')
+                f.write('./main "$@"\n')
+            os.chmod(run_script, 0o755)
+            
+            log_entry(f"Build command completed successfully at '{path}'")
+            print_rich("[bold green]Project built successfully![/bold green]")
+            print_rich(f"[bold blue]Build output in: {build_dir}[/bold blue]")
+            
+        except Exception as e:
+            log_entry(f"Build command error at '{path}': {e}")
+            print_error(f"Error building project: {e}")
+
+
+def sync_dependencies(path, lock=False):
     log_entry(f"Starting sync command at '{path}'")
     if not os.path.exists(path):
         log_entry(f"Sync command failed: path does not exist '{path}'")
@@ -200,10 +357,22 @@ def sync_dependencies(path):
         return
     with console.status("[bold green]Syncing dependencies...") as status:
         try:
-            result = subprocess.run(['pip', 'install', '-r', 'requirements.txt'], cwd=path, capture_output=True, text=True)
+            # Use venv's pip if env exists
+            env_dir = os.path.join(path, '.gobi', 'env')
+            pip_cmd = ['pip', 'install', '-r', 'requirements.txt']
+            if os.path.exists(env_dir):
+                python_exe = os.path.join(env_dir, 'bin', 'python')
+                pip_cmd = [python_exe, '-m', 'pip', 'install', '-r', 'requirements.txt']
+                log_entry("Using venv for dependency sync")
+            result = subprocess.run(pip_cmd, cwd=path, capture_output=True, text=True)
             if result.returncode == 0:
                 log_entry(f"Sync command completed successfully at '{path}'")
                 print_rich("[bold green]Dependencies synced successfully![/bold green]")
+                if lock:
+                    if generate_pylock_from_requirements(path):
+                        print_rich("[bold green]Pylock file generated![/bold green]")
+                    else:
+                        print_error("Failed to generate pylock file.")
             else:
                 log_entry(f"Sync command failed at '{path}': {result.stderr.strip()}")
                 print_error("Dependency sync failed.")
@@ -212,8 +381,8 @@ def sync_dependencies(path):
             log_entry(f"Sync command error at '{path}': {e}")
             print_error(f"Error syncing dependencies: {e}")
 
-def build_project(path):
-    log_entry(f"Starting build command at '{path}'")
+def build_project(path, platform='current'):
+    log_entry(f"Starting build command at '{path}' for platform '{platform}'")
     if not os.path.exists(path):
         log_entry(f"Build command failed: path does not exist '{path}'")
         print_error(f"Project path does not exist: {path}")
@@ -223,59 +392,253 @@ def build_project(path):
         log_entry(f"Build command failed: no .manifest.ai at '{path}'")
         print_error("No .manifest.ai found. Not an AI project.")
         return
-    with console.status("[bold green]Building AI project...") as status:
+    main_mojo = os.path.join(path, 'main.mojo')
+    if not os.path.exists(main_mojo):
+        log_entry(f"Build command failed: no main.mojo at '{path}'")
+        print_error("No main.mojo found in project.")
+        return
+    
+    import platform as plat_module
+    current_platform = plat_module.system().lower()
+    if platform == 'current':
+        platforms = [current_platform]
+    elif platform == 'all':
+        platforms = ['linux', 'darwin', 'windows']
+    else:
+        platforms = [platform]
+    
+    for target_platform in platforms:
+        build_dir = os.path.join(path, 'build', target_platform)
+        os.makedirs(build_dir, exist_ok=True)
+        
+        with console.status(f"[bold green]Building for {target_platform}...") as status:
+            try:
+                if target_platform == current_platform:
+    build_dir = os.path.join(path, 'build')
+    os.makedirs(build_dir, exist_ok=True)
+    
+    with console.status("[bold green]Building Mojo project...") as status:
         try:
-            # First, build the Mojo project
+            # Step 1: Run mojo build
+            status.update("[bold green]Running mojo build...")
             result = subprocess.run(['mojo', 'build', 'main.mojo'], cwd=path, capture_output=True, text=True)
             if result.returncode != 0:
-                log_entry(f"Build command failed: Mojo build error at '{path}': {result.stderr.strip()}")
+                log_entry(f"Build command failed at mojo build: {result.stderr.strip()}")
                 print_error("Mojo build failed.")
                 console.print(result.stderr)
                 return
-            print_rich("[bold green]Mojo build completed![/bold green]")
             
-            # Then, build the Gobi CLI binary
-            status.update("[bold green]Building Gobi CLI binary...")
-            # Copy gobi script to project path
+            # Assume build produces an executable, e.g., main
+            exe_path = os.path.join(path, 'main')
+            if not os.path.exists(exe_path):
+                log_entry(f"Build command failed: no executable produced at '{exe_path}'")
+                print_error("No executable found after mojo build.")
+                return
+            
+            # Step 2: Copy executable to build directory
+            status.update("[bold green]Copying executable to build directory...")
             import shutil
-            cli_dir = os.path.dirname(os.path.abspath(__file__))
-            gobi_src = os.path.join(cli_dir, 'gobi')
-            gobi_dst = os.path.join(path, 'gobi')
-            if os.path.abspath(gobi_src) != os.path.abspath(gobi_dst):
-                shutil.copy(gobi_src, gobi_dst)
-            # Create setup.py for cx_Freeze
+            shutil.copy2(exe_path, build_dir)
+            
+            # Step 3: Copy dependencies
+            status.update("[bold green]Copying dependencies...")
+            env_dir = os.path.join(path, '.gobi', 'env')
+            if os.path.exists(env_dir):
+                # Copy venv to build
+                build_env = os.path.join(build_dir, 'env')
+                shutil.copytree(env_dir, build_env, dirs_exist_ok=True)
+            
+            # Copy requirements.txt and other config files
+            for file in ['requirements.txt', 'pyproject.toml', 'pylock.toml']:
+                src = os.path.join(path, file)
+                if os.path.exists(src):
+                    shutil.copy2(src, build_dir)
+            
+            # Step 4: Do cx_Freeze for Python dependencies
+            status.update("[bold green]Freezing Python dependencies with cx_Freeze...")
+            # Create setup.py for cx_Freeze to freeze the Python environment
             setup_content = '''
 from cx_Freeze import setup, Executable
 
+# Dummy executable since we're just freezing the environment
 setup(
-    name="gobi",
+    name="ai_project",
     version="0.1.0",
-    description="Mojo Gobi CLI",
+    description="AI Project Dependencies",
     options={
         "build_exe": {
-            "packages": ["rich", "cx_Freeze"],
+            "packages": [],
             "include_files": [],
+            "path": "env/lib/python*/site-packages",
         }
     },
-    executables=[Executable("gobi")],
+    executables=[],
 )
 '''
-            with open(os.path.join(path, 'setup.py'), 'w') as f:
+            with open(os.path.join(build_dir, 'setup.py'), 'w') as f:
                 f.write(setup_content)
-            result = subprocess.run(['python', 'setup.py', 'build'], cwd=path, capture_output=True, text=True)
-            if result.returncode == 0:
-                log_entry(f"Build command completed successfully at '{path}'")
-                print_rich("[bold green]Gobi CLI binary built successfully![/bold green]")
-                print_rich("[bold blue]Binary located in build/ directory.[/bold blue]")
-            else:
-                log_entry(f"Build command failed: CLI binary build error at '{path}': {result.stderr.strip()}")
-                print_error("CLI binary build failed.")
+            
+            # Run cx_Freeze
+            python_cmd = ['python', 'setup.py', 'build']
+            if os.path.exists(build_env):
+                python_cmd = ['./env/bin/python', 'setup.py', 'build']
+            result = subprocess.run(python_cmd, cwd=build_dir, capture_output=True, text=True)
+            if result.returncode != 0:
+                log_entry(f"cx_Freeze failed: {result.stderr.strip()}")
+                print_error("cx_Freeze failed.")
                 console.print(result.stderr)
+                # Continue anyway
+            
+            log_entry(f"Build command completed successfully at '{path}'")
+            print_rich("[bold green]Project built successfully![/bold green]")
+            print_rich(f"[bold blue]Build output in: {build_dir}[/bold blue]")
+            
         except Exception as e:
             log_entry(f"Build command error at '{path}': {e}")
-            print_error(f"Error building: {e}")
+            print_error(f"Error building project: {e}")
 
-def add_dependency(package, version, path):
+def read_pyproject(path):
+    """Read pyproject.toml and return the data."""
+    pyproject_file = os.path.join(path, 'pyproject.toml')
+    if not os.path.exists(pyproject_file):
+        return None
+    try:
+        with open(pyproject_file, 'rb') as f:
+            return tomllib.load(f)
+    except Exception as e:
+        print_error(f"Error reading pyproject.toml: {e}")
+        return None
+
+def update_pyproject_dependencies(path, dependencies):
+    """Update dependencies in pyproject.toml."""
+    pyproject_file = os.path.join(path, 'pyproject.toml')
+    try:
+        # Read existing pyproject.toml
+        data = read_pyproject(path)
+        if data is None:
+            return False
+        
+        # Update dependencies
+        if 'project' not in data:
+            data['project'] = {}
+        data['project']['dependencies'] = dependencies
+        
+        # Write back
+        with open(pyproject_file, 'wb') as f:
+            tomli_w.dump(data, f)
+        return True
+    except Exception as e:
+        print_error(f"Error updating pyproject.toml: {e}")
+        return False
+
+def add_dependency_to_pyproject(path, package, version):
+    """Add a dependency to pyproject.toml."""
+    data = read_pyproject(path)
+    if data is None:
+        return False
+    
+    deps = data.get('project', {}).get('dependencies', [])
+    dep_str = f"{package}=={version}" if version else package
+    
+    # Check if already exists
+    for dep in deps:
+        if dep.startswith(package):
+            # Update existing
+            deps[deps.index(dep)] = dep_str
+            break
+    else:
+        # Add new
+        deps.append(dep_str)
+    
+    return update_pyproject_dependencies(path, deps)
+
+def remove_dependency_from_pyproject(path, package):
+    """Remove a dependency from pyproject.toml."""
+    data = read_pyproject(path)
+    if data is None:
+        return False
+    
+    deps = data.get('project', {}).get('dependencies', [])
+    deps = [dep for dep in deps if not dep.startswith(package)]
+    
+    return update_pyproject_dependencies(path, deps)
+
+def write_pylock(path, data):
+    """Write data to pylock.toml file."""
+    pylock_file = os.path.join(path, 'pylock.toml')
+    try:
+        if tomli_w:
+            with open(pylock_file, 'wb') as f:
+                tomli_w.dump(data, f)
+        else:
+            # Simple TOML writer for basic cases
+            with open(pylock_file, 'w') as f:
+                f.write("# Pylock file generated by Gobi CLI\n\n")
+                if 'metadata' in data:
+                    f.write("[metadata]\n")
+                    for k, v in data['metadata'].items():
+                        f.write(f'{k} = "{v}"\n')
+                    f.write("\n")
+                if 'packages' in data:
+                    for pkg in data['packages']:
+                        f.write("[[packages]]\n")
+                        for k, v in pkg.items():
+                            if isinstance(v, str):
+                                f.write(f'{k} = "{v}"\n')
+                            else:
+                                f.write(f'{k} = {v}\n')
+                        f.write("\n")
+        return True
+    except Exception as e:
+        print_error(f"Error writing pylock.toml: {e}")
+        return False
+
+def generate_pylock_from_requirements(path):
+    """Generate pylock.toml from requirements.txt and installed packages."""
+    req_file = os.path.join(path, 'requirements.txt')
+    if not os.path.exists(req_file):
+        print_error("No requirements.txt found to generate pylock from.")
+        return False
+    
+    # Get installed packages info
+    try:
+        result = subprocess.run(['pip', 'list', '--format=json'], capture_output=True, text=True, cwd=path)
+        if result.returncode != 0:
+            print_error("Failed to get installed packages list.")
+            return False
+        
+        installed = json.loads(result.stdout)
+        packages = []
+        with open(req_file, 'r') as f:
+            requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+        
+        for pkg in installed:
+            name = pkg['name']
+            version = pkg['version']
+            # Check if this package is in requirements
+            for req in requirements:
+                if req.startswith(name) or req.startswith(name.replace('-', '_')):
+                    packages.append({
+                        'name': name,
+                        'version': version,
+                        'source': 'pypi'
+                    })
+                    break
+        
+        pylock_data = {
+            'metadata': {
+                'version': '1.0',
+                'python': '3.14'
+            },
+            'packages': packages
+        }
+        
+        return write_pylock(path, pylock_data)
+    except Exception as e:
+        print_error(f"Error generating pylock: {e}")
+        return False
+
+def add_dependency(package, version, path, lock=False):
     log_entry(f"Starting add command for '{package}' at '{path}'")
     if not os.path.exists(path):
         log_entry(f"Add command failed: path does not exist '{path}'")
@@ -299,6 +662,18 @@ def add_dependency(package, version, path):
             if result.returncode == 0:
                 log_entry(f"Add command completed successfully for '{dep}' at '{path}'")
                 print_rich(f"[bold green]{dep} added successfully![/bold green]")
+                
+                # Update pyproject.toml
+                if add_dependency_to_pyproject(path, package, version):
+                    print_rich("[bold green]pyproject.toml updated![/bold green]")
+                else:
+                    print_error("Failed to update pyproject.toml.")
+                
+                if lock:
+                    if generate_pylock_from_requirements(path):
+                        print_rich("[bold green]Pylock file updated![/bold green]")
+                    else:
+                        print_error("Failed to update pylock file.")
             else:
                 log_entry(f"Add command failed for '{dep}' at '{path}': {result.stderr.strip()}")
                 print_error(f"Failed to add {dep}.")
@@ -307,7 +682,7 @@ def add_dependency(package, version, path):
             log_entry(f"Add command error for '{dep}' at '{path}': {e}")
             print_error(f"Error adding dependency: {e}")
 
-def remove_dependency(package, path):
+def remove_dependency(package, path, lock=False):
     log_entry(f"Starting remove command for '{package}' at '{path}'")
     if not os.path.exists(path) or not os.path.isdir(path):
         log_entry(f"Remove command failed: invalid path '{path}'")
@@ -333,12 +708,24 @@ def remove_dependency(package, path):
             for line in lines:
                 if not line.startswith(f"{package}"):
                     f.write(line)
+    
+    # Update pyproject.toml if it exists
+    if remove_dependency_from_pyproject(path, package):
+        print_rich("[bold green]pyproject.toml updated![/bold green]")
+    else:
+        print_error("Failed to update pyproject.toml.")
+    
     with console.status(f"[bold green]Removing {package}...") as status:
         try:
             result = subprocess.run(['pip', 'uninstall', '-y', package], cwd=path, capture_output=True, text=True)
             if result.returncode == 0:
                 log_entry(f"Remove command completed successfully for '{package}' at '{path}'")
                 print_rich(f"[bold green]{package} removed successfully![/bold green]")
+                if lock:
+                    if generate_pylock_from_requirements(path):
+                        print_rich("[bold green]Pylock file updated![/bold green]")
+                    else:
+                        print_error("Failed to update pylock file.")
             else:
                 log_entry(f"Remove command failed for '{package}' at '{path}': {result.stderr.strip()}")
                 print_error(f"Failed to remove {package}.")
@@ -381,9 +768,15 @@ def test_project(path):
                 print_rich("[yellow]No Mojo test files found.[/yellow]")
 
             # Run Python tests with pytest
+            env_dir = os.path.join(path, '.gobi', 'env')
+            pytest_cmd = ['pytest']
+            if os.path.exists(env_dir):
+                python_exe = os.path.join(env_dir, 'bin', 'python')
+                pytest_cmd = [python_exe, '-m', 'pytest']
+                log_entry("Using venv for Python tests")
             if os.path.exists(os.path.join(path, 'test')) or any(f.endswith('_test.py') or f.startswith('test_') for f in os.listdir(path)):
                 log_entry("Running Python tests with pytest")
-                result = subprocess.run(['pytest'], cwd=path, capture_output=True, text=True)
+                result = subprocess.run(pytest_cmd, cwd=path, capture_output=True, text=True)
                 if result.returncode == 0:
                     print_rich("[bold green]Python tests passed![/bold green]")
                 else:
@@ -561,3 +954,222 @@ def run_plugin(name, args, path):
         except Exception as e:
             log_entry(f"Plugin '{name}' error: {e}")
             print_error(f"Error running plugin: {e}")
+
+def validate_project(path):
+    log_entry(f"Starting validate command at '{path}'")
+    if not os.path.exists(path):
+        log_entry(f"Validate command failed: path does not exist '{path}'")
+        print_error(f"Project path does not exist: {path}")
+        return
+    manifest_path = os.path.join(path, '.manifest.ai')
+    if not os.path.exists(manifest_path):
+        log_entry(f"Validate command failed: no .manifest.ai at '{path}'")
+        print_error("No .manifest.ai found. Not an AI project.")
+        return
+
+    with console.status("[bold green]Validating AI project...") as status:
+        try:
+            # Read manifest
+            with open(manifest_path, 'r') as f:
+                manifest = json.load(f)
+            
+            # Execute agent hooks
+            agent_hooks = manifest.get('agent_hooks', [])
+            for hook in agent_hooks:
+                log_entry(f"Executing agent hook: {hook}")
+                if hook == 'validate_structure':
+                    if not validate_project_structure(path, manifest):
+                        print_error(f"Structure validation failed for hook: {hook}")
+                        return
+                elif hook == 'check_dependencies':
+                    if not check_project_dependencies(path, manifest):
+                        print_error(f"Dependency check failed for hook: {hook}")
+                        return
+                else:
+                    print_rich(f"[yellow]Unknown agent hook: {hook}[/yellow]")
+            
+            log_entry(f"Validate command completed successfully at '{path}'")
+            print_rich("[bold green]AI project validation successful![/bold green]")
+            
+        except Exception as e:
+            log_entry(f"Validate command error at '{path}': {e}")
+            print_error(f"Error validating project: {e}")
+
+def validate_project_structure(path, manifest):
+    """Validate project structure according to manifest."""
+    required_folders = manifest.get('folders', [])
+    for folder in required_folders:
+        folder_path = os.path.join(path, folder)
+        if not os.path.exists(folder_path):
+            log_entry(f"Structure validation failed: missing folder '{folder}'")
+            print_error(f"Missing required folder: {folder}")
+            return False
+        if not os.path.isdir(folder_path):
+            log_entry(f"Structure validation failed: '{folder}' is not a directory")
+            print_error(f"Required path is not a directory: {folder}")
+            return False
+    
+    log_entry("Project structure validation passed")
+    print_rich("[green]✓ Project structure validated[/green]")
+    return True
+
+def check_project_dependencies(path, manifest):
+    """Check project dependencies."""
+    req_file = os.path.join(path, 'requirements.txt')
+    if not os.path.exists(req_file):
+        log_entry("Dependency check failed: no requirements.txt")
+        print_error("Missing requirements.txt")
+        return False
+    
+    # Check if pyproject.toml exists and is consistent
+    pyproject_file = os.path.join(path, 'pyproject.toml')
+    if os.path.exists(pyproject_file):
+        try:
+            import tomllib
+            with open(pyproject_file, 'rb') as f:
+                pyproject_data = tomllib.load(f)
+            
+            pyproject_deps = pyproject_data.get('project', {}).get('dependencies', [])
+            
+            with open(req_file, 'r') as f:
+                req_lines = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+            
+            # Basic consistency check - pyproject should have at least the reqs
+            for req in req_lines:
+                package = req.split('==')[0].split('>=')[0].split('<=')[0].split('>')[0].split('<')[0].strip()
+                if not any(dep.startswith(package) for dep in pyproject_deps):
+                    log_entry(f"Dependency mismatch: {package} in requirements.txt but not in pyproject.toml")
+                    print_error(f"Dependency mismatch: {package} in requirements.txt but not in pyproject.toml")
+                    return False
+            
+            log_entry("Dependencies consistency check passed")
+            print_rich("[green]✓ Dependencies consistent[/green]")
+        except Exception as e:
+            log_entry(f"Error checking pyproject.toml consistency: {e}")
+            print_error(f"Error checking pyproject.toml: {e}")
+            return False
+    else:
+        log_entry("No pyproject.toml found, skipping consistency check")
+        print_rich("[yellow]! No pyproject.toml for consistency check[/yellow]")
+    
+    return True
+
+def sync_pyproject_from_requirements(path):
+    """Sync pyproject.toml dependencies from requirements.txt."""
+    req_file = os.path.join(path, 'requirements.txt')
+    if not os.path.exists(req_file):
+        print_error("No requirements.txt found to sync from.")
+        return False
+    
+    with open(req_file, 'r') as f:
+        req_lines = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+    
+    # Update pyproject.toml
+    return update_pyproject_dependencies(path, req_lines)
+
+def env_create(path):
+    log_entry(f"Starting env create at '{path}'")
+    if not os.path.exists(path):
+        log_entry(f"Env create failed: path does not exist '{path}'")
+        print_error(f"Project path does not exist: {path}")
+        return
+
+    env_dir = os.path.join(path, '.gobi', 'env')
+    if os.path.exists(env_dir):
+        log_entry(f"Env create: venv already exists at '{env_dir}'")
+        print_rich("[yellow]Venv already exists.[/yellow]")
+        return
+
+    with console.status("[bold green]Creating venv...") as status:
+        try:
+            import venv
+            venv.create(env_dir, with_pip=True)
+            log_entry(f"Created venv at '{env_dir}'")
+
+            # Install base dependencies
+            req_file = os.path.join(path, 'requirements.txt')
+            if os.path.exists(req_file):
+                pip_exe = os.path.join(env_dir, 'bin', 'pip')
+                result = subprocess.run([pip_exe, 'install', '-r', req_file], cwd=path, capture_output=True, text=True)
+                if result.returncode == 0:
+                    log_entry(f"Installed dependencies from requirements.txt in venv")
+                    print_rich("[bold green]Venv created and dependencies installed![/bold green]")
+                else:
+                    log_entry(f"Failed to install dependencies: {result.stderr.strip()}")
+                    print_error("Venv created but failed to install dependencies.")
+                    console.print(result.stderr)
+            else:
+                print_rich("[bold green]Venv created![/bold green]")
+
+        except Exception as e:
+            log_entry(f"Env create error at '{path}': {e}")
+            print_error(f"Error creating venv: {e}")
+
+def env_activate(path):
+    log_entry(f"Starting env activate at '{path}'")
+    env_dir = os.path.join(path, '.gobi', 'env')
+    if not os.path.exists(env_dir):
+        log_entry(f"Env activate failed: venv does not exist at '{env_dir}'")
+        print_error("Venv does not exist. Run 'env create' first.")
+        return
+
+    activate_script = os.path.join(env_dir, 'bin', 'activate')
+    if os.path.exists(activate_script):
+        log_entry(f"Activated venv at '{env_dir}'")
+        print_rich(f"[bold green]Venv activated. Run 'source {activate_script}' in your shell.[/bold green]")
+    else:
+        log_entry(f"Env activate failed: activate script not found")
+        print_error("Activate script not found.")
+
+def env_install(package, version, path):
+    log_entry(f"Starting env install '{package}' at '{path}'")
+    env_dir = os.path.join(path, '.gobi', 'env')
+    if not os.path.exists(env_dir):
+        log_entry(f"Env install failed: venv does not exist at '{env_dir}'")
+        print_error("Venv does not exist. Run 'env create' first.")
+        return
+
+    pip_exe = os.path.join(env_dir, 'bin', 'pip')
+    dep = f"{package}=={version}" if version else package
+    with console.status(f"[bold green]Installing {dep}...") as status:
+        try:
+            result = subprocess.run([pip_exe, 'install', dep], cwd=path, capture_output=True, text=True)
+            if result.returncode == 0:
+                log_entry(f"Installed {dep} in venv")
+                print_rich(f"[bold green]{dep} installed successfully![/bold green]")
+
+                # Update requirements.txt
+                req_file = os.path.join(path, 'requirements.txt')
+                with open(req_file, 'a') as f:
+                    f.write(f"{dep}\n")
+                log_entry(f"Updated requirements.txt with {dep}")
+            else:
+                log_entry(f"Failed to install {dep}: {result.stderr.strip()}")
+                print_error(f"Failed to install {dep}.")
+                console.print(result.stderr)
+        except Exception as e:
+            log_entry(f"Env install error for '{dep}' at '{path}': {e}")
+            print_error(f"Error installing {dep}: {e}")
+
+def env_list(path):
+    log_entry(f"Starting env list at '{path}'")
+    env_dir = os.path.join(path, '.gobi', 'env')
+    if not os.path.exists(env_dir):
+        log_entry(f"Env list failed: venv does not exist at '{env_dir}'")
+        print_error("Venv does not exist. Run 'env create' first.")
+        return
+
+    pip_exe = os.path.join(env_dir, 'bin', 'pip')
+    try:
+        result = subprocess.run([pip_exe, 'list'], cwd=path, capture_output=True, text=True)
+        if result.returncode == 0:
+            log_entry(f"Listed packages in venv at '{path}'")
+            print_rich("[bold green]Installed packages:[/bold green]")
+            console.print(result.stdout)
+        else:
+            log_entry(f"Failed to list packages: {result.stderr.strip()}")
+            print_error("Failed to list packages.")
+            console.print(result.stderr)
+    except Exception as e:
+        log_entry(f"Env list error at '{path}': {e}")
+        print_error(f"Error listing packages: {e}")

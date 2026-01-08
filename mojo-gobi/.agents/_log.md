@@ -172,3 +172,201 @@ This file logs command executions and errors for the Gobi CLI tool.
 - 2026-01-08 11:55:18.737086: Clean command completed successfully at '.'
 - 2026-01-08 11:56:27.532697: Starting build command at '.'
 - 2026-01-08 11:56:35.858407: Build command completed successfully at '.'
+- 2026-01-08 12:12:14.092843: Starting env create at '.'
+- 2026-01-08 12:12:16.682126: Created venv at './.gobi/env'
+- 2026-01-08 12:12:20.309349: Installed dependencies from requirements.txt in venv
+- 2026-01-08 12:12:20.313125: Starting env list at '.'
+- 2026-01-08 12:12:20.577312: Listed packages in venv at '.'
+- 2026-01-08 12:12:22.794521: Starting sync command at '.'
+- 2026-01-08 12:12:22.798942: Using venv for dependency sync
+- 2026-01-08 12:12:23.283844: Sync command completed successfully at '.'
+- 2026-01-08 12:12:29.229988: Starting test command at '.'
+- 2026-01-08 12:12:29.249133: Running Mojo test: ./test.mojo
+- 2026-01-08 12:12:43.610385: Starting test command at '.'
+- 2026-01-08 12:12:43.632323: Using venv for Python tests
+- 2026-01-08 12:12:43.632615: Running Python tests with pytest
+- 2026-01-08 12:12:43.908234: Starting env create at '.'
+- 2026-01-08 12:12:43.908306: Env create: venv already exists at './.gobi/env'
+- 2026-01-08 12:12:43.910207: Starting env list at '.'
+- 2026-01-08 12:12:44.135723: Listed packages in venv at '.'
+- 2026-01-08 12:12:44.317474: Test command completed at '.'
+- 2026-01-08 12:12:45.666893: Starting test command at '.'
+- 2026-01-08 12:12:45.690119: Using venv for Python tests
+- 2026-01-08 12:12:45.690314: Running Python tests with pytest
+- 2026-01-08 12:12:45.931378: Starting env create at '.'
+- 2026-01-08 12:12:45.931540: Env create: venv already exists at './.gobi/env'
+- 2026-01-08 12:12:45.933811: Starting env list at '.'
+- 2026-01-08 12:12:46.187866: Listed packages in venv at '.'
+- 2026-01-08 12:12:46.348619: Test command completed at '.'
+- 2026-01-08 12:12:54.125935: Starting test command at '.'
+- 2026-01-08 12:12:54.149254: Using venv for Python tests
+- 2026-01-08 12:12:54.149391: Running Python tests with pytest
+- 2026-01-08 12:12:54.392486: Starting env create at '.'
+- 2026-01-08 12:12:54.392589: Env create: venv already exists at './.gobi/env'
+- 2026-01-08 12:12:54.394333: Starting env list at '.'
+- 2026-01-08 12:12:54.660592: Listed packages in venv at '.'
+- 2026-01-08 12:12:54.834474: Test command completed at '.'
+- 2026-01-08 12:46:15.517137: Starting validate command at '.'
+- 2026-01-08 12:46:15.521801: Validate command completed with issues at '.': 5 errors, 1 warnings
+- 2026-01-08 12:46:49.454861: Starting validate command at '.'
+- 2026-01-08 12:46:49.458208: Validate command completed with issues at '.': 5 errors, 1 warnings
+- 2026-01-08 12:52:45.880234: Starting validate command at '.'
+- 2026-01-08 12:52:45.883867: Validate command completed with issues at '.': 5 errors, 1 warnings
+- 2026-01-08 12:55:40.989189: Starting validate command at '.'
+- 2026-01-08 12:55:40.991723: Validate command completed with issues at '.': 0 errors, 1 warnings
+- 2026-01-08 12:55:54.487262: Starting validate command at '.'
+- 2026-01-08 12:55:54.487515: Executing agent hook: validate_structure
+- 2026-01-08 12:55:54.505248: Validate command completed with issues at '.': 0 errors, 1 warnings
+- 2026-01-08 13:00:00.473762: Starting sync command at '.'
+- 2026-01-08 13:00:00.476284: Using venv for dependency sync
+- 2026-01-08 13:00:01.965394: Sync command completed successfully at '.'
+- 2026-01-08 13:00:07.989925: Starting add command for 'requests' at '.'
+- 2026-01-08 13:00:08.639136: Add command completed successfully for 'requests' at '.'
+- 2026-01-08 13:00:25.097667: Starting sync command at '.'
+- 2026-01-08 13:00:25.100132: Using venv for dependency sync
+- 2026-01-08 13:00:25.571227: Sync command completed successfully at '.'
+- 2026-01-08 13:00:30.794263: Starting remove command for 'requests' at '.'
+- 2026-01-08 13:00:31.202531: Remove command completed successfully for 'requests' at '.'
+- 2026-01-08 13:03:11.675508: Starting add command for 'click' at '.'
+- 2026-01-08 13:03:12.366571: Add command completed successfully for 'click' at '.'
+- 2026-01-08 13:03:19.382159: Starting remove command for 'click' at '.'
+- 2026-01-08 13:03:30.551485: Starting add command for 'click' at '.'
+- 2026-01-08 13:03:31.113318: Add command completed successfully for 'click' at '.'
+- 2026-01-08 13:03:34.729145: Starting remove command for 'click' at '.'
+- 2026-01-08 13:03:35.215148: Remove command completed successfully for 'click' at '.'
+- 2026-01-08 13:03:49.814960: Starting validate command at '.'
+- 2026-01-08 13:03:49.815272: Executing agent hook: validate_structure
+- 2026-01-08 13:03:49.833652: Validate command completed with issues at '.': 0 errors, 1 warnings
+- 2026-01-08 13:04:18.076414: Starting validate command at '.'
+- 2026-01-08 13:04:18.079680: Executing agent hook: validate_structure
+- 2026-01-08 13:04:18.079875: Project structure validation passed
+- 2026-01-08 13:04:18.082833: Executing agent hook: check_dependencies
+- 2026-01-08 13:04:18.083234: Dependency mismatch: cx-Freeze in requirements.txt but not in pyproject.toml
+- 2026-01-08 13:04:20.741139: Starting validate command at '.'
+- 2026-01-08 13:04:20.743882: Executing agent hook: validate_structure
+- 2026-01-08 13:04:20.744035: Project structure validation passed
+- 2026-01-08 13:04:20.746306: Executing agent hook: check_dependencies
+- 2026-01-08 13:04:20.746546: Dependency mismatch: cx-Freeze in requirements.txt but not in pyproject.toml
+- 2026-01-08 13:04:22.524466: Starting validate command at '.'
+- 2026-01-08 13:04:22.527306: Executing agent hook: validate_structure
+- 2026-01-08 13:04:22.527436: Project structure validation passed
+- 2026-01-08 13:04:22.529505: Executing agent hook: check_dependencies
+- 2026-01-08 13:04:22.529825: Dependency mismatch: cx-Freeze in requirements.txt but not in pyproject.toml
+- 2026-01-08 13:04:34.099269: Starting validate command at '.'
+- 2026-01-08 13:04:34.101803: Executing agent hook: validate_structure
+- 2026-01-08 13:04:34.101968: Project structure validation passed
+- 2026-01-08 13:04:34.104577: Executing agent hook: check_dependencies
+- 2026-01-08 13:04:34.104797: Dependencies consistency check passed
+- 2026-01-08 13:04:34.105438: Validate command completed successfully at '.'
+- 2026-01-08 13:04:38.050959: Starting validate command at '.'
+- 2026-01-08 13:04:38.053500: Executing agent hook: validate_structure
+- 2026-01-08 13:04:38.053619: Project structure validation passed
+- 2026-01-08 13:04:38.056085: Executing agent hook: check_dependencies
+- 2026-01-08 13:04:38.056420: Dependencies consistency check passed
+- 2026-01-08 13:04:38.057420: Validate command completed successfully at '.'
+- 2026-01-08 13:05:08.735365: Starting validate command at '.'
+- 2026-01-08 13:05:08.737392: Executing agent hook: validate_structure
+- 2026-01-08 13:05:08.737510: Project structure validation passed
+- 2026-01-08 13:05:08.739267: Executing agent hook: check_dependencies
+- 2026-01-08 13:05:08.739546: Dependencies consistency check passed
+- 2026-01-08 13:05:08.740067: Validate command completed successfully at '.'
+- 2026-01-08 13:07:54.239350: Starting init command for project 'my-demo-project' at '.'
+- 2026-01-08 13:08:00.793929: Starting init command for project 'test-project' at '.'
+- 2026-01-08 13:08:00.797095: Init command completed successfully for 'test-project'
+- 2026-01-08 13:08:29.844216: Starting init command for project 'demo-project' at '.'
+- 2026-01-08 13:08:29.847593: Init command completed successfully for 'demo-project'
+- 2026-01-08 13:08:29.847633: Starting env create at './demo-project'
+- 2026-01-08 13:08:31.535187: Created venv at './demo-project/.gobi/env'
+- 2026-01-08 13:08:31.536010: Env create error at './demo-project': [Errno 2] No such file or directory: './demo-project/.gobi/env/bin/pip'
+- 2026-01-08 13:08:40.511609: Starting init command for project 'my-demo' at '.'
+- 2026-01-08 13:08:45.467073: Starting init command for project 'my-demo' at '.'
+- 2026-01-08 13:08:45.471415: Init command completed successfully for 'my-demo'
+- 2026-01-08 13:08:45.471484: Starting env create at './my-demo'
+- 2026-01-08 13:08:47.068427: Created venv at './my-demo/.gobi/env'
+- 2026-01-08 13:08:47.069208: Env create error at './my-demo': [Errno 2] No such file or directory: './my-demo/.gobi/env/bin/pip'
+- 2026-01-08 13:08:50.099104: Starting init command for project 'my-demo' at '/home/lnx/Dev/demo-gobi-project'
+- 2026-01-08 13:08:50.103187: Init command completed successfully for 'my-demo'
+- 2026-01-08 13:08:50.103248: Starting env create at '/home/lnx/Dev/demo-gobi-project/my-demo'
+- 2026-01-08 13:08:51.591151: Created venv at '/home/lnx/Dev/demo-gobi-project/my-demo/.gobi/env'
+- 2026-01-08 13:08:51.591905: Env create error at '/home/lnx/Dev/demo-gobi-project/my-demo': [Errno 2] No such file or directory: '/home/lnx/Dev/demo-gobi-project/my-demo/.gobi/env/bin/pip'
+- 2026-01-08 13:09:10.627484: Starting validate command at '/home/lnx/Dev/demo-gobi-project/my-demo'
+- 2026-01-08 13:09:10.629944: Executing agent hook: validate_structure
+- 2026-01-08 13:09:10.630074: Project structure validation passed
+- 2026-01-08 13:09:10.631990: Executing agent hook: check_dependencies
+- 2026-01-08 13:09:10.632269: Dependencies consistency check passed
+- 2026-01-08 13:09:10.632858: Validate command completed successfully at '/home/lnx/Dev/demo-gobi-project/my-demo'
+- 2026-01-08 13:09:30.877395: Starting init command for project 'final-test' at '.'
+- 2026-01-08 13:09:30.881078: Init command completed successfully for 'final-test'
+- 2026-01-08 13:09:30.881146: Starting env create at './final-test'
+- 2026-01-08 13:09:32.394979: Created venv at './final-test/.gobi/env'
+- 2026-01-08 13:09:32.395363: Env create error at './final-test': [Errno 2] No such file or directory: './final-test/.gobi/env/bin/pip'
+- 2026-01-08 13:11:37.524585: Starting init command for project 'binary-test' at '.'
+- 2026-01-08 13:11:37.528602: Init command completed successfully for 'binary-test'
+- 2026-01-08 13:11:37.528689: Starting env create at './binary-test'
+- 2026-01-08 13:11:45.405883: Starting init command for project 'test-bin' at '.'
+- 2026-01-08 13:11:45.409759: Init command completed successfully for 'test-bin'
+- 2026-01-08 13:11:45.409867: Starting env create at './test-bin'
+- 2026-01-08 13:14:01.299404: Starting init command for project 'python-demo' at '.'
+- 2026-01-08 13:14:01.303724: Init command completed successfully for 'python-demo'
+- 2026-01-08 13:14:13.805681: Starting init command for project 'python-demo' at '.'
+- 2026-01-08 13:14:13.809324: Init command completed successfully for 'python-demo'
+- 2026-01-08 13:36:59.543089: Starting init command for project 'final-demo' at '.'
+- 2026-01-08 13:36:59.546977: Init command completed successfully for 'final-demo'
+- 2026-01-08 13:37:25.593847: Starting init command for project 'final-demo' at '/home/lnx/Dev/demo-gobi-project'
+- 2026-01-08 13:37:25.597622: Init command completed successfully for 'final-demo'
+- 2026-01-08 13:37:52.412637: Starting init command for project 'test-venv' at '/home/lnx/Dev/demo-gobi-project'
+- 2026-01-08 13:37:52.416627: Init command completed successfully for 'test-venv'
+- 2026-01-08 13:37:52.416698: Starting env create at '/home/lnx/Dev/demo-gobi-project/test-venv'
+- 2026-01-08 13:37:55.095334: Created venv at '/home/lnx/Dev/demo-gobi-project/test-venv/.gobi/env'
+- 2026-01-08 13:37:57.682335: Installed dependencies from requirements.txt in venv
+- 2026-01-08 13:38:08.479877: Starting validate command at 'final-demo'
+- 2026-01-08 13:38:08.482105: Executing agent hook: validate_structure
+- 2026-01-08 13:38:08.482227: Project structure validation passed
+- 2026-01-08 13:38:08.484048: Executing agent hook: check_dependencies
+- 2026-01-08 13:38:08.484292: Dependencies consistency check passed
+- 2026-01-08 13:38:08.484770: Validate command completed successfully at 'final-demo'
+- 2026-01-08 13:38:11.705054: Starting init command for project 'abs-test' at '/home/lnx/Dev/demo-gobi-project'
+- 2026-01-08 13:38:11.708446: Init command completed successfully for 'abs-test'
+- 2026-01-08 13:38:11.708519: Starting env create at '/home/lnx/Dev/demo-gobi-project/abs-test'
+- 2026-01-08 13:38:14.366538: Created venv at '/home/lnx/Dev/demo-gobi-project/abs-test/.gobi/env'
+- 2026-01-08 13:38:17.019066: Installed dependencies from requirements.txt in venv
+- 2026-01-08 13:45:13.092801: Starting init command for project 'test-project' at '/tmp'
+- 2026-01-08 13:45:13.095754: Init command completed successfully for 'test-project'
+- 2026-01-08 13:45:13.095842: Starting env create at '/tmp/test-project'
+- 2026-01-08 13:45:15.625778: Created venv at '/tmp/test-project/.gobi/env'
+- 2026-01-08 13:45:18.050326: Installed dependencies from requirements.txt in venv
+- 2026-01-08 13:48:18.913626: Starting init command for project 'test-project' at '/tmp'
+- 2026-01-08 13:48:18.916925: Init command completed successfully for 'test-project'
+- 2026-01-08 13:48:18.917026: Starting env create at '/tmp/test-project'
+- 2026-01-08 13:48:21.234882: Created venv at '/tmp/test-project/.gobi/env'
+- 2026-01-08 13:48:23.350505: Installed dependencies from requirements.txt in venv
+- 2026-01-08 13:48:27.497535: Starting init command for project 'test-project2' at '/tmp'
+- 2026-01-08 13:48:27.500429: Init command completed successfully for 'test-project2'
+- 2026-01-08 13:48:27.500509: Starting env create at '/tmp/test-project2'
+- 2026-01-08 13:48:29.988701: Created venv at '/tmp/test-project2/.gobi/env'
+- 2026-01-08 13:51:12.859686: Starting init command for project 'test-project' at '/home/lnx/Dev/zdmp/grr'
+- 2026-01-08 13:51:12.862992: Init command completed successfully for 'test-project'
+- 2026-01-08 13:51:12.863060: Starting env create at '/home/lnx/Dev/zdmp/grr/test-project'
+- 2026-01-08 13:51:15.415756: Created venv at '/home/lnx/Dev/zdmp/grr/test-project/.gobi/env'
+- 2026-01-08 13:51:17.987291: Installed dependencies from requirements.txt in venv
+- 2026-01-08 13:57:57.226557: Starting init command for project 'test-project3' at '/home/lnx/Dev/zdmp/grr'
+- 2026-01-08 13:57:57.228087: Init command completed successfully for 'test-project3'
+- 2026-01-08 13:57:57.228171: Starting env create at '/home/lnx/Dev/zdmp/grr/test-project3'
+- 2026-01-08 13:57:59.864948: Created venv at '/home/lnx/Dev/zdmp/grr/test-project3/.gobi/env'
+- 2026-01-08 13:58:02.360730: Installed dependencies from requirements.txt in venv
+- 2026-01-08 13:58:16.297532: Starting init command for project 'test-project4' at '/home/lnx/Dev/zdmp/grr'
+- 2026-01-08 13:58:16.298861: Init command completed successfully for 'test-project4'
+- 2026-01-08 13:58:16.299001: Starting env create at '/home/lnx/Dev/zdmp/grr/test-project4'
+- 2026-01-08 13:58:18.850231: Created venv at '/home/lnx/Dev/zdmp/grr/test-project4/.gobi/env'
+- 2026-01-08 13:58:21.377340: Installed dependencies from requirements.txt in venv
+- 2026-01-08 14:01:06.307402: Starting build command at '.'
+- 2026-01-08 14:01:12.500127: Using venv for CLI binary build
+- 2026-01-08 14:01:20.818730: Build command completed successfully at '.'
+- 2026-01-08 14:02:43.244301: Starting build command at '.'
+- 2026-01-08 14:02:45.626036: Build command error at '.': [Errno 2] No such file or directory: './build/env/bin/python'
+- 2026-01-08 14:02:55.507981: Starting build command at '.'
+- 2026-01-08 14:02:57.856098: cx_Freeze failed: error in ai_project setup command: 'executables' must be a list of Executable (got [])
+- 2026-01-08 14:02:57.859379: Build command completed successfully at '.'
+- 2026-01-08 14:07:28.798807: Starting build command at '.' for platform 'all'
+- 2026-01-08 14:07:31.097030: cx_Freeze failed: error in ai_project setup command: 'executables' must be a list of Executable (got [])
+- 2026-01-08 14:07:31.099781: Build command completed successfully at '.'
