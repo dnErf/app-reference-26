@@ -598,8 +598,8 @@ fn join_right(table1: Table, table2: Table, key1: String, key2: String) -> Table
 
 fn join_full(table1: Table, table2: Table, key1: String, key2: String) -> Table:
     # Combine left and right, remove duplicates
-    let left = join_left(table1, table2, key1, key2)
-    let right = join_right(table1, table2, key1, key2)
+    var left = join_left(table1, table2, key1, key2)
+    var right = join_right(table1, table2, key1, key2)
     # Merge and remove duplicates (simplified: assume no dups)
     var result = Table(left.schema, 0)
     for i in range(left.num_rows):
@@ -614,30 +614,30 @@ fn execute_subquery(sub_sql: String, table: Table) -> Table:
     # Simple: assume SELECT * FROM table WHERE ...
     if "WHERE" in sub_sql:
         var parts = sub_sql.split("WHERE")
-        let condition = parts[1].strip()
+        var condition = parts[1].strip()
         return filter_table(table, condition)
     return table
 
 fn filter_table(table: Table, condition: String) -> Table:
     # Simplified filter
     if "==" in condition:
-        let parts = condition.split("==")
-        let col = parts[0].strip()
-        let val_str = parts[1].strip()
+        var parts = condition.split("==")
+        var col = parts[0].strip()
+        var val_str = parts[1].strip()
         # Check type
-        let col_idx = -1
+        var col_idx = -1
         for i in range(len(table.schema.fields)):
             if table.schema.fields[i].name == col:
                 col_idx = i
                 break
         if col_idx == -1:
             return Table(Schema(), 0)
-        let data_type = table.schema.fields[col_idx].data_type
+        var data_type = table.schema.fields[col_idx].data_type
         if data_type == "int64":
-            let val = atol(val_str)
+            var val = atol(val_str)
             return select_where_eq(table, col, val)[0]
         elif data_type == "date32":
-            let val = atol(val_str)  # Assume days
+            var val = atol(val_str)  # Assume days
             return select_where_eq(table, col, val)[0]
         # Add more types
     return table
@@ -838,7 +838,7 @@ fn select_where_like(table: Table, column_name: String, pattern: String) -> List
         return indices^
     for row in range(table.num_rows()):
         # Assume string column, simple LIKE with %
-        let val_str = str(table.columns[col_index][row])
+        var val_str = String(table.columns[col_index][row])
         if matches_pattern(val_str, pattern):
             indices.append(row)
     return indices^
@@ -846,7 +846,7 @@ fn select_where_like(table: Table, column_name: String, pattern: String) -> List
 fn matches_pattern(s: String, pattern: String) -> Bool:
     # Simple LIKE: % at start/end
     if pattern.startswith("%") and pattern.endswith("%"):
-        let mid = pattern[1:-1]
+        var mid = pattern[1:-1]
         return mid in s
     elif pattern.startswith("%"):
         return s.endswith(pattern[1:])
@@ -854,39 +854,6 @@ fn matches_pattern(s: String, pattern: String) -> Bool:
         return s.startswith(pattern[:-1])
     else:
         return s == pattern
-    # Handle parentheses
-    if where_clause.startswith("(") and where_clause.endswith(")"):
-        var inner = where_clause[1:-1].strip()
-        return apply_single_condition(table, where_clause)  # Placeholder
-    if " OR " in where_clause:
-        var parts = where_clause.split(" OR ")
-        if len(parts) == 0:
-            return table.copy()
-        var union = apply_single_condition(table, String(parts[0].strip()))
-        for i in range(1, len(parts)):
-            var indices = apply_single_condition(table, String(parts[i].strip()))
-            union = union_lists(union, indices)
-        return create_table_from_indices(table, union)
-    elif " AND " in where_clause:
-        var parts = where_clause.split(" AND ")
-        if len(parts) == 0:
-            return table.copy()
-        var common = apply_single_condition(table, String(parts[0].strip()))
-        for i in range(1, len(parts)):
-            var indices = apply_single_condition(table, String(parts[i].strip()))
-            common = intersect_lists(common, indices)
-        return create_table_from_indices(table, common)
-    elif where_clause.startswith("NOT "):
-        var sub_condition = String(where_clause[4:].strip())
-        var indices = apply_single_condition(table, sub_condition)
-        var all_indices = List[Int]()
-        for i in range(table.num_rows()):
-            all_indices.append(i)
-        var complement = complement_list(all_indices, indices)
-        return create_table_from_indices(table, complement)
-    else:
-        var indices = apply_single_condition(table, where_clause)
-        return create_table_from_indices(table, indices)
 
 fn apply_single_condition(table: Table, condition: String) raises -> List[Int]:
     if ">=" in condition:
@@ -931,6 +898,13 @@ fn apply_single_condition(table: Table, condition: String) raises -> List[Int]:
             return select_where_func_eq(table, func_name, arg, right)
         else:
             return select_where_eq(table, left, right)
+    elif "=" in condition and "==" not in condition:
+        # Handle single = (SQL standard)
+        var parts = condition.split("=")
+        var left = String(parts[0].strip())
+        var right_str = parts[1].strip()
+        var right = atol(right_str)
+        return select_where_eq(table, left, right)
     elif " IN (" in condition:
         var parts = condition.split(" IN (")
         var column = String(parts[0].strip())
@@ -956,12 +930,12 @@ fn apply_single_condition(table: Table, condition: String) raises -> List[Int]:
     elif condition.endswith(" IS NOT NULL"):
         var column = String(condition[:-12].strip())
         return select_where_is_not_null(table, column)
-    elif " LIKE " in condition:
-        # Implement LIKE for string matching
-        let parts = condition.split(" LIKE ")
-        let col = parts[0].strip()
-        let pattern = parts[1].strip().strip("'\"")
-        return select_where_like(table, col, pattern)
+    # elif " LIKE " in condition:
+    #     # Implement LIKE for string matching
+    #     var parts = condition.split(" LIKE ")
+    #     var col = String(parts[0].strip())
+    #     var pattern = String(parts[1].strip().strip("'\""))
+    #     return select_where_like(table, col, pattern)
     else:
         return List[Int]()
 

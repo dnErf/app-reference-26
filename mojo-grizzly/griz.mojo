@@ -3,7 +3,8 @@
 # Run: mojo run griz.mojo
 
 from arrow import Schema, Table, Variant
-from formats import read_jsonl, read_csv
+from formats import read_jsonl, read_csv, read_parquet, read_avro
+from query import apply_single_condition, complement_list, create_table_from_indices
 import sys
 import os
 
@@ -22,6 +23,7 @@ fn read_avro_stub(filename: String) -> Table:
 struct GrizzlyREPL:
     var global_table: Table
     var tables: Dict[String, Table]
+    var databases: Dict[String, Dict[String, Table]]  # database_name -> {table_name -> table}
     var current_database: String
     var memory_limit: Int
     var thread_count: Int
@@ -29,17 +31,28 @@ struct GrizzlyREPL:
     fn __init__(out self):
         self.global_table = Table(Schema(), 0)
         self.tables = Dict[String, Table]()
+        self.databases = Dict[String, Dict[String, Table]]()
         self.current_database = "main"
         self.memory_limit = 1024  # MB
         self.thread_count = 4
 
     fn execute_sql(mut self, sql: String) raises:
+        # Variable declarations for JOIN operations
+        var join_count = 0
+        var is_match = False
+        var left_mixed_idx = 0
+        var right_mixed_idx = 0
+        var left_int_idx = 0
+        var right_int_idx = 0
+        var field_name = ""
+        var cell_value = ""
+        
         print("Executing: " + sql)
 
         if sql.upper() == "LOAD SAMPLE DATA":
             # Load sample data
             var jsonl_content = '{"id": 1, "name": "Alice", "age": 25}\n{"id": 2, "name": "Bob", "age": 30}\n{"id": 3, "name": "Charlie", "age": 35}'
-            self.global_table = read_jsonl()
+            self.global_table = read_jsonl(jsonl_content)
         elif sql.upper().startswith("LOAD JSONL"):
             # LOAD JSONL 'filename'
             var start_quote = sql.find("'")
@@ -51,7 +64,7 @@ struct GrizzlyREPL:
                     var file = open(filename, "r")
                     var content = file.read()
                     file.close()
-                    self.global_table = read_jsonl()
+                    self.global_table = read_jsonl(content)
                     print("Loaded", self.global_table.num_rows(), "rows from", filename)
                 except e:
                     print("Error loading file:", String(e))
@@ -64,8 +77,11 @@ struct GrizzlyREPL:
             var end_quote = sql.rfind("'")
             if start_quote != -1 and end_quote != -1 and start_quote != end_quote:
                 var filename = sql[start_quote+1:end_quote]
-                self.global_table = read_parquet_stub(filename)
-                print("Parquet file loading framework ready - implementation pending")
+                try:
+                    self.global_table = read_parquet(filename)
+                    print("Successfully loaded Parquet file:", filename)
+                except e:
+                    print("Error loading Parquet file:", String(e))
             else:
                 print("Usage: LOAD PARQUET 'filename.parquet'")
 
@@ -76,10 +92,10 @@ struct GrizzlyREPL:
             if start_quote != -1 and end_quote != -1 and start_quote != end_quote:
                 var filename = sql[start_quote+1:end_quote]
                 try:
-                    self.global_table = read_avro_stub(filename)
-                    print("AVRO file loading framework ready - implementation pending")
-                except:
-                    print("Error loading AVRO file")
+                    self.global_table = read_avro(filename)
+                    print("Successfully loaded Avro file:", filename)
+                except e:
+                    print("Error loading Avro file:", String(e))
             else:
                 print("Usage: LOAD AVRO 'filename.avro'")
 
@@ -107,6 +123,146 @@ struct GrizzlyREPL:
                     print("Error loading CSV file:", String(e))
             else:
                 print("Usage: LOAD CSV 'filename.csv' [WITH HEADER] [DELIMITER ',']")
+
+        elif sql.upper().startswith("SELECT") and "JOIN" in sql.upper():
+            # SELECT * FROM table1 JOIN table2 ON table1.col = table2.col
+            # Parse the JOIN query
+            var from_pos = sql.upper().find("FROM")
+            var join_pos = sql.upper().find("JOIN")
+            var on_pos = sql.upper().find(" ON ")
+            
+            if from_pos == -1 or join_pos == -1 or on_pos == -1:
+                print("Invalid JOIN syntax. Use: SELECT * FROM table1 JOIN table2 ON table1.col = table2.col")
+                pass
+            
+            var table1_name = String(sql[from_pos + 4:join_pos].strip())
+            var table2_part = sql[join_pos + 4:on_pos].strip()
+            var on_condition = sql[on_pos + 4:].strip()
+            
+            # Parse table2 name (might have alias)
+            var table2_name = String(table2_part)
+            if " " in table2_part:
+                table2_name = String(table2_part.split(" ")[0])
+            
+            # Check if tables exist
+            if not self.tables.__contains__(table1_name):
+                print("Table", table1_name, "does not exist")
+                
+            if not self.tables.__contains__(table2_name):
+                print("Table", table2_name, "does not exist")
+                
+            
+            ref table1 = self.tables[table1_name]
+            ref table2 = self.tables[table2_name]
+            
+            # Parse ON condition: table1.col = table2.col
+            var condition_parts = on_condition.split("=")
+            if len(condition_parts) != 2:
+                print("Invalid ON condition. Use: table1.col = table2.col")
+                
+            
+            var left_part = String(condition_parts[0].strip())
+            var right_part = String(condition_parts[1].strip())
+            
+            # Parse column references: table.col
+            var left_table_col = left_part.split(".")
+            var right_table_col = right_part.split(".")
+            
+            if len(left_table_col) != 2 or len(right_table_col) != 2:
+                print("Invalid column reference. Use: table.column")
+                
+            
+            var left_table = String(left_table_col[0].strip())
+            var left_col = String(left_table_col[1].strip())
+            var right_table = String(right_table_col[0].strip())
+            var right_col = String(right_table_col[1].strip())
+            
+            # Validate table references in condition
+            if left_table != table1_name and left_table != table2_name:
+                print("Left table in condition must be one of the joined tables")
+                
+            if right_table != table1_name and right_table != table2_name:
+                print("Right table in condition must be one of the joined tables")
+                
+            
+            # Get column indices
+            var left_col_idx = -1
+            var right_col_idx = -1
+            
+            if left_table == table1_name:
+                left_col_idx = table1.schema.get_column_index(left_col)
+            else:
+                left_col_idx = table2.schema.get_column_index(left_col)
+                
+            if right_table == table1_name:
+                right_col_idx = table1.schema.get_column_index(right_col)
+            else:
+                right_col_idx = table2.schema.get_column_index(right_col)
+            
+            if left_col_idx == -1:
+                print("Column", left_col, "not found in", left_table)
+                
+            if right_col_idx == -1:
+                print("Column", right_col, "not found in", right_table)
+                
+            
+            # Perform INNER JOIN
+            print("JOIN operation result:")
+            print("Joining", table1_name, "with", table2_name, "ON", on_condition)
+            
+            join_count = 0
+            for i in range(table1.num_rows()):
+                for j in range(table2.num_rows()):
+                    # Check join condition
+                    is_match = False
+                    
+                    if left_table == table1_name and right_table == table2_name:
+                        # table1.col = table2.col
+                        if table1.schema.fields[left_col_idx].data_type == "mixed" and table2.schema.fields[right_col_idx].data_type == "mixed":
+                            # Both mixed columns - compare strings
+                            left_mixed_idx = 0
+                            for k in range(left_col_idx):
+                                if table1.schema.fields[k].data_type == "mixed":
+                                    left_mixed_idx += 1
+                            right_mixed_idx = 0
+                            for k in range(right_col_idx):
+                                if table2.schema.fields[k].data_type == "mixed":
+                                    right_mixed_idx += 1
+                            is_match = table1.mixed_columns[left_mixed_idx][i].value == table2.mixed_columns[right_mixed_idx][j].value
+                        elif table1.schema.fields[left_col_idx].data_type != "mixed" and table2.schema.fields[right_col_idx].data_type != "mixed":
+                            # Both int columns - compare ints
+                            left_int_idx = 0
+                            for k in range(left_col_idx):
+                                if table1.schema.fields[k].data_type != "mixed":
+                                    left_int_idx += 1
+                            right_int_idx = 0
+                            for k in range(right_col_idx):
+                                if table2.schema.fields[k].data_type != "mixed":
+                                    right_int_idx += 1
+                            is_match = table1.columns[left_int_idx][i] == table2.columns[right_int_idx][j]
+                    
+                    if is_match:
+                        print("Joined Row", join_count, ":", end=" ")
+                        
+                        # Print table1 columns
+                        for col_idx in range(len(table1.schema.fields)):
+                            if col_idx > 0:
+                                print(",", end=" ")
+                            field_name = table1.schema.fields[col_idx].name
+                            cell_value = table1.get_cell(i, col_idx)
+                            print(table1_name + "." + field_name, "=", cell_value, end="")
+                        
+                        # Print table2 columns
+                        for col_idx in range(len(table2.schema.fields)):
+                            print(",", end=" ")
+                            field_name = table2.schema.fields[col_idx].name
+                            cell_value = table2.get_cell(j, col_idx)
+                            print(table2_name + "." + field_name, "=", cell_value, end="")
+                        
+                        print()
+                        join_count += 1
+            
+            print("Found", join_count, "joined rows")
 
         elif sql.upper().startswith("SELECT"):
             if sql.upper() == "SELECT * FROM TABLE":
@@ -156,39 +312,144 @@ struct GrizzlyREPL:
                     print("No data loaded. Try 'LOAD SAMPLE DATA' first.")
 
             elif sql.upper().startswith("SELECT") and "JOIN" in sql.upper():
-                # SELECT * FROM table1 JOIN table2 ON condition
-                # For demo, create a second table and join with the main table
-                if self.global_table.num_rows() > 0:
-                    # Create a second table for demo purposes
-                    var schema2 = Schema()
-                    schema2.add_field("id", "int64")
-                    schema2.add_field("department", "mixed")  # Use mixed for string data
-                    var table2 = Table(schema2, 3)
-                    table2.mixed_columns[0][0] = Variant("Engineering")  # department
-                    table2.columns[0][1] = 2  # id
-                    table2.mixed_columns[0][1] = Variant("Sales")  # department
-                    table2.columns[0][2] = 3  # id
-                    table2.mixed_columns[0][2] = Variant("Marketing")  # department
-
-                    print("JOIN operation result:")
-                    print("Joining main table with departments table on id")
-                    print("Found", min(self.global_table.num_rows(), table2.num_rows()), "joined rows")
-
-                    # Simple inner join on id
-                    var join_count = 0
-                    for i in range(min(self.global_table.num_rows(), table2.num_rows())):
-                        print("Joined Row", join_count, ":", end=" ")
-                        # Main table columns
-                        for col_idx in range(len(self.global_table.schema.fields)):
-                            if col_idx > 0:
-                                print(",", end=" ")
-                            var field_name = self.global_table.schema.fields[col_idx].name
-                            print(field_name, "=", self.global_table.columns[col_idx][i], end="")
-                        # Joined table columns
-                        print(", department =", table2.mixed_columns[0][i].value)
-                        join_count += 1
+                # SELECT * FROM table1 JOIN table2 ON table1.col = table2.col
+                # Parse the JOIN query
+                var from_pos = sql.upper().find("FROM")
+                var join_pos = sql.upper().find("JOIN")
+                var on_pos = sql.upper().find(" ON ")
+                
+                if from_pos == -1 or join_pos == -1 or on_pos == -1:
+                    print("Invalid JOIN syntax. Use: SELECT * FROM table1 JOIN table2 ON table1.col = table2.col")
+                    
+                
+                var table1_name = String(sql[from_pos + 4:join_pos].strip())
+                var table2_part = sql[join_pos + 4:on_pos].strip()
+                var on_condition = sql[on_pos + 4:].strip()
+                
+                # Parse table2 name (might have alias)
+                var table2_name = String(table2_part)
+                if " " in table2_part:
+                    table2_name = String(table2_part.split(" ")[0])
+                
+                # Check if tables exist
+                if not self.tables.__contains__(table1_name):
+                    print("Table", table1_name, "does not exist")
+                    
+                if not self.tables.__contains__(table2_name):
+                    print("Table", table2_name, "does not exist")
+                    
+                
+                ref table1 = self.tables[table1_name]
+                ref table2 = self.tables[table2_name]
+                
+                # Parse ON condition: table1.col = table2.col
+                var condition_parts = on_condition.split("=")
+                if len(condition_parts) != 2:
+                    print("Invalid ON condition. Use: table1.col = table2.col")
+                    
+                
+                var left_part = String(condition_parts[0].strip())
+                var right_part = String(condition_parts[1].strip())
+                
+                # Parse column references: table.col
+                var left_table_col = left_part.split(".")
+                var right_table_col = right_part.split(".")
+                
+                if len(left_table_col) != 2 or len(right_table_col) != 2:
+                    print("Invalid column reference. Use: table.column")
+                    
+                
+                var left_table = String(left_table_col[0].strip())
+                var left_col = String(left_table_col[1].strip())
+                var right_table = String(right_table_col[0].strip())
+                var right_col = String(right_table_col[1].strip())
+                
+                # Validate table references in condition
+                if left_table != table1_name and left_table != table2_name:
+                    print("Left table in condition must be one of the joined tables")
+                    
+                if right_table != table1_name and right_table != table2_name:
+                    print("Right table in condition must be one of the joined tables")
+                    
+                
+                # Get column indices
+                var left_col_idx = -1
+                var right_col_idx = -1
+                
+                if left_table == table1_name:
+                    left_col_idx = table1.schema.get_column_index(left_col)
                 else:
-                    print("No data loaded. Try 'LOAD SAMPLE DATA' first.")
+                    left_col_idx = table2.schema.get_column_index(left_col)
+                    
+                if right_table == table1_name:
+                    right_col_idx = table1.schema.get_column_index(right_col)
+                else:
+                    right_col_idx = table2.schema.get_column_index(right_col)
+                
+                if left_col_idx == -1:
+                    print("Column", left_col, "not found in", left_table)
+                    
+                if right_col_idx == -1:
+                    print("Column", right_col, "not found in", right_table)
+                    
+                
+                # Perform INNER JOIN
+                print("JOIN operation result:")
+                print("Joining", table1_name, "with", table2_name, "ON", on_condition)
+                
+                var join_count = 0
+                for i in range(table1.num_rows()):
+                    for j in range(table2.num_rows()):
+                        # Check join condition
+                        is_match = False
+                        
+                        if left_table == table1_name and right_table == table2_name:
+                            # table1.col = table2.col
+                            if table1.schema.fields[left_col_idx].data_type == "mixed" and table2.schema.fields[right_col_idx].data_type == "mixed":
+                                # Both mixed columns - compare strings
+                                left_mixed_idx = 0
+                                for k in range(left_col_idx):
+                                    if table1.schema.fields[k].data_type == "mixed":
+                                        left_mixed_idx += 1
+                                right_mixed_idx = 0
+                                for k in range(right_col_idx):
+                                    if table2.schema.fields[k].data_type == "mixed":
+                                        right_mixed_idx += 1
+                                is_match = table1.mixed_columns[left_mixed_idx][i].value == table2.mixed_columns[right_mixed_idx][j].value
+                            elif table1.schema.fields[left_col_idx].data_type != "mixed" and table2.schema.fields[right_col_idx].data_type != "mixed":
+                                # Both int columns - compare ints
+                                left_int_idx = 0
+                                for k in range(left_col_idx):
+                                    if table1.schema.fields[k].data_type != "mixed":
+                                        left_int_idx += 1
+                                right_int_idx = 0
+                                for k in range(right_col_idx):
+                                    if table2.schema.fields[k].data_type != "mixed":
+                                        right_int_idx += 1
+                                is_match = table1.columns[left_int_idx][i] == table2.columns[right_int_idx][j]
+                        
+                        if is_match:
+                            print("Joined Row", join_count, ":", end=" ")
+                            
+                            # Print table1 columns
+                            for col_idx in range(len(table1.schema.fields)):
+                                if col_idx > 0:
+                                    print(",", end=" ")
+                                var field_name = table1.schema.fields[col_idx].name
+                                var cell_value = table1.get_cell(i, col_idx)
+                                print(table1_name + "." + field_name, "=", cell_value, end="")
+                            
+                            # Print table2 columns
+                            for col_idx in range(len(table2.schema.fields)):
+                                print(",", end=" ")
+                                var field_name = table2.schema.fields[col_idx].name
+                                var cell_value = table2.get_cell(j, col_idx)
+                                print(table2_name + "." + field_name, "=", cell_value, end="")
+                            
+                            print()
+                            join_count += 1
+                
+                print("Found", join_count, "joined rows")
 
             elif sql.upper().startswith("SELECT") and "GROUP BY" in sql.upper():
                 # SELECT aggregate_function(column), group_column FROM table GROUP BY group_column
@@ -208,19 +469,126 @@ struct GrizzlyREPL:
                         print("Group column", group_column, "not found")
                         return
 
-                    # Parse SELECT part for aggregate functions
-                    var has_count = select_part.upper().find("COUNT(*)") != -1
-                    var has_sum = select_part.upper().find("SUM(") != -1
-                    var has_avg = select_part.upper().find("AVG(") != -1
-                    var has_min = select_part.upper().find("MIN(") != -1
-                    var has_max = select_part.upper().find("MAX(") != -1
+                    # Parse SELECT part for aggregate functions and columns
+                    var select_columns = List[String]()
+                    var aggregate_funcs = List[String]()
+                    
+                    # Simple parsing - look for COUNT(*), SUM(column), etc.
+                    if select_part.upper().find("COUNT(*)") != -1:
+                        aggregate_funcs.append("COUNT")
+                        select_columns.append("*")
+                    if select_part.upper().find("SUM(") != -1:
+                        var sum_start = select_part.upper().find("SUM(") + 4
+                        var sum_end = select_part.find(")", sum_start)
+                        if sum_end != -1:
+                            var sum_col = String(select_part[sum_start:sum_end].strip())
+                            aggregate_funcs.append("SUM")
+                            select_columns.append(sum_col)
+                    if select_part.upper().find("AVG(") != -1:
+                        var avg_start = select_part.upper().find("AVG(") + 4
+                        var avg_end = select_part.find(")", avg_start)
+                        if avg_end != -1:
+                            var avg_col = String(select_part[avg_start:avg_end].strip())
+                            aggregate_funcs.append("AVG")
+                            select_columns.append(avg_col)
+                    
+                    # Also handle non-aggregate columns (like the group column itself)
+                    var select_parts = select_part.split(",")
+                    for part in select_parts:
+                        var trimmed = String(part.strip())
+                        if trimmed == group_column:
+                            select_columns.append(String(group_column))
+                            break
 
                     # Group data by the specified column
-                    # Simplified GROUP BY implementation
+                    var groups = Dict[String, List[Int]]()  # group_value -> list of row indices
+                    
+                    for row_idx in range(self.global_table.num_rows()):
+                        var group_value = ""
+                        ref field = self.global_table.schema.fields[group_idx]
+                        
+                        if field.data_type == "mixed":
+                            var col_idx = 0
+                            for i in range(group_idx):
+                                if self.global_table.schema.fields[i].data_type == "mixed":
+                                    col_idx += 1
+                            group_value = self.global_table.mixed_columns[col_idx][row_idx].value
+                        else:
+                            var col_idx = 0
+                            for i in range(group_idx):
+                                if self.global_table.schema.fields[i].data_type != "mixed":
+                                    col_idx += 1
+                            group_value = String(self.global_table.columns[col_idx][row_idx])
+                        
+                        if not groups.__contains__(group_value):
+                            groups[group_value] = List[Int]()
+                        groups[group_value].append(row_idx)
+
+                    # Apply aggregate functions to each group
                     print("Query result (GROUP BY", group_column, "):")
-                    print("GROUP BY operation recognized")
-                    print("Data grouping framework ready - full implementation pending")
-                    print("Example: SELECT name, COUNT(*) FROM table GROUP BY name")
+                    print("Group | " + " | ".join(aggregate_funcs))
+                    print("-" * 50)
+                    
+                    # Collect all group keys first to avoid aliasing issues
+                    var group_keys = List[String]()
+                    for key in groups.keys():
+                        group_keys.append(key)
+                    
+                    for group_key in group_keys:
+                        var group_indices = groups[group_key].copy()
+                        var result_values = List[String]()
+                        
+                        for i in range(len(aggregate_funcs)):
+                            var func = aggregate_funcs[i]
+                            var col_name = select_columns[i]
+                            
+                            if func == "COUNT":
+                                result_values.append(String(len(group_indices)))
+                            elif func == "SUM":
+                                # Find the column index for the sum
+                                var sum_col_idx = -1
+                                for j in range(len(self.global_table.schema.fields)):
+                                    if self.global_table.schema.fields[j].name == col_name:
+                                        sum_col_idx = j
+                                        break
+                                
+                                if sum_col_idx != -1:
+                                    var sum_val: Int64 = 0
+                                    for row_idx in group_indices:
+                                        ref field = self.global_table.schema.fields[sum_col_idx]
+                                        if field.data_type != "mixed":
+                                            var col_idx = 0
+                                            for k in range(sum_col_idx):
+                                                if self.global_table.schema.fields[k].data_type != "mixed":
+                                                    col_idx += 1
+                                            sum_val += self.global_table.columns[col_idx][row_idx]
+                                    result_values.append(String(sum_val))
+                                else:
+                                    result_values.append("N/A")
+                            elif func == "AVG":
+                                # Similar to SUM but divide by count
+                                var avg_col_idx = -1
+                                for j in range(len(self.global_table.schema.fields)):
+                                    if self.global_table.schema.fields[j].name == col_name:
+                                        avg_col_idx = j
+                                        break
+                                
+                                if avg_col_idx != -1:
+                                    var sum_val: Int64 = 0
+                                    for row_idx in group_indices:
+                                        ref field = self.global_table.schema.fields[avg_col_idx]
+                                        if field.data_type != "mixed":
+                                            var col_idx = 0
+                                            for k in range(avg_col_idx):
+                                                if self.global_table.schema.fields[k].data_type != "mixed":
+                                                    col_idx += 1
+                                            sum_val += self.global_table.columns[col_idx][row_idx]
+                                    var avg_val = sum_val / len(group_indices)
+                                    result_values.append(String(avg_val))
+                                else:
+                                    result_values.append("N/A")
+                        
+                        print(group_key + " | " + " | ".join(result_values))
                 else:
                     print("No data loaded. Try 'LOAD SAMPLE DATA' first.")
 
@@ -441,7 +809,7 @@ struct GrizzlyREPL:
             for col_slice in columns:
                 var col = String(col_slice).strip()
                 if len(col) == 0:
-                    continue
+                    pass
                     
                 # Parse column_name column_type
                 var parts = col.split(" ")
@@ -620,7 +988,7 @@ struct GrizzlyREPL:
                 for assignment in assignments:
                     var eq_pos = assignment.find("=")
                     if eq_pos == -1:
-                        continue
+                        pass
                     
                     var column_name = assignment[:eq_pos].strip()
                     var value_str = assignment[eq_pos + 1:].strip()
@@ -644,7 +1012,7 @@ struct GrizzlyREPL:
                     
                     if col_index == -1:
                         print("Error: Column", column_name, "does not exist")
-                        continue
+                        
                     
                     # Check if we have rows to update
                     if table.num_rows() == 0:
@@ -661,7 +1029,7 @@ struct GrizzlyREPL:
                             table.mixed_columns[array_index][0] = Variant(String(value_str))
                         else:
                             print("Error: Mixed column", column_name, "has no data")
-                            continue
+                            
                     else:
                         # Try to parse as int64
                         try:
@@ -671,10 +1039,10 @@ struct GrizzlyREPL:
                                 table.columns[array_index][0] = int_value
                             else:
                                 print("Error: Column", column_name, "has no data")
-                                continue
+                                
                         except:
                             print("Error: Cannot convert", value_str, "to", table.schema.fields[col_index].data_type, "for column", column_name)
-                            continue
+                            
                 
                 print("Row updated successfully in table", table_name)
             else:
@@ -685,7 +1053,7 @@ struct GrizzlyREPL:
             var delete_start = sql.upper().find("DELETE FROM") + len("DELETE FROM")
             var remaining = sql[delete_start:].strip()
             
-            # Find WHERE keyword (for now, ignore it)
+            # Find WHERE keyword
             var where_pos = remaining.upper().find("WHERE")
             var table_name = String(remaining[:where_pos].strip() if where_pos != -1 else remaining.strip())
             
@@ -696,17 +1064,40 @@ struct GrizzlyREPL:
             
             ref table = self.tables[table_name]
             
-            # For demo purposes, clear all rows (simple implementation)
-            var rows_deleted = table.num_rows()
-            
-            # Clear all data
-            for i in range(len(table.columns)):
-                table.columns[i].data.clear()
-            for i in range(len(table.mixed_columns)):
-                table.mixed_columns[i].data.clear()
-            table.row_versions.clear()
-            
-            print(rows_deleted, "rows deleted from table", table_name)
+            if where_pos != -1:
+                # Parse WHERE clause
+                var where_clause = String(remaining[where_pos + 5:].strip())
+                
+                # Get indices of rows that match the WHERE condition
+                var matching_indices = apply_single_condition(table, where_clause)
+                
+                # Get all indices
+                var all_indices = List[Int]()
+                for i in range(table.num_rows()):
+                    all_indices.append(i)
+                
+                # Get indices to keep (complement of matching indices)
+                var indices_to_keep = complement_list(all_indices, matching_indices)
+                
+                # Create new table with only the rows to keep
+                var new_table = create_table_from_indices(table, indices_to_keep)
+                
+                # Replace the table
+                self.tables[table_name] = new_table^
+                
+                print(len(matching_indices), "rows deleted from table", table_name)
+            else:
+                # No WHERE clause - delete all rows
+                var rows_deleted = table.num_rows()
+                
+                # Clear all data
+                for i in range(len(table.columns)):
+                    table.columns[i].data.clear()
+                for i in range(len(table.mixed_columns)):
+                    table.mixed_columns[i].data.clear()
+                table.row_versions.clear()
+                
+                print(rows_deleted, "rows deleted from table", table_name)
 
         elif sql.upper().startswith("DROP TABLE"):
             # DROP TABLE table_name [IF EXISTS]
@@ -738,31 +1129,49 @@ struct GrizzlyREPL:
                     print("Usage: DROP TABLE [IF EXISTS] table_name")
 
         elif sql.upper().startswith("CREATE DATABASE"):
-            # Basic CREATE DATABASE support
-            print("CREATE DATABASE command recognized")
-            print("Database file creation framework ready - full implementation pending")
-            print("Example: CREATE DATABASE 'mydb.griz'")
+            # CREATE DATABASE 'filename.griz'
+            var start_quote = sql.find("'")
+            var end_quote = sql.rfind("'")
+            if start_quote != -1 and end_quote != -1 and start_quote != end_quote:
+                var filename = sql[start_quote+1:end_quote]
+                try:
+                    # Create a new .griz file with basic structure
+                    var db_content = """{
+  "version": "1.0",
+  "created": "2024-01-07",
+  "tables": {},
+  "metadata": {
+    "page_size": 4096,
+    "encoding": "utf-8"
+  }
+}"""
+                    var file = open(filename, "w")
+                    file.write(db_content)
+                    file.close()
+                    print("Database file created successfully:", filename)
+                except e:
+                    print("Error creating database file:", String(e))
+            else:
+                print("Usage: CREATE DATABASE 'filename.griz'")
 
         elif sql.upper().startswith("ATTACH DATABASE"):
-            # Basic ATTACH DATABASE support
+            # ATTACH DATABASE 'filename.griz' [AS alias] - simplified implementation
             print("ATTACH DATABASE command recognized")
             print("Database file attachment framework ready - full implementation pending")
             print("Example: ATTACH DATABASE 'mydb.griz' AS mydb")
 
         elif sql.upper().startswith("DETACH DATABASE"):
-            # Basic DETACH DATABASE support
+            # DETACH DATABASE alias - simplified
             print("DETACH DATABASE command recognized")
             print("Database file detachment framework ready - full implementation pending")
             print("Example: DETACH DATABASE mydb")
 
         elif sql.upper() == "SHOW DATABASES":
-            # Basic SHOW DATABASES support
             print("SHOW DATABASES command recognized")
             print("Database listing framework ready - full implementation pending")
             print("Example: Lists all attached databases")
 
         elif sql.upper().startswith("DATABASE INFO"):
-            # Basic DATABASE INFO support
             print("DATABASE INFO command recognized")
             print("Database information framework ready - full implementation pending")
             print("Example: DATABASE INFO mydb")

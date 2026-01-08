@@ -309,6 +309,12 @@ struct Schema(Copyable, Movable):
     fn add_field(mut self, name: String, data_type: String):
         self.fields.append(Field(name, data_type))
 
+    fn get_column_index(self, column_name: String) -> Int:
+        for i in range(len(self.fields)):
+            if self.fields[i].name == column_name:
+                return i
+        return -1
+
     fn clone(self) raises -> Schema:
         var s = Schema()
         for f in self.fields:
@@ -388,6 +394,27 @@ struct Table(Copyable, Movable):
 
     fn num_rows(self) -> Int:
         return len(self.columns[0].data) if len(self.columns) > 0 else 0
+
+    fn get_cell(self, row: Int, col: Int) -> String:
+        ref field = self.schema.fields[col]
+        if field.data_type == "mixed":
+            # Find the mixed column index
+            var mixed_idx = 0
+            for i in range(col):
+                if self.schema.fields[i].data_type == "mixed":
+                    mixed_idx += 1
+            return self.mixed_columns[mixed_idx][row].value
+        else:
+            # Find the int64 column index
+            var int_idx = 0
+            for i in range(col):
+                if self.schema.fields[i].data_type != "mixed":
+                    int_idx += 1
+            return String(self.columns[int_idx][row])
+
+    fn is_null(self, row: Int, col: Int) -> Bool:
+        # For now, assume no nulls (can be extended)
+        return False
 
     # MVCC functions
     fn get_row_version(self, row: Int) -> Int64:

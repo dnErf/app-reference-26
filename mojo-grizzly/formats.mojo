@@ -6,27 +6,69 @@ from arrow import Schema, Table, Variant, Int64Array, StringArray
 # from python import Python  # Moved inside functions that need it
 
 # Simple JSONL reader - simplified version
-fn read_jsonl() raises -> Table:
-    # For now, return hardcoded sample data that matches the expected format
+fn read_jsonl(content: String) raises -> Table:
+    from python import Python
+    
+    # Parse JSONL content using Python
+    var json_module = Python.import_module("json")
+    var lines = content.split("\n")
+    
+    if len(lines) == 0:
+        # Return empty table
+        var schema = Schema()
+        return Table(schema, 0)
+    
+    # Parse first line to determine schema
+    var first_line = lines[0].strip()
+    if first_line == "":
+        var schema = Schema()
+        return Table(schema, 0)^
+        
+    var first_obj = json_module.loads(first_line)
+    var keys = first_obj.keys()
+    
+    # Create schema from keys
     var schema = Schema()
-    schema.add_field("id", "int64")
-    schema.add_field("name", "mixed")  # Use "mixed" for string fields
-    schema.add_field("age", "int64")
-
-    var table = Table(schema, 3)
-    # Populate with actual sample data
-    table.columns[0][0] = 1  # id
-    table.columns[0][1] = 2
-    table.columns[0][2] = 3
-
-    # For string columns, use mixed_columns (name is the first mixed column)
-    table.mixed_columns[0][0] = Variant("Alice")   # name
-    table.mixed_columns[0][1] = Variant("Bob")
-    table.mixed_columns[0][2] = Variant("Charlie")
-
-    table.columns[1][0] = 25  # age (second int64 column)
-    table.columns[1][1] = 30
-    table.columns[1][2] = 35
+    var column_types = Dict[String, String]()
+    
+    for key in keys:
+        var key_str = String(key)
+        # For simplicity, treat all fields as mixed type (strings)
+        # TODO: Implement proper type inference
+        schema.add_field(key_str, "mixed")
+        column_types[key_str] = "mixed"
+    
+    # Count valid lines
+    var valid_lines = 0
+    for line in lines:
+        var stripped = line.strip()
+        if len(stripped) > 0:
+            valid_lines += 1
+    
+    var table = Table(schema, valid_lines)
+    
+    # Parse and populate data
+    var row_idx = 0
+    var mixed_col_idx = 0
+    
+    for line in lines:
+        var stripped = line.strip()
+        if len(stripped) == 0:
+            continue
+            
+        var obj = json_module.loads(line)
+        
+        mixed_col_idx = 0
+        for key in keys:
+            var value = obj[key]
+            # Convert value to string for mixed column
+            var str_value = String(value)
+            table.mixed_columns[mixed_col_idx][row_idx] = Variant(str_value)
+            mixed_col_idx += 1
+        
+        row_idx += 1
+    
+    return table^
 
     return table^
 
@@ -105,12 +147,82 @@ fn read_csv(filename: String, has_header: Bool = True, delimiter: String = ",") 
 
 # Stub implementation for Parquet reading
 fn read_parquet(filename: String) raises -> Table:
-    print("Parquet reading not yet fully implemented - using stub")
-    # Return empty table for now
-    return Table(Schema(), 0)
+    print("Reading Parquet file:", filename)
+    try:
+        from python import Python
+        var py_pandas = Python.import_module("pandas")
+        var py_pyarrow = Python.import_module("pyarrow")
+        
+        # Read Parquet file using pandas/pyarrow
+        var df = py_pandas.read_parquet(filename)
+        
+        # Convert to our Table format
+        var schema = Schema()
+        var num_rows = atol(String(df.shape[0]))
+        var num_cols = atol(String(df.shape[1]))
+        
+        # Get column names and types
+        var columns = df.columns
+        for i in range(num_cols):
+            var col_name = String(columns[i])
+            # Determine column type - for now, assume int64 or mixed (string)
+            var col_type = "mixed"  # Default to mixed for strings
+            schema.add_field(col_name, col_type)
+        
+        var table = Table(schema, num_rows)
+        
+        # Populate table data
+        for row_idx in range(num_rows):
+            for col_idx in range(num_cols):
+                var value = df.iloc[row_idx, col_idx]
+                # Convert Python value to our format
+                if col_idx < len(table.mixed_columns):
+                    table.mixed_columns[col_idx][row_idx] = Variant(String(value))
+        
+        print("Successfully loaded Parquet file with", num_rows, "rows and", num_cols, "columns")
+        return table^
+        
+    except e:
+        print("Error reading Parquet file:", String(e))
+        print("Parquet reading requires pandas and pyarrow: pip install pandas pyarrow")
+        return Table(Schema(), 0)
 
 # Stub implementation for Avro reading
 fn read_avro(filename: String) raises -> Table:
-    print("Avro reading not yet fully implemented - using stub")
-    # Return empty table for now
-    return Table(Schema(), 0)
+    print("Reading Avro file:", filename)
+    try:
+        from python import Python
+        var py_pandas = Python.import_module("pandas")
+        
+        # Read Avro file using pandas
+        var df = py_pandas.read_avro(filename)
+        
+        # Convert to our Table format
+        var schema = Schema()
+        var num_rows = atol(String(df.shape[0]))
+        var num_cols = atol(String(df.shape[1]))
+        
+        # Get column names and types
+        var columns = df.columns
+        for i in range(num_cols):
+            var col_name = String(columns[i])
+            var col_type = "mixed"  # Default to mixed for strings
+            schema.add_field(col_name, col_type)
+        
+        var table = Table(schema, num_rows)
+        
+        # Populate table data
+        for row_idx in range(num_rows):
+            for col_idx in range(num_cols):
+                var value = df.iloc[row_idx, col_idx]
+                # Convert Python value to our format
+                if col_idx < len(table.mixed_columns):
+                    table.mixed_columns[col_idx][row_idx] = Variant(String(value))
+        
+        print("Successfully loaded Avro file with", num_rows, "rows and", num_cols, "columns")
+        return table^
+        
+    except e:
+        print("Error reading Avro file:", String(e))
+        print("Avro reading requires pandas: pip install pandas")
+        return Table(Schema(), 0)
