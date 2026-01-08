@@ -42,4 +42,26 @@ def parse_args():
     remove_parser.add_argument('package', help='Package to remove')
     remove_parser.add_argument('--path', default='.', help='Path to project')
 
+    # Test command
+    test_parser = subparsers.add_parser('test', help='Run tests for AI project')
+    test_parser.add_argument('--path', default='.', help='Path to project')
+
+    # Deploy command
+    deploy_parser = subparsers.add_parser('deploy', help='Deploy AI project')
+    deploy_parser.add_argument('--path', default='.', help='Path to project')
+
+    # Clean command
+    clean_parser = subparsers.add_parser('clean', help='Clean build artifacts and temporary files')
+    clean_parser.add_argument('--path', default='.', help='Path to project')
+
+    # Update command
+    update_parser = subparsers.add_parser('update', help='Update the Gobi CLI tool')
+    update_parser.add_argument('--method', choices=['pip', 'git'], default='pip', help='Update method')
+
+    # Plugin command
+    plugin_parser = subparsers.add_parser('plugin', help='Run a custom plugin')
+    plugin_parser.add_argument('name', help='Plugin name')
+    plugin_parser.add_argument('args', nargs='*', help='Arguments for the plugin')
+    plugin_parser.add_argument('--path', default='.', help='Path to project')
+
     return parser.parse_args()

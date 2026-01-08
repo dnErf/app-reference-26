@@ -1,0 +1,7 @@
+{
+  "ai_project": true,
+  "structure_version": "1.0",
+  "agent_hooks": ["validate_structure", "check_dependencies"],
+  "folders": ["scripts", ".ai", ".ai/agents", ".ai/models", "plugins"],
+  "contact": "Run 'mojo-gobi init --validate' for agent review"
+}
