@@ -33,7 +33,7 @@ from compaction_strategy import CompactionStrategy
 from background_compaction_worker import BackgroundCompactionWorker
 
 # LSM Tree Configuration
-struct LSMTreeConfig:
+struct LSMTreeConfig(Movable):
     var memtable_type: String
     var max_memtable_size: Int
     var data_dir: String
@@ -77,7 +77,7 @@ struct LSMTreeConfig:
             raise "Invalid memtable_type. Valid options: sorted, skiplist, trie, linked_list, hash_linked_list, enhanced_skiplist, hash_skiplist, vector"
 
 # Memtable variant type to support multiple implementations
-struct MemtableVariant:
+struct MemtableVariant(Movable):
     var variant_type: String
     
     # All possible memtable types
@@ -287,7 +287,7 @@ struct Memtable:
         self.size_bytes = 0
 
 # Main LSM Tree structure
-struct LSMTree:
+struct LSMTree(Movable):
     var memtable: MemtableVariant  # Now supports all memtable variants
     var sstables: List[String]  # List of SSTable filenames
     var data_dir: String

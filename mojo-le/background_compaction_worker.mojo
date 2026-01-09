@@ -12,7 +12,7 @@ from compaction_strategy import CompactionStrategy, CompactionTask
 from sstable import SSTable
 import time
 
-struct BackgroundCompactionWorker:
+struct BackgroundCompactionWorker(Movable):
     """
     Background compaction worker that runs compaction operations asynchronously.
 

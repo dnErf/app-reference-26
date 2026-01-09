@@ -67,7 +67,7 @@ struct CompactionTask(Movable):
         self.priority = priority
 
 # Unified compaction strategy
-struct CompactionStrategy:
+struct CompactionStrategy(Movable):
     var max_level_files: Dict[Int, Int]  # Max files per level
     var level_sizes: Dict[Int, Int]      # Target size per level
     var size_ratio: Float64              # Size ratio for size-tiered

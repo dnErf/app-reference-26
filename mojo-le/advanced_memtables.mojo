@@ -25,7 +25,7 @@ from collections import List, Dict
 alias Entry = Tuple[String, String]
 
 # Linked List Memtable - Simple O(N) operations using List
-struct LinkedListMemtable:
+struct LinkedListMemtable(Movable):
     var entries: List[Entry]
     var size_bytes: Int
     var max_size: Int
@@ -79,7 +79,7 @@ struct LinkedListMemtable:
         return result^
 
 # Hash Linked List Memtable - O(1) lookups with ordered iteration
-struct HashLinkedListMemtable:
+struct HashLinkedListMemtable(Movable):
     var hash_map: Dict[String, String]
     var insertion_order: List[String]
     var size_bytes: Int
@@ -128,7 +128,7 @@ struct HashLinkedListMemtable:
         return self.hash_map.copy()
 
 # Enhanced Skip List Memtable - Simplified skip list using lists
-struct EnhancedSkipListMemtable:
+struct EnhancedSkipListMemtable(Movable):
     var entries: List[Entry]
     var size_bytes: Int
     var max_size: Int
@@ -195,7 +195,7 @@ struct EnhancedSkipListMemtable:
         return result^
 
 # Hash Skip List Memtable - Hash with ordered access
-struct HashSkipListMemtable:
+struct HashSkipListMemtable(Movable):
     var hash_map: Dict[String, String]
     var sorted_keys: List[String]
     var size_bytes: Int
@@ -250,7 +250,7 @@ struct HashSkipListMemtable:
         return self.hash_map.copy()
 
 # Vector Memtable - Dynamic array-based storage
-struct VectorMemtable:
+struct VectorMemtable(Movable):
     var entries: List[Entry]
     var size_bytes: Int
     var max_size: Int

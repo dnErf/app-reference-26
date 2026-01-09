@@ -26,7 +26,7 @@ Use Cases:
 from collections import List, Dict
 
 # Trie-inspired Memtable using Dict with prefix operations
-struct TrieMemtable:
+struct TrieMemtable(Movable):
     var entries: Dict[String, String]
     var size_bytes: Int
     var max_size: Int

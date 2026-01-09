@@ -36,7 +36,7 @@ import time
 alias Entry = Tuple[String, String]
 
 # Sorted Memtable using binary search
-struct SortedMemtable:
+struct SortedMemtable(Movable):
     var entries: List[Entry]
     var size_bytes: Int
     var max_size: Int
@@ -148,7 +148,7 @@ struct SortedMemtable:
         return result^
 
 # Simplified SkipList-based Memtable
-struct SkipListMemtable:
+struct SkipListMemtable(Movable):
     var entries: Dict[String, String]  # Simplified to Dict for now
     var size_bytes: Int
     var max_size: Int
