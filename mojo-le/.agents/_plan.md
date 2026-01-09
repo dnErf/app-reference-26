@@ -3,19 +3,6 @@
 ## Overview
 Create a complete relational/columnar database system using PyArrow Parquet with B+ tree indexing and fractal tree metadata management, similar in scope to the LSM database implementation.
 
-## Set 1: Core Database Architecture
-### Database Engine
-- Create `pyarrow_database.mojo` as main database engine
-- Implement DatabaseConnection for session management
-- Add DatabaseCatalog for schema and table management
-- Include TransactionManager for ACID properties
-
-### Table Management
-- Extend DatabaseTable with full CRUD operations
-- Add table creation, alteration, and deletion
-- Implement schema evolution support
-- Add table statistics and optimization
-
 ## Set 2: Advanced Indexing and Querying
 ### B+ Tree Enhancements
 - Implement multi-column composite indexes

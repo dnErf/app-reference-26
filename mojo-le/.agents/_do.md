@@ -1,5 +1,15 @@
 # Current Tasks - PyArrow Columnar Database Implementation
 
+## Metaprogramming Example (COMPLETED)
+- [x] Create compile-time data validation framework
+- [x] Demonstrate trait-based polymorphism for validators
+- [x] Implement type-safe validation with compile-time guarantees
+- [x] Show real-world usage with user registration validation
+- [x] Include comprehensive testing and demonstrations
+- [x] Expand with advanced parameter handling and complex validators
+- [x] Add parameter validation system and factory patterns
+- [x] Demonstrate multiple parameter types (lists, ranges, flags, custom messages)
+
 ## Set 5: Unique Identifier Systems (COMPLETED)
 - [x] Implement UUID v4 (random-based)
 - [x] Implement UUID v5 (SHA-1 name-based)
@@ -41,6 +51,19 @@
 - [x] Implement data insertion and columnar storage
 - [x] Add B+ tree indexing for fast lookups
 - [x] Create query functionality with WHERE conditions
+
+## Set 1: Core Database Architecture (ACTIVE)
+### Database Engine
+- [ ] Create `pyarrow_database.mojo` as main database engine
+- [ ] Implement DatabaseConnection for session management
+- [ ] Add DatabaseCatalog for schema and table management
+- [ ] Include TransactionManager for ACID properties
+
+### Table Management
+- [ ] Extend DatabaseTable with full CRUD operations
+- [ ] Add table creation, alteration, and deletion
+- [ ] Implement schema evolution support
+- [ ] Add table statistics and optimization
 - [x] Support multiple tables in single database
 - [x] Include metadata management and table statistics
 - [x] Create `columnar_db_demo.mojo` - comprehensive concept demonstration
