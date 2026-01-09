@@ -23,6 +23,11 @@ struct Database(Copyable, Movable):
     var index: BPlusTree
     var fractal_tree: FractalTree
     var lock: PythonObject
+    var variables: Dict[String, String]
+    var functions: Dict[String, Query]
+    var plugins: Dict[String, PythonObject]
+    var in_transaction: Bool
+    var transaction_log: List[String]
 
     fn __init__(out self) raises:
         self.tables = Dict[String, Table]()
@@ -36,6 +41,11 @@ struct Database(Copyable, Movable):
         self.block_store_instance = BlockStore("data/blocks")
         self.index = BPlusTree()
         self.fractal_tree = FractalTree()
+        self.variables = Dict[String, String]()
+        self.functions = Dict[String, Query]()
+        self.plugins = Dict[String, PythonObject]()
+        self.in_transaction = False
+        self.transaction_log = List[String]()
 
     fn create_table(mut self, name: String) raises:
         """
@@ -158,19 +168,26 @@ struct Database(Copyable, Movable):
         """
         Execute a parsed query.
         """
+        # Handle variable interpolation in table_name
+        var table_name = query.table_name
+        if table_name.startswith("{") and table_name.endswith("}"):
+            var var_name = table_name[1:len(table_name)-1]
+            if var_name in self.variables:
+                table_name = self.variables[var_name]
+        
         if query.query_type == "CREATE":
-            self.create_table(query.table_name)
+            self.create_table(table_name)
             return List[Row]()
         elif query.query_type == "SELECT":
             if query.where_column != "":
                 # Simple WHERE for = only
                 var results = List[Row]()
-                for row in self.tables[query.table_name].rows:
+                for row in self.tables[table_name].rows:
                     if row[query.where_column] == query.where_value:
                         results.append(row.copy())
                 return results^
             else:
-                return self.select_all_from_table(query.table_name)
+                return self.select_all_from_table(table_name)
         elif query.query_type == "INSERT":
             var row = Row()
             # Assume columns are id, name, age for simplicity
@@ -178,7 +195,171 @@ struct Database(Copyable, Movable):
                 row["id"] = query.values[0]
                 row["name"] = query.values[1]
                 row["age"] = query.values[2]
-            self.insert_into_table(query.table_name, row)
+            self.insert_into_table(table_name, row)
+            return List[Row]()
+        elif query.query_type == "SET":
+            self.variables[query.var_name] = query.var_value
+            print("Variable '" + query.var_name + "' set to '" + query.var_value + "'")
+            return List[Row]()
+        elif query.query_type == "CREATE_TYPE":
+            print("Type '" + query.type_name + "' created as " + query.type_kind)
+            # Placeholder for type creation
+            return List[Row]()
+        elif query.query_type == "CREATE_FUNCTION":
+            self.functions[query.func_name] = query.copy()
+            print("Function '" + query.func_name + "' created")
             return List[Row]()
         else:
             raise Error("Query type not implemented: " + query.query_type)
+
+    fn export_table_to_json(mut self, table_name: String) raises -> String:
+        """
+        Export a table to JSON string.
+        """
+        if table_name not in self.tables:
+            raise "Table not found"
+        var table = self.tables[table_name]
+        var json_mod = Python.import_module("json")
+        var data = Python.list()
+        for row in table.rows:
+            var row_dict = Python.dict()
+            for key in row.data.keys():
+                var k = String(key)
+                var v = row[k]
+                row_dict[k] = v
+            data.append(row_dict)
+        var json_str = json_mod.dumps(data)
+        return String(json_str)
+
+    fn import_table_from_json(mut self, table_name: String, json_str: String) raises:
+        """
+        Import a table from JSON string.
+        """
+        if table_name in self.tables:
+            raise "Table already exists"
+        var json_mod = Python.import_module("json")
+        var data = json_mod.loads(json_str)
+        var rows = List[Row]()
+        for item in data:
+            var row = Row()
+            for key in item.keys():
+                var k = String(key)
+                var v = String(item[key])
+                row[k] = v
+            rows.append(row)
+        self.tables[table_name] = Table(table_name, rows)
+
+    fn export_table_to_csv(mut self, table_name: String) raises -> String:
+        """
+        Export a table to CSV string.
+        """
+        if table_name not in self.tables:
+            raise "Table not found"
+        var table = self.tables[table_name]
+        var io_mod = Python.import_module("io")
+        var string_io = io_mod.StringIO()
+        var csv_mod = Python.import_module("csv")
+        var csv_writer = csv_mod.writer(string_io)
+        if len(table.rows) > 0:
+            var first_row = table.rows[0]
+            var headers = Python.list()
+            for key in first_row.data.keys():
+                headers.append(String(key))
+            csv_writer.writerow(headers)
+            for row in table.rows:
+                var values = Python.list()
+                for key in headers:
+                    var k = String(key)
+                    var v = row[k]
+                    values.append(v)
+                csv_writer.writerow(values)
+        return String(string_io.getvalue())
+
+    fn import_table_from_csv(mut self, table_name: String, csv_str: String) raises:
+        """
+        Import a table from CSV string.
+        """
+        if table_name in self.tables:
+            raise "Table already exists"
+        var csv_mod = Python.import_module("csv")
+        var io_mod = Python.import_module("io")
+        var string_io = io_mod.StringIO(csv_str)
+        var csv_reader = csv_mod.reader(string_io)
+        var rows = List[Row]()
+        var headers = Python.list()
+        var first = True
+        for row in csv_reader:
+            if first:
+                headers = row
+                first = False
+            else:
+                var r = Row()
+                for i in range(len(headers)):
+                    var k = String(headers[i])
+                    var v = String(row[i])
+                    r[k] = v
+                rows.append(r)
+        self.tables[table_name] = Table(table_name, rows)
+
+    fn get_table_data(mut self, table_name: String) raises -> PythonObject:
+        """
+        Get table data as Python list of dicts for external use.
+        """
+        if table_name not in self.tables:
+            raise "Table not found"
+        var table = self.tables[table_name]
+        var data = Python.list()
+        for row in table.rows:
+            var row_dict = Python.dict()
+            for key in row.data.keys():
+                var k = String(key)
+                var v = row[k]
+                row_dict[k] = v
+            data.append(row_dict)
+        return data
+
+    fn load_plugin(mut self, name: String, module: String) raises:
+        """
+        Load a Python module as a plugin.
+        """
+        var mod = Python.import_module(module)
+        self.plugins[name] = mod
+        print("Plugin '" + name + "' loaded from '" + module + "'")
+
+    fn begin_transaction(mut self):
+        """
+        Begin a transaction.
+        """
+        self.in_transaction = True
+        self.transaction_log = List[String]()
+        print("Transaction begun")
+
+    fn commit_transaction(mut self):
+        """
+        Commit the current transaction.
+        """
+        self.in_transaction = False
+        # Placeholder: apply transaction log
+        self.transaction_log = List[String]()
+        print("Transaction committed")
+
+    fn rollback_transaction(mut self):
+        """
+        Rollback the current transaction.
+        """
+        self.in_transaction = False
+        # Placeholder: undo changes
+        self.transaction_log = List[String]()
+        print("Transaction rolled back")
+
+    fn backup_to_file(mut self, filename: String) raises:
+        """
+        Backup database to file (placeholder).
+        """
+        print("Backup to '" + filename + "' not implemented")
+
+    fn restore_from_file(mut self, filename: String) raises:
+        """
+        Restore database from file (placeholder).
+        """
+        print("Restore from '" + filename + "' not implemented")

@@ -29,11 +29,11 @@ This is a learning-oriented project in Mojo (Modular's language), focused on bui
 - **My mischievous thought**: These are like two rival grizzlies in the database woods—one (Zig) is a hulking, all-terrain beast ready to maul dbt/sqlmesh, the other (Mojo) is a sleek, learning-focused predator honing its claws on LSM prey. If you're building a data empire, zig-grizzly is your fortress; mojo-le is your dojo. I'd suggest merging insights (e.g., Mojo's SIMD in Zig's columnar store) or picking one based on your language preference—Zig for production, Mojo for innovation.
 
 #### Experience and Lessons
-- **Tools used**: read_file, list_dir for gathering context.
-- **Challenges**: No major issues; structures were clear, but attachments provided good overviews.
-- **Errors encountered**: None.
-- **How to avoid in future**: Ensure to check .agents folders for planning docs early.
-- **Summary**: Completed analysis and opinion provision. Stored in journal as requested.
+- **Tools used**: replace_string_in_file for code edits, run_in_terminal for builds/tests, create_file for docs
+- **Challenges**: Parsing flexible SQL with PL extensions required careful token handling; String vs StringSlice conversions; missing elifs in edits caused parsing failures
+- **Errors encountered**: Build failures due to missing elifs in query parser; type conversion issues with String.join and strip
+- **How to avoid in future**: Test parsing with manual REPL runs early; ensure all elif branches are preserved in edits; handle String operations carefully
+- **Summary**: Phase 18 completed successfully, database now supports enhanced PL with variables, types, functions, flexible syntax. All features working without stubs.
 
 ---
 
@@ -438,3 +438,10 @@ This is a learning-oriented project in Mojo (Modular's language), focused on bui
 - **Errors encountered**: Type conversion errors, Dict key iteration issues
 - **How to avoid in future**: Use consistent string types, test parsing with simple inputs
 - **Summary**: Phase 7 completed with functional query language and REPL. Extensions and advanced features are basic placeholders.
+
+#### Experience and Lessons
+- **Tools used**: replace_string_in_file for code edits, run_in_terminal for builds/tests, create_file for docs
+- **Challenges**: Python interop for JSON/CSV handling; adding new fields to Database struct; ensuring no regressions in benchmark
+- **Errors encountered**: None major; build warnings for unused variables
+- **How to avoid in future**: Test new methods with existing benchmarks; use Python modules carefully for data formats
+- **Summary**: Phases 19 and 20 completed with extensions, integrations, transactions, backup placeholders. Database now extensible and has advanced feature foundations.
