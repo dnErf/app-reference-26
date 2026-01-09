@@ -1,3 +1,49 @@
+- [x] SortedMemtable with binary search and range queries
+  - Implemented in memtable.mojo
+  - Features: O(log N) operations, range queries, size tracking
+  - Tested with comprehensive demo
+- [x] SkipListMemtable (simplified Dict-based)
+  - Implemented in memtable.mojo
+  - Features: Fast lookups, simplified from complex skip list
+  - Tested with basic operations
+- [x] TrieMemtable with prefix operations
+  - Implemented in trie_memtable.mojo
+  - Features: Prefix search, longest prefix match, common prefixes analysis
+  - Fixed compilation issues: Dict aliasing, unused values
+  - Tested with comprehensive demo including prefix operations
+- All memtable variants compile and run successfully
+- Mojo ownership system required careful parameter handling
+- Dict-based approaches proved more practical than complex recursive structures
+- Size-based flush triggers implemented across all variants
+- [x] SSTable implementation using PyArrow Parquet
+  - Created `sstable.mojo` with PyArrow integration
+  - Features: Immutable Parquet files, bloom filters, metadata management
+  - Supports point lookups and range queries with predicate pushdown
+  - Tested with comprehensive demo including save/load operations
+- [x] SSTable reader/writer with bloom filters
+  - Implemented efficient PyArrow table creation from Mojo data
+  - Added simple bloom filter for fast key existence checks
+  - Proper Python/Mojo interop for data conversion
+- [x] Metadata management (min/max keys, size, timestamp)
+  - SSTableMetadata struct with all required fields
+  - Automatic key range calculation and file naming
+  - Level-based organization for compaction
+- [x] Range queries and point lookups
+  - PyArrow compute integration for efficient filtering
+  - Range query support with start/end key bounds
+  - Point lookup optimization with bloom filter pre-check
+- [x] Merge policies for overlapping SSTables
+  - Implemented in merge_policies.mojo
+  - Features: Overlap detection, merge iterators, key range analysis, configurable policies
+  - Integrates with compaction strategy for intelligent SSTable merging
+  - Tested with comprehensive demo showing overlap detection and merge recommendations
+
+## Technical Notes
+- PyArrow Integration: Successfully bridged Mojo and Python for columnar storage with complex interop
+- Ownership Management: Resolved complex Movable trait conformances and transfer ownership patterns
+- Compaction Strategies: Implemented both level-based (predictable) and size-tiered (write-optimized) approaches
+- Performance: Leverages PyArrow's predicate pushdown for query efficiency and columnar compression
+- File Format: Parquet provides efficient storage with automatic compression and metadata management
 - [x] Transform filesystem_operations.mojo from conceptual print statements to real PyArrow filesystem operations (local only, skipping cloud/URI)
   - Implement actual LocalFileSystem operations (file existence, size, type checking)
   - Implement real file listing and metadata operations with FileSelector
@@ -47,13 +93,18 @@
 - [x] Test all examples for real async functionality
 - [x] Create documentation (README_direct_uvloop.md updated for pure asyncio)
 - [x] Update diary (_mischievous.md) with session summary
-- [x] Transform csv_io_operations.mojo from conceptual print statements to real working PyArrow CSV I/O operations
-  - Implement actual CSV reading with PyArrow (csv.read_csv)
-  - Implement actual CSV writing with compression (csv.write_csv)
-  - Show parsing options, delimiters, incremental reading
-  - Add error handling and validation with real examples
-  - Test compilation and execution
-  - Update documentation
+- [x] Implement LSM Tree core structure
+  - Create lsm_tree.mojo with main LSM coordination
+  - Implement memtable flushing to SSTable
+  - Add multi-level SSTable management
+  - Include read path with level merging
+  - Demonstrate WAL (Write-Ahead Logging) for durability
+  - Show compaction strategy for space efficiency
+  - Test with real data operations and statistics
+  - Build database_simulation.mojo combining all structures
+  - Implement table storage with multiple indexes
+  - Add query optimization using index structures
+  - Include performance comparisons and real-world examples
 - [x] Demonstrate concurrent execution with real thread interleaving
 - [x] Use Python.evaluate with exec() for multi-line Python code execution
 - [x] Test threading examples with venv activation
