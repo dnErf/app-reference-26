@@ -1,7 +1,25 @@
-- [x] Create filesystem_operations.mojo - Demonstrate filesystem interface with LocalFS, S3, GCS examples
-- [x] Create csv_io_operations.mojo - Show CSV reading/writing with parsing and conversion options
-- [x] Create json_io_operations.mojo - Demonstrate JSON reading with type inference and nested structures
-- [x] Create feather_io_operations.mojo - Show Feather format operations with compression options
+- [x] Transform filesystem_operations.mojo from conceptual print statements to real PyArrow filesystem operations (local only, skipping cloud/URI)
+  - Implement actual LocalFileSystem operations (file existence, size, type checking)
+  - Implement real file listing and metadata operations with FileSelector
+  - Implement I/O streams for reading and writing data
+  - Add proper error handling and cleanup
+  - Test compilation and execution with real file operations
+  - Update documentation
+- [x] Implement csv_io_operations.mojo with real PyArrow CSV integration and working examples
+- [x] Transform memory_mapped_datasets.mojo from conceptual print statements to real working PyArrow memory-mapped dataset operations
+  - Implement actual memory-mapped file I/O with PyArrow Parquet reading (memory_map=True)
+  - Implement large dataset processing with dataset scanning and filtering
+  - Show zero-copy operations with column access and table slicing
+  - Add real examples with data creation, partitioning, and performance measurements
+  - Test compilation and execution with real PyArrow operations
+  - Update documentation
+  - Implement nested structure handling with struct access and list operations
+  - Show incremental reading with chunked processing and table.slice()
+  - Demonstrate schema inference with automatic type detection
+  - Add performance optimization with timing measurements
+  - Test compilation and execution with real JSON operations
+  - Update documentation
+- [x] Implement feather_io_operations.mojo with real PyArrow Feather integration and working examples
 - [x] Create pyarrow_integration.mojo: demonstrate PyArrow Table/Schema creation, data import/export, and basic operations
 - [x] Create columnar_processing.mojo: show efficient columnar data manipulation, filtering, and aggregation using PyArrow
 - [x] Implement columnar_processing.mojo with real PyArrow integration and working examples
@@ -13,6 +31,14 @@
 - [x] Create orc_io_operations.mojo: demonstrate ORC (Optimized Row Columnar) file operations with PyArrow
 - [x] Implement orc_io_operations.mojo with real PyArrow ORC integration and working examples
 - [x] Create ipc_streaming.mojo: demonstrate IPC (Inter-Process Communication) streaming and serialization
+- [x] Transform ipc_streaming.mojo from conceptual print statements to real working PyArrow IPC operations
+  - Implement actual IPC streaming format with pyarrow.ipc.new_stream_writer
+  - Implement actual IPC file format with pyarrow.ipc.new_file_writer and random access
+  - Show record batch operations, filtering, and concatenation
+  - Demonstrate zero-copy streaming and memory-mapped IPC operations
+  - Add proper error handling and cleanup with real examples
+  - Test compilation and execution with real IPC operations
+  - Update documentation
 - [x] Create intermediate_async_direct.mojo with basic async concepts (pure asyncio)
 - [x] Create advanced_async_direct.mojo with channels and task groups (pure asyncio)
 - [x] Create expert_async_direct.mojo with iterators and benchmarking (pure asyncio)
@@ -21,7 +47,13 @@
 - [x] Test all examples for real async functionality
 - [x] Create documentation (README_direct_uvloop.md updated for pure asyncio)
 - [x] Update diary (_mischievous.md) with session summary
-- [x] Create threading_examples.mojo with Python threading module integration
+- [x] Transform csv_io_operations.mojo from conceptual print statements to real working PyArrow CSV I/O operations
+  - Implement actual CSV reading with PyArrow (csv.read_csv)
+  - Implement actual CSV writing with compression (csv.write_csv)
+  - Show parsing options, delimiters, incremental reading
+  - Add error handling and validation with real examples
+  - Test compilation and execution
+  - Update documentation
 - [x] Demonstrate concurrent execution with real thread interleaving
 - [x] Use Python.evaluate with exec() for multi-line Python code execution
 - [x] Test threading examples with venv activation

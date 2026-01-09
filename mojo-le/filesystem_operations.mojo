@@ -3,14 +3,12 @@ Filesystem Operations with PyArrow Integration
 =============================================
 
 This example demonstrates filesystem operations using PyArrow for
-efficient data access across different storage systems in Mojo.
+efficient data access in Mojo.
 
 Key concepts covered:
 - Local filesystem operations
-- Cloud storage (S3, GCS, Azure)
 - File listing and metadata
 - Input/output streams
-- URI-based filesystem access
 """
 
 from python import Python
@@ -19,13 +17,10 @@ from python import PythonObject
 
 def main():
     print("=== Filesystem Operations with PyArrow Integration ===")
-    print("Demonstrating efficient data access across storage systems\n")
+    print("Demonstrating efficient data access in Mojo\n")
 
     # Demonstrate local filesystem operations
     demonstrate_local_filesystem()
-
-    # Show cloud storage operations
-    demonstrate_cloud_storage()
 
     # File listing and metadata operations
     demonstrate_file_listing()
@@ -33,16 +28,12 @@ def main():
     # Input/output stream operations
     demonstrate_io_streams()
 
-    # URI-based filesystem access
-    demonstrate_uri_access()
-
     print("\n=== Filesystem Operations Complete ===")
     print("Key takeaways:")
-    print("- PyArrow provides unified filesystem interface across storage types")
-    print("- Local and cloud storage operations use the same API")
+    print("- PyArrow provides unified filesystem interface")
+    print("- Local filesystem operations are efficient and platform-independent")
     print("- File metadata and listing enable efficient data discovery")
     print("- I/O streams support both reading and writing operations")
-    print("- URI-based access simplifies filesystem configuration")
 
 
 def demonstrate_local_filesystem():
@@ -52,107 +43,67 @@ def demonstrate_local_filesystem():
     print("=== Local Filesystem Operations ===")
 
     try:
-        print("Local Filesystem Concepts:")
-        print("1. Local FileSystem Class:")
-        print("   - Access files on local machine")
-        print("   - Platform-independent path handling")
-        print("   - Support for all local file operations")
-        print("   - No authentication required")
+        # Import PyArrow filesystem module
+        pyarrow = Python.import_module("pyarrow")
+        fs_mod = Python.import_module("pyarrow.fs")
+        LocalFileSystem = fs_mod.LocalFileSystem
 
-        print("\n2. Basic Operations:")
-        print("   - File reading and writing")
-        print("   - Directory operations")
-        print("   - File metadata access")
-        print("   - Path manipulation")
+        # Create local filesystem instance
+        fs = LocalFileSystem()
 
-        print("\n3. Performance Features:")
-        print("   - Direct OS file access")
-        print("   - Memory mapping support")
-        print("   - Efficient I/O operations")
-        print("   - Native file locking")
+        print("Created LocalFileSystem instance")
 
-        # Simulate local filesystem operations
-        print("\nLocal Filesystem Operations Example:")
-        print("Creating LocalFileSystem instance...")
-        print("Filesystem: LocalFileSystem()")
-        print("Root path: /home/user/data")
-        print("")
-        print("File Operations:")
-        print("  - Open input stream: data.csv (read)")
-        print("  - Open output stream: results.parquet (write)")
-        print("  - Check file exists: data.csv → True")
-        print("  - Get file size: data.csv → 1.2MB")
-        print("")
-        print("Directory Operations:")
-        print("  - List directory: /home/user/data/")
-        print("    ├── data.csv")
-        print("    ├── metadata.json")
-        print("    └── results/")
-        print("        └── analysis.parquet")
-        print("")
-        print("Path Operations:")
-        print("  - Normalize path: ./data/../data.csv → data.csv")
-        print("  - Join paths: /home/user + data.csv → /home/user/data.csv")
-        print("  - Get parent: /home/user/data.csv → /home/user")
+        # Test file operations
+        test_file = "test_data.txt"
 
-    except:
-        print("Local filesystem demonstration failed")
+        # Create a test file
+        with open(test_file, "w") as f:
+            f.write("id,name,value\n1,Alice,100\n2,Bob,200\n3,Charlie,300\n")
 
+        # Check if file exists
+        file_info = fs.get_file_info(test_file)
+        print("File exists:", test_file, "->", file_info.type.name == "File")
 
-def demonstrate_cloud_storage():
-    """
-    Demonstrate cloud storage operations (S3, GCS, Azure).
-    """
-    print("\n=== Cloud Storage Operations ===")
+        # Get file size
+        print("File size:", test_file, "->", file_info.size, "bytes")
 
-    try:
-        print("Cloud Storage Concepts:")
-        print("1. Supported Cloud Providers:")
-        print("   - Amazon S3 (S3FileSystem)")
-        print("   - Google Cloud Storage (GcsFileSystem)")
-        print("   - Azure Blob Storage (AzureFileSystem)")
-        print("   - Hadoop HDFS (HadoopFileSystem)")
+        # Get file type
+        print("File type:", file_info.type.name)
 
-        print("\n2. Authentication Methods:")
-        print("   - Environment variables (AWS_ACCESS_KEY_ID, etc.)")
-        print("   - Configuration files (~/.aws/credentials)")
-        print("   - IAM roles (EC2, ECS, EKS)")
-        print("   - Service account keys (GCP)")
-        print("   - SAS tokens (Azure)")
+        # Test directory operations
+        test_dir = "test_dir"
+        import os
+        os.makedirs(test_dir, exist_ok=True)
 
-        print("\n3. Connection Options:")
-        print("   - Region/endpoint configuration")
-        print("   - Retry and timeout settings")
-        print("   - Connection pooling")
-        print("   - SSL/TLS configuration")
+        # List directory
+        dir_info = fs.get_file_info(test_dir)
+        print("Directory exists:", test_dir, "->", dir_info.type.name == "Directory")
 
-        # Simulate cloud storage operations
-        print("\nCloud Storage Operations Example:")
-        print("Provider: Amazon S3")
-        print("Region: us-west-2")
-        print("Bucket: my-data-lake")
-        print("")
-        print("S3 Operations:")
-        print("  - Connect to S3: s3://my-data-lake/")
-        print("  - List objects: s3://my-data-lake/raw-data/")
-        print("    ├── 2023/01/01/data.parquet")
-        print("    ├── 2023/01/02/data.parquet")
-        print("    └── 2023/01/03/data.parquet")
-        print("")
-        print("File Access:")
-        print("  - Read file: s3://my-data-lake/2023/01/01/data.parquet")
-        print("  - File size: 45MB")
-        print("  - Last modified: 2023-01-01 12:30:00Z")
-        print("  - ETag: abc123def456")
-        print("")
-        print("Advanced Features:")
-        print("  - Multipart upload for large files")
-        print("  - Server-side encryption")
-        print("  - Versioning support")
-        print("  - Cross-region replication")
+        # Create files in directory
+        with open(test_dir + "/file1.txt", "w") as f:
+            f.write("File 1 content")
+        with open(test_dir + "/file2.txt", "w") as f:
+            f.write("File 2 content")
 
-    except:
-        print("Cloud storage demonstration failed")
+        # List directory contents
+        file_selector = fs_mod.FileSelector(test_dir, recursive=False)
+        file_infos = fs.get_file_info(file_selector)
+        print("Directory contents:")
+        for info in file_infos:
+            var path_part = String(info.path.split('/')[-1])
+            var type_part = String(info.type.name)
+            var size_part = String(info.size)
+            print("  - " + path_part + " (" + type_part + ", " + size_part + " bytes)")
+
+        # Clean up
+        var shutil = Python.import_module("shutil")
+        shutil.rmtree(test_dir)
+        os.remove(test_file)
+
+        print("Local filesystem operations completed successfully")
+
+    except e:
+        print("Local filesystem demonstration failed:", String(e))
 
 
 def demonstrate_file_listing():
@@ -162,58 +113,84 @@ def demonstrate_file_listing():
     print("\n=== File Listing and Metadata ===")
 
     try:
-        print("File Listing Concepts:")
-        print("1. FileSelector Class:")
-        print("   - Specify selection criteria")
-        print("   - Recursive or non-recursive listing")
-        print("   - Path-based filtering")
-        print("   - Wildcard pattern matching")
+        # Import PyArrow filesystem module
+        pyarrow = Python.import_module("pyarrow")
+        fs_mod = Python.import_module("pyarrow.fs")
+        LocalFileSystem = fs_mod.LocalFileSystem
 
-        print("\n2. FileInfo Objects:")
-        print("   - File type (file/directory)")
-        print("   - File size in bytes")
-        print("   - Last modification time")
-        print("   - Path information")
+        # Create local filesystem instance
+        fs = LocalFileSystem()
 
-        print("\n3. Listing Operations:")
-        print("   - Single file information")
-        print("   - Directory contents")
-        print("   - Recursive traversal")
-        print("   - Filtered selections")
+        # Create test directory structure
+        import os
 
-        # Simulate file listing operations
-        print("\nFile Listing Operations Example:")
-        print("Filesystem: LocalFileSystem")
-        print("Base path: /data/warehouse")
-        print("")
+        test_dir = "test_warehouse"
+        os.makedirs(test_dir, exist_ok=True)
+        os.makedirs(test_dir + "/products", exist_ok=True)
+        os.makedirs(test_dir + "/products/books", exist_ok=True)
+
+        # Create test files
+        with open(test_dir + "/sales_2023.parquet", "w") as f:
+            f.write("dummy parquet content")
+        with open(test_dir + "/customers.csv", "w") as f:
+            f.write("id,name,email\n1,Alice,a@example.com\n")
+        with open(test_dir + "/products/electronics.parquet", "w") as f:
+            f.write("electronics data")
+        with open(test_dir + "/products/clothing.parquet", "w") as f:
+            f.write("clothing data")
+        with open(test_dir + "/products/books/fiction.parquet", "w") as f:
+            f.write("fiction books")
+        with open(test_dir + "/products/books/nonfiction.parquet", "w") as f:
+            f.write("nonfiction books")
+
+        # Get single file info
+        file_info = fs.get_file_info(test_dir + "/sales_2023.parquet")
         print("Single File Info:")
-        print("  Path: /data/warehouse/sales_2023.parquet")
-        print("  Type: File")
-        print("  Size: 1,234,567 bytes")
-        print("  Modified: 2023-12-31 23:59:59")
-        print("")
-        print("Directory Listing (non-recursive):")
-        print("  Path: /data/warehouse/")
-        print("  ├── sales_2023.parquet (File, 1.2MB)")
-        print("  ├── customers.csv (File, 500KB)")
-        print("  ├── products/ (Directory)")
-        print("  └── archive/ (Directory)")
-        print("")
-        print("Recursive Listing with Selector:")
-        print("  Selector: FileSelector('products/', recursive=True)")
-        print("  ├── products/electronics.parquet (File, 800KB)")
-        print("  ├── products/clothing.parquet (File, 600KB)")
-        print("  ├── products/books/ (Directory)")
-        print("  ├── products/books/fiction.parquet (File, 2.1MB)")
-        print("  └── products/books/nonfiction.parquet (File, 1.8MB)")
-        print("")
-        print("Filtered Listing:")
-        print("  Pattern: *.parquet")
-        print("  Results: 5 parquet files found")
-        print("  Total size: 6.5MB")
+        print("  Path:", file_info.path)
+        print("  Type:", file_info.type.name)
+        print("  Size:", file_info.size, "bytes")
 
-    except:
-        print("File listing demonstration failed")
+        # List directory (non-recursive)
+        file_selector = fs_mod.FileSelector(test_dir, recursive=False)
+        file_infos = fs.get_file_info(file_selector)
+        print("\nDirectory Listing (non-recursive):")
+        print("  Path:", test_dir + "/")
+        for info in file_infos:
+            var path_parts = String(info.path).split('/')
+            var filename = path_parts[len(path_parts) - 1]
+            print("    " + filename + " (" + String(info.type.name) + ", " + String(info.size) + " bytes)")
+
+        # Recursive listing
+        file_selector_recursive = fs_mod.FileSelector(test_dir + "/products", recursive=True)
+        file_infos_recursive = fs.get_file_info(file_selector_recursive)
+        print("\nRecursive Listing:")
+        print("  Path:", test_dir + "/products/")
+        for info in file_infos_recursive:
+            var full_path = String(info.path)
+            var prefix = test_dir + "/products/"
+            var rel_path = full_path.replace(prefix, "")
+            print("    " + rel_path + " (" + String(info.type.name) + ", " + String(info.size) + " bytes)")
+
+        # Calculate total size for parquet files
+        total_size = 0
+        parquet_count = 0
+        for info in file_infos_recursive:
+            if info.path.endswith(".parquet"):
+                total_size += atol(String(info.size))
+                parquet_count += 1
+
+        print("\nFiltered Listing (parquet files):")
+        print("  Results: " + String(parquet_count) + " parquet files found")
+        print("  Total size: " + String(total_size) + " bytes")
+
+        # Clean up
+        var shutil = Python.import_module("shutil")
+        shutil.rmtree(test_dir)
+
+        print("File listing operations completed successfully")
+
+    except e:
+        print("File listing demonstration failed:", String(e))
 
 
 def demonstrate_io_streams():
@@ -223,125 +200,85 @@ def demonstrate_io_streams():
     print("\n=== I/O Stream Operations ===")
 
     try:
-        print("I/O Stream Concepts:")
-        print("1. Input Streams:")
-        print("   - Read data from files")
-        print("   - Support for various encodings")
-        print("   - Seekable and non-seekable streams")
-        print("   - Buffered reading")
+        # Import PyArrow filesystem module
+        pyarrow = Python.import_module("pyarrow")
+        fs_mod = Python.import_module("pyarrow.fs")
+        LocalFileSystem = fs_mod.LocalFileSystem
 
-        print("\n2. Output Streams:")
-        print("   - Write data to files")
-        print("   - Compression support")
-        print("   - Atomic writes")
-        print("   - Error handling")
+        # Create local filesystem instance
+        fs = LocalFileSystem()
 
-        print("\n3. Stream Types:")
-        print("   - NativeFile streams (high performance)")
-        print("   - Python file-like objects")
-        print("   - Compressed streams")
-        print("   - Memory streams")
+        # Create test data
+        test_input = "input_data.csv"
+        test_output = "processed_data.txt"
 
-        # Simulate I/O stream operations
-        print("\nI/O Stream Operations Example:")
-        print("Operation: Process large CSV file with compression")
-        print("")
-        print("Input Stream Setup:")
-        print("  - File: data.csv.gz (compressed)")
-        print("  - Stream type: CompressedInputStream")
-        print("  - Compression: GZIP")
-        print("  - Buffer size: 64KB")
-        print("")
-        print("Reading Operations:")
-        print("  - Open compressed stream")
-        print("  - Read header row: id,name,email,score")
-        print("  - Read data rows: 100,000 records")
-        print("  - Automatic decompression")
-        print("  - Memory usage: 8MB buffer")
-        print("")
-        print("Output Stream Setup:")
-        print("  - File: processed_data.parquet")
-        print("  - Stream type: NativeFile")
-        print("  - Compression: SNAPPY")
-        print("  - Write mode: Create")
-        print("")
-        print("Writing Operations:")
-        print("  - Create output stream")
-        print("  - Write Parquet header")
-        print("  - Write processed data: 100,000 records")
-        print("  - Close and finalize file")
-        print("  - Final size: 25MB (compressed)")
-        print("")
-        print("Performance Metrics:")
-        print("  - Read throughput: 150 MB/s")
-        print("  - Write throughput: 200 MB/s")
-        print("  - Compression ratio: 4.2:1")
-        print("  - Total processing time: 45 seconds")
+        # Create input file with sample data
+        with open(test_input, "w") as f:
+            f.write("id,name,email,score\n")
+            var i = 0
+            while i < 100:
+                f.write(String(i+1) + ",User" + String(i) + ",user" + String(i) + "@example.com," + String((i%100)+1) + "\n")
+                i += 1
+        # Open input stream and read data
+        input_stream = fs.open_input_stream(test_input)
+        data = input_stream.readall()
+        input_stream.close()
 
-    except:
-        print("I/O streams demonstration failed")
+        print("Read", len(data), "bytes from input stream")
 
+        # Process data (simple example: count lines)
+        lines = data.decode('utf-8').split('\n')
+        header = lines[0]
+        data_lines = [line for line in lines[1:] if line.strip()]
 
-def demonstrate_uri_access():
-    """
-    Demonstrate URI-based filesystem access.
-    """
-    print("\n=== URI-Based Filesystem Access ===")
+        print("Header:", header)
+        print("Data records:", len(data_lines))
 
-    try:
-        print("URI Access Concepts:")
-        print("1. URI Schemes:")
-        print("   - file:// (local filesystem)")
-        print("   - s3:// (Amazon S3)")
-        print("   - gs:// (Google Cloud Storage)")
-        print("   - abfs:// (Azure Blob Storage)")
-        print("   - hdfs:// (Hadoop HDFS)")
+        # Simple aggregation: count scores > 50
+        var high_scores = 0
+        for line in data_lines:
+            if line:
+                var parts = line.split(',')
+                if len(parts) > 3:
+                    var score = atol(String(parts[3]))
+                    if score > 50:
+                        high_scores += 1
 
-        print("\n2. Automatic Resolution:")
-        print("   - URI parsing and scheme detection")
-        print("   - Automatic filesystem instantiation")
-        print("   - Credential resolution")
-        print("   - Connection parameter inference")
+        # Open output stream and write processed data
+        output_stream = fs.open_output_stream(test_output)
 
-        print("\n3. URI Components:")
-        print("   - Scheme: Storage type identifier")
-        print("   - Authority: Host/bucket/container")
-        print("   - Path: File or directory path")
-        print("   - Query: Additional parameters")
+        # Write processed results
+        var py_str1 = Python.evaluate('"Processed Results\\n"')
+        var py_str2 = Python.evaluate('"Total records: ' + String(len(data_lines)) + '\\n"')
+        var py_str3 = Python.evaluate('"High scores (>50): ' + String(high_scores) + '\\n"')
+        
+        output_stream.write(py_str1.encode('utf-8'))
+        output_stream.write(py_str2.encode('utf-8'))
+        output_stream.write(py_str3.encode('utf-8'))
 
-        # Simulate URI-based access
-        print("\nURI-Based Access Examples:")
-        print("")
-        print("Local File Access:")
-        print("  URI: file:///home/user/data/sales.csv")
-        print("  Resolved to: LocalFileSystem + /home/user/data/sales.csv")
-        print("  Operation: Read CSV file")
-        print("")
-        print("S3 Bucket Access:")
-        print("  URI: s3://my-bucket/analytics/2023/report.parquet")
-        print("  Resolved to: S3FileSystem(region=us-east-1) + my-bucket/analytics/2023/report.parquet")
-        print("  Operation: Read Parquet file from S3")
-        print("")
-        print("Google Cloud Storage:")
-        print("  URI: gs://my-project-data/processed/events.avro")
-        print("  Resolved to: GcsFileSystem + my-project-data/processed/events.avro")
-        print("  Operation: Read Avro file from GCS")
-        print("")
-        print("Azure Blob Storage:")
-        print("  URI: abfs://mycontainer@myaccount.dfs.core.windows.net/data/logs.json")
-        print("  Resolved to: AzureFileSystem + mycontainer/data/logs.json")
-        print("  Operation: Read JSON files from Azure")
-        print("")
-        print("Hadoop HDFS:")
-        print("  URI: hdfs://namenode:9000/user/data/input.txt")
-        print("  Resolved to: HadoopFileSystem(host=namenode, port=9000) + /user/data/input.txt")
-        print("  Operation: Read text file from HDFS")
-        print("")
-        print("Benefits:")
-        print("  - Unified API across storage types")
-        print("  - Automatic filesystem selection")
-        print("  - Simplified configuration")
-        print("  - Cross-platform compatibility")
+        output_stream.close()
 
-    except:
-        print("URI access demonstration failed")
+        print("Wrote processed data to:", test_output)
+
+        # Verify output file
+        output_info = fs.get_file_info(test_output)
+        print("Output file size:", output_info.size, "bytes")
+
+        # Read back output file to verify
+        output_stream_read = fs.open_input_stream(test_output)
+        output_data = output_stream_read.readall()
+        output_stream_read.close()
+
+        print("Output content preview:")
+        print(output_data.decode('utf-8')[:200] + "...")
+
+        # Clean up
+        import os
+        os.remove(test_input)
+        os.remove(test_output)
+
+        print("I/O stream operations completed successfully")
+
+    except e:
+        print("I/O streams demonstration failed:", String(e))
+

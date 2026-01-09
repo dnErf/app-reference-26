@@ -40,329 +40,215 @@ def main():
 
 def demonstrate_memory_mapped_io():
     """
-    Demonstrate memory-mapped file I/O operations.
+    Demonstrate memory-mapped file I/O operations with real PyArrow operations.
     """
     print("=== Memory-Mapped File I/O ===")
 
     try:
-        print("Memory-Mapped I/O Concepts:")
-        print("1. Memory Mapping Benefits:")
-        print("   - Direct file-to-memory access")
-        print("   - Reduced system calls")
-        print("   - Lazy loading of data")
-        print("   - Shared memory capabilities")
+        # Import PyArrow modules
+        pyarrow = Python.import_module("pyarrow")
+        pq = Python.import_module("pyarrow.parquet")
+        pa = Python.import_module("pyarrow")
 
-        print("\n2. Memory Mapping Types:")
-        print("   - Private mapping: Copy-on-write")
-        print("   - Shared mapping: Changes visible to others")
-        print("   - Read-only mapping: Data protection")
+        # Create sample data for demonstration
+        data = Python.dict()
+        data["id"] = Python.list()
+        data["value"] = Python.list()
+        data["category"] = Python.list()
 
-        # Simulate memory mapping demonstration
-        print("\nMemory Mapping Demonstration:")
-        print("File: large_dataset.parquet (2.5 GB)")
-        print("Mapping created successfully")
-        print("Virtual memory allocated: 2.5 GB")
-        print("Physical memory used: 0 MB (lazy loading)")
+        for i in range(100):  # Create 100 records for faster testing
+            data["id"].append(i)
+            data["value"].append(i * 1.5)
+            data["category"].append("cat_" + String(i % 10))
 
-    except:
-        print("Memory-mapped I/O demonstration failed")
+        # Create Arrow table
+        table = pa.table(data)
+        print("Created Arrow table with", table.num_rows, "rows")
+
+        # Write to Parquet file with memory mapping preparation
+        parquet_file = "memory_mapped_demo.parquet"
+        pq.write_table(table, parquet_file)
+        print("Written to Parquet file:", parquet_file)
+
+        # Read with memory mapping
+        print("\nReading with memory mapping enabled:")
+        memory_mapped_table = pq.read_table(parquet_file, memory_map=True)
+        print("Memory-mapped table loaded successfully")
+        print("Schema:", memory_mapped_table.schema)
+        print("Number of rows:", memory_mapped_table.num_rows)
+        print("Number of columns:", memory_mapped_table.num_columns)
+
+        # Demonstrate memory efficiency
+        print("\nMemory mapping benefits:")
+        print("- File mapped to virtual memory without full loading")
+        print("- Data accessed on-demand (lazy loading)")
+        print("- Reduced physical memory usage for large files")
+
+        # Clean up
+        import os
+        os.remove(parquet_file)
+        print("Memory-mapped I/O demonstration completed successfully")
+
+    except e:
+        print("Memory-mapped I/O demonstration failed:", String(e))
 
 
 def demonstrate_large_dataset_processing():
     """
-    Demonstrate processing of large datasets beyond RAM capacity.
+    Demonstrate processing of large datasets beyond RAM capacity with real PyArrow dataset operations.
     """
     print("\n=== Large Dataset Processing ===")
 
     try:
-        print("Large Dataset Processing Strategies:")
-        print("1. Out-of-Core Processing:")
-        print("   - Process data larger than RAM")
-        print("   - Chunked processing approach")
-        print("   - Memory-efficient algorithms")
+        # Import PyArrow dataset module
+        pyarrow = Python.import_module("pyarrow")
+        pq = Python.import_module("pyarrow.parquet")
+        ds = Python.import_module("pyarrow.dataset")
+        pa = Python.import_module("pyarrow")
 
-        print("\n2. Dataset Partitioning:")
-        print("   - Horizontal partitioning (rows)")
-        print("   - Vertical partitioning (columns)")
-        print("   - Hybrid partitioning schemes")
+        # Create larger sample dataset
+        print("Creating large sample dataset...")
+        data = Python.dict()
+        data["customer_id"] = Python.list()
+        data["transaction_amount"] = Python.list()
+        data["transaction_date"] = Python.list()
+        data["product_category"] = Python.list()
 
-        # Simulate large dataset processing
-        print("\nLarge Dataset Processing Example:")
-        print("Dataset: 50GB customer transaction data")
-        print("Available RAM: 16GB")
-        print("Processing strategy: Chunked streaming")
+        for i in range(1000):  # 1k records for faster testing
+            data["customer_id"].append(i % 100)  # 100 customers
+            data["transaction_amount"].append((i % 500) + 10.0)
+            data["transaction_date"].append("2023-01-01")
+            data["product_category"].append("category_" + String(i % 5))
 
-    except:
-        print("Large dataset processing demonstration failed")
+        # Create Arrow table
+        table = pa.table(data)
+        print("Created dataset with", table.num_rows, "transactions")
+
+        # Write to partitioned Parquet dataset
+        dataset_path = "large_dataset_demo"
+        pq.write_to_dataset(table, dataset_path, partition_cols=["product_category"])
+        print("Written to partitioned dataset:", dataset_path)
+
+        # Create dataset object for scanning
+        dataset = ds.dataset(dataset_path, format="parquet")
+        print("\nDataset created for scanning operations")
+
+        # Demonstrate scanning with filtering
+        print("\nScanning with filtering (amount > 100):")
+        filter_expr = pa.compute.greater(pa.compute.field("transaction_amount"), 100.0)
+        scanner = ds.Scanner.from_dataset(dataset, filter=filter_expr)
+
+        # Count matching records
+        count = PythonObject(0)
+        for batch in scanner.to_batches():
+            count += batch.num_rows
+
+        print("Records with amount > 100:", count)
+
+        # Demonstrate chunked processing
+        print("\nChunked processing demonstration:")
+        scanner = ds.Scanner.from_dataset(dataset)
+        batch_count = PythonObject(0)
+        total_rows = PythonObject(0)
+
+        for batch in scanner.to_batches():
+            batch_count += 1
+            total_rows += batch.num_rows
+            print("  Batch", batch_count, ": rows =", batch.num_rows, ", columns =", batch.num_columns)
+
+            # Process only first few batches for demo
+            if batch_count >= 3:
+                print("  ... (stopping after 3 batches for demo)")
+                break
+
+        print("Total rows processed:", total_rows)
+        print("Large dataset processing demonstration completed successfully")
+
+        # Clean up
+        shutil = Python.import_module("shutil")
+        shutil.rmtree(dataset_path)
+        print("Cleanup completed")
+
+    except e:
+        print("Large dataset processing demonstration failed:", String(e))
 
 
 def demonstrate_zero_copy_operations():
     """
-    Demonstrate zero-copy data operations.
+    Demonstrate zero-copy data operations with real PyArrow memory management.
     """
     print("\n=== Zero-Copy Operations ===")
 
     try:
-        print("Zero-Copy Operation Concepts:")
-        print("1. Zero-Copy Benefits:")
-        print("   - Eliminate data copying overhead")
-        print("   - Reduce memory bandwidth usage")
-        print("   - Improve CPU cache efficiency")
+        # Import PyArrow modules
+        pyarrow = Python.import_module("pyarrow")
+        pq = Python.import_module("pyarrow.parquet")
+        pa = Python.import_module("pyarrow")
 
-        print("\n2. Zero-Copy Techniques:")
-        print("   - Memory mapping for file I/O")
-        print("   - Scatter-gather I/O operations")
-        print("   - Buffer sharing between components")
+        # Create sample data
+        data = Python.dict()
+        data["sensor_id"] = Python.list()
+        data["temperature"] = Python.list()
+        data["humidity"] = Python.list()
+        data["timestamp"] = Python.list()
 
-        # Simulate zero-copy operations
-        print("\nZero-Copy Operation Example:")
-        print("Operation: File -> Processing -> Network")
-        print("Zero-Copy Approach:")
-        print("  Memory mapping: File -> Virtual memory (no copy)")
-        print("  Processing: Direct buffer access (no copy)")
-        print("  Network: Sendfile/direct I/O (no copy)")
+        for i in range(1000):  # 1k records for faster testing
+            data["sensor_id"].append("sensor_" + String(i % 10))
+            data["temperature"].append(20.0 + (i % 20))
+            data["humidity"].append(40.0 + (i % 30))
+            data["timestamp"].append("2023-01-01T12:00:00")
 
-    except:
-        print("Zero-copy operations demonstration failed")
-    """
-    Demonstrate complex aggregation queries with grouping and multiple metrics.
-    """
-    print("=== Complex Aggregation Queries ===")
+        # Create Arrow table
+        table = pa.table(data)
+        print("Created sensor data table with", table.num_rows, "records")
 
-    try:
-        # Conceptual demonstration of complex aggregations
-        print("Complex Aggregation Concepts:")
-        print("1. Multi-level Grouping:")
-        print("   - Group by multiple dimensions")
-        print("   - Hierarchical aggregations")
-        print("   - Rollup operations")
-        print("   - Cube operations")
+        # Write to Parquet (zero-copy during writing)
+        parquet_file = "zero_copy_demo.parquet"
+        pq.write_table(table, parquet_file)
+        print("Written to Parquet with zero-copy optimization")
 
-        print("\n2. Advanced Aggregations:")
-        print("   - Conditional aggregations")
-        print("   - Distinct counts")
-        print("   - Percentile calculations")
-        print("   - Custom aggregation functions")
+        # Read with memory mapping (zero-copy access)
+        print("\nReading with zero-copy memory mapping:")
+        mapped_table = pq.read_table(parquet_file, memory_map=True)
+        print("Zero-copy table access established")
 
-        print("\n3. Cross-tabulations:")
-        print("   - Pivot table operations")
-        print("   - Matrix aggregations")
-        print("   - Sparse data handling")
-        print("   - Memory-efficient pivots")
+        # Demonstrate zero-copy column access
+        print("\nZero-copy column operations:")
+        temp_col = mapped_table.column("temperature")
+        humid_col = mapped_table.column("humidity")
 
-        # Simulate aggregation results
-        print("\nSample Aggregation Results:")
-        print("Region: North America")
-        print("  Total Sales: $2,450,000")
-        print("  Average Order: $245")
-        print("  Customer Count: 10,000")
-        print("  Top Product: Widget A")
+        print("Temperature column length:", temp_col.length())
+        print("Humidity column length:", humid_col.length())
 
-        print("\nRegion: Europe")
-        print("  Total Sales: $1,890,000")
-        print("  Average Order: $267")
-        print("  Customer Count: 7,080")
-        print("  Top Product: Widget B")
+        # Calculate statistics without copying data
+        temp_sum = PythonObject(0.0)
+        humid_sum = PythonObject(0.0)
 
-    except:
-        print("Complex aggregation demonstration failed")
+        sample_size = 1000
 
+        for i in range(sample_size):  # Sample first 1000
+            temp_sum += temp_col[i].as_py()
+            humid_sum += humid_col[i].as_py()
 
-def demonstrate_window_functions():
-    """
-    Demonstrate window functions for advanced analytics.
-    """
-    print("\n=== Window Functions and Analytics ===")
+        avg_temp = temp_sum / sample_size
+        avg_humid = humid_sum / sample_size
 
-    try:
-        print("Window Function Concepts:")
-        print("1. Ranking Functions:")
-        print("   - ROW_NUMBER(): Sequential numbering")
-        print("   - RANK(): Standard ranking with gaps")
-        print("   - DENSE_RANK(): Ranking without gaps")
-        print("   - PERCENT_RANK(): Relative ranking")
+        print("Average temperature (first", sample_size, "):", avg_temp)
+        print("Average humidity (first", sample_size, "):", avg_humid)
 
-        print("\n2. Aggregate Window Functions:")
-        print("   - Running totals: SUM() OVER (ORDER BY date)")
-        print("   - Moving averages: AVG() OVER (ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING)")
-        print("   - Cumulative sums: SUM() OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)")
-        print("   - Rolling calculations")
+        # Demonstrate slicing without copying
+        print("\nZero-copy slicing operations:")
+        slice_table = mapped_table.slice(100, 50)  # Rows 100-149
+        print("Sliced table (rows 100-149):", slice_table.num_rows, "rows")
 
-        print("\n3. Analytical Functions:")
-        print("   - LAG()/LEAD(): Access previous/next rows")
-        print("   - FIRST_VALUE()/LAST_VALUE(): Boundary values")
-        print("   - NTH_VALUE(): Nth value in window")
-        print("   - NTILE(): Percentile grouping")
+        # Show that slicing creates views, not copies
+        print("Original table still accessible:", mapped_table.num_rows, "rows")
+        print("Zero-copy operations completed successfully")
 
-        # Simulate window function results
-        print("\nSample Window Function Results:")
-        print("Date       | Sales | Running Total | 3-Day Moving Avg")
-        print("2023-01-01 | 1000  | 1000          | 1000")
-        print("2023-01-02 | 1200  | 2200          | 1100")
-        print("2023-01-03 | 800   | 3000          | 1000")
-        print("2023-01-04 | 1500  | 4500          | 1167")
-        print("2023-01-05 | 1100  | 5600          | 1133")
+        # Clean up
+        import os
+        os.remove(parquet_file)
+        print("Cleanup completed")
 
-    except:
-        print("Window functions demonstration failed")
-
-
-def demonstrate_time_series_analysis():
-    """
-    Demonstrate time series analysis operations.
-    """
-    print("\n=== Time Series Analysis ===")
-
-    try:
-        print("Time Series Analysis Concepts:")
-        print("1. Temporal Aggregations:")
-        print("   - Time-based grouping (hourly, daily, weekly)")
-        print("   - Rolling time windows")
-        print("   - Seasonal decomposition")
-        print("   - Trend analysis")
-
-        print("\n2. Time Series Functions:")
-        print("   - Date truncation and rounding")
-        print("   - Time zone conversions")
-        print("   - Interval arithmetic")
-        print("   - Calendar functions")
-
-        print("\n3. Advanced Time Series:")
-        print("   - Resampling operations")
-        print("   - Missing data interpolation")
-        print("   - Outlier detection")
-        print("   - Seasonal adjustment")
-
-        # Simulate time series results
-        print("\nSample Time Series Analysis:")
-        print("Daily Sales Trend (Last 7 Days):")
-        print("Day  | Sales  | Growth % | 3-Day Avg")
-        print("Mon  | 1200   | -        | 1200")
-        print("Tue  | 1350   | +12.5%   | 1275")
-        print("Wed  | 1180   | -12.6%   | 1243")
-        print("Thu  | 1420   | +20.3%   | 1317")
-        print("Fri  | 1380   | -2.8%    | 1327")
-        print("Sat  | 1650   | +19.6%   | 1483")
-        print("Sun  | 1520   | -7.9%    | 1517")
-
-        print("\nWeekly Pattern Analysis:")
-        print("- Peak day: Saturday (avg +38%)")
-        print("- Lowest day: Wednesday (avg -8%)")
-        print("- Weekend premium: +25%")
-
-    except:
-        print("Time series analysis demonstration failed")
-
-
-def demonstrate_statistical_computations():
-    """
-    Demonstrate statistical computations and analysis.
-    """
-    print("\n=== Statistical Computations ===")
-
-    try:
-        print("Statistical Analysis Concepts:")
-        print("1. Descriptive Statistics:")
-        print("   - Mean, median, mode")
-        print("   - Standard deviation, variance")
-        print("   - Skewness, kurtosis")
-        print("   - Quartiles and percentiles")
-
-        print("\n2. Distribution Analysis:")
-        print("   - Frequency distributions")
-        print("   - Probability distributions")
-        print("   - Normal distribution tests")
-        print("   - Outlier detection")
-
-        print("\n3. Correlation Analysis:")
-        print("   - Pearson correlation")
-        print("   - Spearman rank correlation")
-        print("   - Covariance matrices")
-        print("   - Correlation heatmaps")
-
-        print("\n4. Hypothesis Testing:")
-        print("   - T-tests, ANOVA")
-        print("   - Chi-square tests")
-        print("   - Non-parametric tests")
-        print("   - Confidence intervals")
-
-        # Simulate statistical results
-        print("\nSample Statistical Analysis:")
-        print("Dataset: Customer Purchase Data")
-        print("Sample Size: 10,000 transactions")
-        print("")
-        print("Descriptive Statistics:")
-        print("  Mean Purchase: $156.78")
-        print("  Median Purchase: $89.50")
-        print("  Standard Deviation: $234.56")
-        print("  95th Percentile: $587.90")
-        print("")
-        print("Distribution Analysis:")
-        print("  Skewness: +2.34 (right-skewed)")
-        print("  Outliers: 234 transactions (>3σ)")
-        print("")
-        print("Key Correlations:")
-        print("  Price vs Quantity: -0.67 (strong negative)")
-        print("  Time vs Amount: +0.23 (weak positive)")
-        print("  Category vs Profit: +0.89 (strong positive)")
-
-    except:
-        print("Statistical computations demonstration failed")
-
-
-def demonstrate_query_optimization():
-    """
-    Demonstrate query optimization techniques for analytics.
-    """
-    print("\n=== Query Optimization Techniques ===")
-
-    try:
-        print("Query Optimization Strategies:")
-        print("1. Execution Plan Optimization:")
-        print("   - Query plan analysis")
-        print("   - Join order optimization")
-        print("   - Index utilization")
-        print("   - Parallel execution")
-
-        print("\n2. Data Access Optimization:")
-        print("   - Column pruning")
-        print("   - Predicate pushdown")
-        print("   - Partition pruning")
-        print("   - Materialized views")
-
-        print("\n3. Memory Optimization:")
-        print("   - Chunked processing")
-        print("   - Memory-mapped I/O")
-        print("   - Streaming operations")
-        print("   - Garbage collection tuning")
-
-        print("\n4. Caching Strategies:")
-        print("   - Query result caching")
-        print("   - Intermediate result caching")
-        print("   - Metadata caching")
-        print("   - Connection pooling")
-
-        # Simulate optimization results
-        print("\nOptimization Impact Analysis:")
-        print("Query: Complex sales analytics with multiple joins")
-        print("")
-        print("Before Optimization:")
-        print("  Execution Time: 45.2 seconds")
-        print("  Memory Usage: 2.8 GB")
-        print("  I/O Operations: 1,247")
-        print("  CPU Utilization: 85%")
-        print("")
-        print("After Optimization:")
-        print("  Execution Time: 8.7 seconds")
-        print("  Memory Usage: 1.2 GB")
-        print("  I/O Operations: 234")
-        print("  CPU Utilization: 45%")
-        print("")
-        print("Performance Improvement:")
-        print("  Speed: 5.2x faster")
-        print("  Memory: 57% reduction")
-        print("  I/O: 81% reduction")
-        print("  CPU: 47% reduction")
-
-    except:
-        print("Query optimization demonstration failed")
+    except e:
+        print("Zero-copy operations demonstration failed:", String(e))
