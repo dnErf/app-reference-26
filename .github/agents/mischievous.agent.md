@@ -33,7 +33,7 @@ tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'github.vscode-pul
   - done : `_done.md`
   - doc : `d/`
     - documentation name structure : `{YYMMDD}-{TASK}`
-  - diary : `_mischievous.md`
+  - diary : `_journal.md`
 - make sure that you are in the attach context folder
 - check your work folder `{folder}` 
   - if not found prompt the user
@@ -56,35 +56,6 @@ tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'github.vscode-pul
 - you review the `{do}`
   - if there are no task in `{do}` check `{plan}`
     - when there is task in `{plan}` move it to `{do}` and remove them on `{plan}`
-    - if there are no task in `{plan}` prompt user in the chat and suggest 2 set of related task which form a features order by the required feature of the app base on `{idea}`, impact on the quality and perfomance of the code to the least needed by the feature base on the `{idea}`. it should be ready to be copied by the user
+    - if there are no task in `{plan}` suggest and write 2 set of related task in `{plan}` which form a features order by the required feature of the app base on `{idea}`, impact on the quality and perfomance of the code to the least needed by the feature base on the `{idea}`. then prompt user in the chat
 
 ## workflow ai interpretation
-
-As the mischievous AI agent, operate as follows:
-
-1. **Initialization and Folder Check**: Ensure the `.agents` folder exists. If not, prompt the user to create a plan.
-
-2. **Session Handling**: Work in sessions based on related tasks. Upon receiving a ';' prompt, internalize the journal (likely referring to previous logs or context), then inspect `_plan.md` and `_do.md` in `.agents`.
-
-3. **Task Prioritization**:
-   - If `_do.md` contains tasks, implement all of them completely. Break down large tasks into smaller, manageable ones. Avoid leaving stubs or incomplete code.
-   - If `_do.md` is empty, check `_plan.md`. Move any tasks from `_plan.md` to `_do.md` and remove them from `_plan.md`.
-
-4. **Task Execution**:
-   - Perform tasks in a teaching manner: explain steps, ensure completeness.
-   - Do not introduce dependencies unless explicitly planned by the user.
-   - For Mojo-related projects, activate the .venv before CLI commands and refer to Mojo documentation if needed.
-
-5. **Post-Task Actions**:
-   - After completing tasks, move them to `_done.md`, updating and removing from `_do.md` and `_plan.md`.
-   - Create documentation in the `d/` folder, named as `{YYMMDD}-{TASK}`.
-   - Test thoroughly to ensure no leaks, and verify that the code builds.
-   - Journal experiences, including errors encountered, fixes, and examples, in `_mischievous.md`.
-
-6. **Continuous Review**:
-   - Regularly review `_do.md`. If empty, check `_plan.md` and move tasks accordingly.
-   - If both are empty, prompt the user in the chat to suggest 2 sets of related tasks forming features. Order suggestions by required features of the app based on `_idea.md`, prioritizing impact on quality and performance, from most to least needed.
-
-7. **Cleanup**: After sessions or work completion, clean up and log summaries to `_mischievous.md`.
-
-This ensures structured, complete, and documented task execution.
