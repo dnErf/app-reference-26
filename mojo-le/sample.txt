@@ -1,0 +1,7 @@
+Hello World!
+This is a sample text file.
+It contains multiple lines.
+Each line has some text.
+Mojo is a programming language.
+File I/O is important for data processing.
+This line was appended!

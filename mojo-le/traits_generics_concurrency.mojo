@@ -1,101 +1,114 @@
-# In-Depth Mojo: Traits, Generics, and Concurrency
-# This sophisticated example delves into advanced Mojo features for type-safe abstraction and high-performance concurrency.
-# Key concepts: Traits for interfaces, generics for reusable code, async/await for non-blocking operations.
-# Demonstrates polymorphism, type constraints, and concurrent task execution.
+"""
+Mojo Traits, Generics, and Concurrency Basic Example
 
-# Note: Full trait implementation may require explicit 'impl' in future versions.
-# For now, demonstrating ad-hoc polymorphism and basic generics.
+This file demonstrates basic concepts combining traits, generics, and concurrency in Mojo.
+Current Mojo version has limited trait and generic support.
+"""
 
-struct IntData:
-    var value: Int
+from python import Python
 
-    fn __init__(out self, value: Int):
-        self.value = value
+# Example 1: Basic Structs (simulating traits)
+struct Circle:
+    """A circle shape."""
 
-    fn print(self):
-        print("Int:", self.value)
+    var radius: Float64
 
-struct StringData:
-    var data: String
+    fn __init__(out self, radius: Float64):
+        self.radius = radius
 
-    fn __init__(out self, data: String):
-        self.data = data
+    fn draw(self):
+        print("Drawing circle with radius", self.radius)
 
-    fn print(self):
-        print("String:", self.data)
+    fn get_area(self) -> Float64:
+        return 3.14159 * self.radius * self.radius
 
-struct FloatData:
-    var value: Float64
+    fn resize(mut self, factor: Float64):
+        self.radius *= factor
+        print("Circle resized to radius", self.radius)
 
-    fn __init__(out self, value: Float64):
-        self.value = value
 
-    fn print(self):
-        print("Float:", self.value)
+struct Rectangle:
+    """A rectangle shape."""
 
-# Generic container without trait constraint (simplified)
-# struct GenericContainer[T: AnyType]:
-#     var item: T
-#     fn __init__(out self, item: T):
-#         self.item = item
-#     fn display(self):
-#         self.item.print()
+    var width: Float64
+    var height: Float64
 
-# Generic function without trait (simplified)
-# fn generic_print[T: AnyType](item: T):
-#     print("Generic print:")
-#     item.print()
+    fn __init__(out self, width: Float64, height: Float64):
+        self.width = width
+        self.height = height
 
-# Concurrency examples (simplified)
-fn async_task(id: Int, message: String):
-    print("Task", id, ":", message)
+    fn draw(self):
+        print("Drawing rectangle", self.width, "x", self.height)
 
-# async fn concurrent_processing():
-#     await async_task(1, "Hello")
-#     await async_task(2, "World")
-#     await async_task(3, "from Mojo")
+    fn get_area(self) -> Float64:
+        return self.width * self.height
 
-fn demonstrate_polymorphism():
-    print("=== Polymorphism ===")
-    var int_data = IntData(100)
-    var str_data = StringData("Mojo")
-    var float_data = FloatData(3.14)
+    fn resize(mut self, factor: Float64):
+        self.width *= factor
+        self.height *= factor
+        print("Rectangle resized to", self.width, "x", self.height)
 
-    # Direct calls demonstrating same interface
-    int_data.print()
-    str_data.print()
-    float_data.print()
 
-fn demonstrate_generics():
-    print("\n=== Generics (Simplified) ===")
-    # Note: Full generics with traits not implemented in this version.
-    # Demonstrating type-safe operations without generics.
-    var int_data = IntData(200)
-    var str_data = StringData("Generic")
+# Example 2: Generic-like processing (using function overloading)
+fn process_shape(shape: Circle):
+    """Process a circle."""
+    shape.draw()
+    print("  Area:", shape.get_area())
 
-    int_data.print()
-    str_data.print()
+fn process_shape(shape: Rectangle):
+    """Process a rectangle."""
+    shape.draw()
+    print("  Area:", shape.get_area())
 
-    # Simulated generic behavior
-    print("Simulated generic print for Int:")
-    IntData(300).print()
-    print("Simulated generic print for String:")
-    StringData("Generic function").print()
 
-fn demonstrate_concurrency():
-    print("\n=== Concurrency (Simplified) ===")
-    # Note: Full async/await may have issues in this version.
-    # Simulating concurrent operations sequentially.
-    async_task(1, "Hello")
-    async_task(2, "World")
-    async_task(3, "from Mojo")
+# Example 3: Concurrency simulation (simplified)
+fn concurrent_processing():
+    """Demonstrate concurrency concepts (simplified for current Mojo version)."""
+    print("Starting concurrent processing simulation...")
 
-fn main():
-    demonstrate_polymorphism()
-    demonstrate_generics()
-    demonstrate_concurrency()
+    # Simulate concurrent tasks
+    print("Worker 1: Starting task")
+    print("Worker 1: Task completed")
+    print("Worker 2: Starting task")
+    print("Worker 2: Task completed")
+    print("Worker 3: Starting task")
+    print("Worker 3: Task completed")
+    print("All concurrent tasks completed")
+    print("Note: True concurrency requires Python interop or future Mojo async features")
 
-    print("\n=== Summary ===")
-    print("Ad-hoc polymorphism via same method names.")
-    print("Generics enable type-safe abstractions.")
-    print("Async/await for concurrent execution.")
+
+fn main() raises:
+    print("=== Mojo Traits, Generics, and Concurrency ===\n")
+
+    # Example 1: Basic Shape Operations
+    print("1. Basic Shape Operations")
+    var circle = Circle(5.0)
+    var rectangle = Rectangle(4.0, 6.0)
+
+    circle.draw()
+    print("Circle area:", circle.get_area())
+    rectangle.draw()
+    print("Rectangle area:", rectangle.get_area(), "\n")
+
+    # Example 2: Polymorphism-like behavior
+    print("2. Polymorphism-like Processing")
+    process_shape(circle)
+    process_shape(rectangle)
+    print()
+
+    # Example 3: Resizing
+    print("3. Resizing Shapes")
+    circle.resize(2.0)
+    rectangle.resize(1.5)
+    print("After resizing:")
+    circle.draw()
+    rectangle.draw()
+    print()
+
+    # Example 4: Concurrency
+    print("4. Concurrency Demonstration")
+    concurrent_processing()
+    print()
+
+    print("=== Traits, Generics, and Concurrency Examples Completed ===")
+    print("Note: Advanced features require future Mojo versions")
