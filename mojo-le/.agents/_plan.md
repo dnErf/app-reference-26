@@ -42,13 +42,6 @@ Create a complete relational/columnar database system using PyArrow Parquet with
 - Include background maintenance tasks
 - Add performance monitoring and metrics
 
-## Set 4: Advanced Features
-### Data Types and Functions
-- Extend type system beyond basic strings/integers
-- Add user-defined functions (UDFs)
-- Implement complex data types (arrays, structs)
-- Include geospatial and temporal functions
-
 ### Optimization and Analytics
 - Add query execution statistics
 - Implement cost-based query optimization
