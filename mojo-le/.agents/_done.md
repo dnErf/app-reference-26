@@ -4,11 +4,14 @@
 - [x] Create feather_io_operations.mojo - Show Feather format operations with compression options
 - [x] Create pyarrow_integration.mojo: demonstrate PyArrow Table/Schema creation, data import/export, and basic operations
 - [x] Create columnar_processing.mojo: show efficient columnar data manipulation, filtering, and aggregation using PyArrow
+- [x] Implement columnar_processing.mojo with real PyArrow integration and working examples
 - [x] Create data_transformation_pipeline.mojo: implement ETL pipeline with PyArrow for data cleaning and transformation
+- [x] Implement data_transformation_pipeline.mojo with real PyArrow ETL integration and working examples
 - [x] Create parquet_io_advanced.mojo: demonstrate high-performance Parquet file operations with compression and partitioning
 - [x] Create analytics_queries.mojo: show complex analytical queries using PyArrow compute functions and expressions
 - [x] Create memory_mapped_datasets.mojo: implement memory-mapped data processing for large datasets beyond RAM limits
 - [x] Create orc_io_operations.mojo: demonstrate ORC (Optimized Row Columnar) file operations with PyArrow
+- [x] Implement orc_io_operations.mojo with real PyArrow ORC integration and working examples
 - [x] Create ipc_streaming.mojo: demonstrate IPC (Inter-Process Communication) streaming and serialization
 - [x] Create intermediate_async_direct.mojo with basic async concepts (pure asyncio)
 - [x] Create advanced_async_direct.mojo with channels and task groups (pure asyncio)

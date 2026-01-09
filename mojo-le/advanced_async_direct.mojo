@@ -20,6 +20,7 @@ fn run_channel_example_direct() raises:
     var asyncio = Python.import_module("asyncio")
 
     Python.evaluate("""
+exec('''
 import asyncio
 
 class Channel:
@@ -62,6 +63,7 @@ async def channel_example():
     print("Channel example completed")
 
 asyncio.run(channel_example())
+''')
 """)
 
     print("Pure asyncio channel example completed!")
@@ -73,6 +75,7 @@ fn run_task_group_example_direct() raises:
     var asyncio = Python.import_module("asyncio")
 
     Python.evaluate("""
+exec('''
 import asyncio
 
 async def task_in_group(name, delay):
@@ -100,6 +103,7 @@ async def task_group_example():
     print("Task group example completed")
 
 asyncio.run(task_group_example())
+''')
 """)
 
     print("Pure asyncio task group example completed!")
@@ -111,6 +115,7 @@ fn run_cancellation_example_direct() raises:
     var asyncio = Python.import_module("asyncio")
 
     Python.evaluate("""
+exec('''
 import asyncio
 
 async def cancellable_task(name, duration):
@@ -148,6 +153,7 @@ async def cancellation_example():
         print("Task 2 error:", e)
 
 asyncio.run(cancellation_example())
+''')
 """)
 
     print("Pure asyncio cancellation example completed!")

@@ -9,17 +9,6 @@ using Python interop with asyncio and uvloop:
 - Advanced concurrency patterns
 """
 
-"""
-Expert Async Programming Example in Mojo
-
-This example demonstrates expert-level asynchronous programming concepts
-using Python interop with asyncio and uvloop:
-- Custom async primitives and abstractions
-- Async iterators and generators
-- Performance benchmarking and optimization
-- Advanced concurrency patterns
-"""
-
 from python import Python
 
 # Wrapper functions to call Python async functions from Mojo

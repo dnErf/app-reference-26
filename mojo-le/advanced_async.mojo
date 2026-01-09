@@ -9,17 +9,6 @@ using Python interop with asyncio and uvloop:
 - Cancellation and timeouts
 """
 
-"""
-Advanced Async Programming Example in Mojo
-
-This example demonstrates advanced asynchronous programming concepts
-using Python interop with asyncio and uvloop:
-- Channels for inter-task communication
-- Task groups for structured concurrency
-- Producer-consumer patterns
-- Cancellation and timeouts
-"""
-
 from python import Python
 
 # Wrapper functions to call Python async functions from Mojo

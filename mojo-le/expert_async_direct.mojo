@@ -20,6 +20,7 @@ fn run_async_iterator_example_direct() raises:
     var asyncio = Python.import_module("asyncio")
 
     Python.evaluate("""
+exec('''
 import asyncio
 
 class AsyncRange:
@@ -47,6 +48,7 @@ async def async_range_example():
     print("Async iterator completed")
 
 asyncio.run(async_range_example())
+''')
 """)
 
     print("Pure asyncio async iterator example completed!")
@@ -58,6 +60,7 @@ fn run_semaphore_example_direct() raises:
     var asyncio = Python.import_module("asyncio")
 
     Python.evaluate("""
+exec('''
 import asyncio
 
 class Semaphore:
@@ -104,6 +107,7 @@ async def semaphore_example():
     print("Semaphore example completed")
 
 asyncio.run(semaphore_example())
+''')
 """)
 
     print("Pure asyncio semaphore example completed!")
@@ -115,6 +119,7 @@ fn run_performance_comparison_direct() raises:
     var asyncio = Python.import_module("asyncio")
 
     Python.evaluate("""
+exec('''
 import asyncio
 import time
 
@@ -145,6 +150,7 @@ async def performance_comparison():
         print("Async is", slowdown, "x slower")
 
 asyncio.run(performance_comparison())
+''')
 """)
 
     print("Pure asyncio performance comparison completed!")

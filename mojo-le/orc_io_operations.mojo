@@ -17,7 +17,7 @@ from python import Python
 from python import PythonObject
 
 
-def main():
+fn main() raises:
     print("=== ORC I/O Operations with PyArrow Integration ===")
     print("Demonstrating high-performance ORC file operations\n")
 
@@ -45,241 +45,258 @@ def main():
     print("- Column projection optimizes query performance")
 
 
-def demonstrate_orc_file_operations():
+fn demonstrate_orc_file_operations() raises:
     """
     Demonstrate basic ORC file reading and writing operations.
     """
-    print("=== ORC File Operations ===")
+    print("=== REAL ORC File Operations ===")
 
-    try:
-        print("ORC File Operations Concepts:")
-        print("1. ORC File Structure:")
-        print("   - Stripes: Data divided into stripes (typically 64MB)")
-        print("   - Footer: File metadata and stripe information")
-        print("   - Postscript: Compression and version information")
-        print("   - Column statistics for query optimization")
+    var pa = Python.import_module("pyarrow")
+    var orc = Python.import_module("pyarrow.orc")
+    var pd = Python.import_module("pandas")
 
-        print("\n2. Reading Operations:")
-        print("   - read_table(): Read entire file into Arrow table")
-        print("   - ORCFile class: Fine-grained control over reading")
-        print("   - Column selection for performance")
-        print("   - Predicate pushdown capabilities")
+    print("REAL CODE: PyArrow ORC modules imported")
+    print("orc = Python.import_module('pyarrow.orc')")
+    print("orc.__version__ = " + String(pa.__version__))
 
-        print("\n3. Writing Operations:")
-        print("   - write_table(): Write Arrow table to ORC file")
-        print("   - ORCWriter class: Advanced writing control")
-        print("   - Compression and stripe size configuration")
-        print("   - File version selection")
+    # Create sample data
+    print("\nREAL CODE: Creating sample dataset")
+    var data_dict = Python.dict()
+    data_dict['id'] = Python.list()
+    data_dict['name'] = Python.list()
+    data_dict['score'] = Python.list()
+    data_dict['active'] = Python.list()
 
-        # Simulate ORC operations
-        print("\nORC File Operations Example:")
-        print("Creating sample data table...")
-        print("Table schema: id(int64), name(string), score(float64), active(bool)")
-        print("Table rows: 1,000,000")
-        print("")
-        print("Writing to ORC format...")
-        print("File: sample_data.orc")
-        print("Compression: ZSTD")
-        print("Stripe size: 64MB")
-        print("File version: 0.12")
-        print("")
-        print("Reading back from ORC...")
-        print("Columns selected: id, score")
-        print("Rows returned: 1,000,000")
-        print("Memory usage: 45MB (compressed)")
+    var names = ["Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Henry"]
+    for i in range(1, 101):  # Create 100 rows
+        data_dict['id'].append(i)
+        var name_idx = (i - 1) % len(names)
+        data_dict['name'].append(names[name_idx])
+        data_dict['score'].append(85.0 + (i % 15))
+        data_dict['active'].append((i % 3) != 0)
 
-    except:
-        print("ORC file operations demonstration failed")
+    print("REAL CODE: var df = pd.DataFrame(data_dict)")
+    var df = pd.DataFrame(data_dict)
+    print("REAL CODE: var table = pa.Table.from_pandas(df)")
+    var table = pa.Table.from_pandas(df)
+
+    print("Table created with:")
+    print("  - Rows:", String(table.num_rows))
+    print("  - Columns:", String(table.num_columns))
+    print("  - Schema:", String(table.schema))
+
+    # Write to ORC file
+    print("\nREAL CODE: Writing table to ORC file")
+    print("orc.write_table(table, 'sample_data.orc')")
+    orc.write_table(table, "sample_data.orc")
+
+    # Read back from ORC file
+    print("\nREAL CODE: Reading back from ORC file")
+    print("var orc_table = orc.read_table('sample_data.orc')")
+    var orc_table = orc.read_table("sample_data.orc")
+
+    print("ORC file read successfully:")
+    print("  - Rows:", String(orc_table.num_rows))
+    print("  - Columns:", String(orc_table.num_columns))
+    print("  - Schema matches:", String(orc_table.schema.equals(table.schema)))
 
 
-def demonstrate_compression_options():
+fn demonstrate_compression_options() raises:
     """
     Demonstrate ORC compression algorithms and their trade-offs.
     """
-    print("\n=== ORC Compression Options ===")
+    print("\n=== REAL ORC Compression Options ===")
 
-    try:
-        print("ORC Compression Algorithms:")
-        print("1. Compression Types:")
-        print("   - NONE: No compression (fastest, largest files)")
-        print("   - ZLIB: Balanced compression and speed")
-        print("   - ZSTD: High compression ratio, fast decompression")
-        print("   - SNAPPY: Fast compression/decompression")
-        print("   - LZ4: Very fast compression, good ratio")
+    var pa = Python.import_module("pyarrow")
+    var orc = Python.import_module("pyarrow.orc")
+    var pd = Python.import_module("pandas")
 
-        print("\n2. Compression Trade-offs:")
-        print("   - Speed vs. Ratio: Choose based on use case")
-        print("   - CPU vs. I/O: Compression reduces I/O at CPU cost")
-        print("   - Storage vs. Performance: Balance storage savings")
-        print("   - Compatibility: Consider reader capabilities")
+    # Create larger dataset for compression testing
+    print("REAL CODE: Creating larger dataset for compression testing")
+    var data_dict = Python.dict()
+    data_dict['id'] = Python.list()
+    data_dict['category'] = Python.list()
+    data_dict['value'] = Python.list()
+    data_dict['description'] = Python.list()
 
-        # Simulate compression comparison
-        print("\nCompression Performance Comparison:")
-        print("Algorithm | Ratio | Write MB/s | Read MB/s | Use Case")
-        print("----------|-------|------------|-----------|----------")
-        print("NONE      | 1.0x  | 850        | 1200      | Raw speed")
-        print("SNAPPY    | 2.1x  | 420        | 890       | Balanced")
-        print("ZLIB      | 2.8x  | 180        | 450       | Storage")
-        print("ZSTD      | 3.2x  | 320        | 780       | Modern")
-        print("LZ4       | 2.0x  | 650        | 1100      | Fast")
-        print("")
-        print("Dataset: 1GB CSV file")
-        print("Best for analytics: ZSTD (good ratio + speed)")
-        print("Best for streaming: LZ4 (fastest)")
-        print("Best for archive: ZLIB (highest ratio)")
+    var categories = ["A", "B", "C", "D", "E"]
+    for i in range(1, 10001):  # 10,000 rows
+        data_dict['id'].append(i)
+        var cat_idx = (i - 1) % len(categories)
+        data_dict['category'].append(categories[cat_idx])
+        data_dict['value'].append(i * 1.5)
+        data_dict['description'].append("Description for item " + String(i))
 
-    except:
-        print("Compression options demonstration failed")
+    var df = pd.DataFrame(data_dict)
+    var table = pa.Table.from_pandas(df)
+
+    # Test different compression algorithms
+    var compressions = ["UNCOMPRESSED", "SNAPPY", "ZSTD", "LZ4"]
+
+    print("\nREAL CODE: Testing compression algorithms")
+    for compression in compressions:
+        var filename = "test_compression_" + compression + ".orc"
+        print("orc.write_table(table, '" + filename + "', compression='" + compression + "')")
+        orc.write_table(table, filename, compression=compression)
+
+        # Get file size (simplified - in real code you'd use os.path.getsize)
+        print("Compression '" + compression + "' file created: " + filename)
+
+    print("\nCompression algorithms tested: NONE, SNAPPY, ZSTD, LZ4")
+    print("Each algorithm creates a separate ORC file with different compression")
 
 
-def demonstrate_stripe_operations():
+fn demonstrate_stripe_operations() raises:
     """
     Demonstrate stripe-based ORC operations for parallel processing.
     """
-    print("\n=== ORC Stripe Operations ===")
+    print("\n=== REAL ORC Stripe Operations ===")
 
-    try:
-        print("ORC Stripe Concepts:")
-        print("1. Stripe Structure:")
-        print("   - Row groups within stripes")
-        print("   - Column data stored contiguously")
-        print("   - Index information for fast access")
-        print("   - Statistics for predicate pushdown")
+    var pa = Python.import_module("pyarrow")
+    var orc = Python.import_module("pyarrow.orc")
 
-        print("\n2. Stripe Benefits:")
-        print("   - Parallel processing across stripes")
-        print("   - Memory-efficient reading")
-        print("   - Granular access control")
-        print("   - Optimized for columnar access")
+    print("REAL CODE: Creating ORC file with multiple stripes")
+    # Create a larger table that will have multiple stripes
+    var data_dict = Python.dict()
+    data_dict['id'] = Python.list()
+    data_dict['data'] = Python.list()
 
-        print("\n3. Stripe Operations:")
-        print("   - Read individual stripes")
-        print("   - Skip stripes based on statistics")
-        print("   - Parallel stripe processing")
-        print("   - Memory-mapped stripe access")
+    for i in range(1, 50001):  # 50,000 rows to ensure multiple stripes
+        data_dict['id'].append(i)
+        data_dict['data'].append("Data value " + String(i))
 
-        # Simulate stripe operations
-        print("\nStripe Operations Example:")
-        print("ORC file: large_dataset.orc (5GB)")
-        print("Total stripes: 80")
-        print("Stripe size: 64MB each")
-        print("")
-        print("Query: SELECT * FROM data WHERE date >= '2023-01-01'")
-        print("Stripe analysis:")
-        print("  - Stripes 1-20: date < '2023-01-01' (SKIP)")
-        print("  - Stripes 21-80: date >= '2023-01-01' (READ)")
-        print("  - Stripes processed: 60/80 (75% reduction)")
-        print("")
-        print("Parallel processing:")
-        print("  - Worker threads: 8")
-        print("  - Stripes per worker: 7-8")
-        print("  - Processing time: 12 seconds")
-        print("  - Memory per worker: 128MB")
+    var pd = Python.import_module("pandas")
+    var df = pd.DataFrame(data_dict)
+    var table = pa.Table.from_pandas(df)
 
-    except:
-        print("Stripe operations demonstration failed")
+    # Write with specific stripe size
+    print("orc.write_table(table, 'striped_data.orc', stripe_size=1024*64)")  # 64KB stripes
+    orc.write_table(table, "striped_data.orc", stripe_size=1024*64)
+
+    # Read using ORCFile for stripe access
+    print("\nREAL CODE: Reading stripe information")
+    print("var orc_file = orc.ORCFile('striped_data.orc')")
+    var orc_file = orc.ORCFile("striped_data.orc")
+
+    print("ORC file stripe information:")
+    print("  - Number of stripes:", String(orc_file.nstripes))
+    print("  - File metadata available:", String(orc_file.metadata is not None))
+
+    # Read individual stripes (concept demonstration)
+    print("\nStripe-based reading concepts:")
+    print("  - orc_file.read_stripe(stripe_index) - read individual stripes")
+    print("  - Parallel processing across stripes")
+    print("  - Memory-efficient large file handling")
 
 
-def demonstrate_metadata_operations():
+fn demonstrate_metadata_operations() raises:
     """
     Demonstrate ORC metadata access and file introspection.
     """
-    print("\n=== ORC Metadata Operations ===")
+    print("\n=== REAL ORC Metadata Operations ===")
 
-    try:
-        print("ORC Metadata Features:")
-        print("1. File Metadata:")
-        print("   - Schema information")
-        print("   - Compression details")
-        print("   - Writer version and properties")
-        print("   - File statistics")
+    var pa = Python.import_module("pyarrow")
+    var orc = Python.import_module("pyarrow.orc")
 
-        print("\n2. Stripe Metadata:")
-        print("   - Row count per stripe")
-        print("   - Column statistics")
-        print("   - Size and offset information")
-        print("   - Encoding information")
+    # Create sample file with metadata
+    var data_dict = Python.dict()
+    data_dict['id'] = Python.list()
+    data_dict['name'] = Python.list()
+    data_dict['score'] = Python.list()
 
-        print("\n3. Column Metadata:")
-        print("   - Data type information")
-        print("   - Encoding schemes used")
-        print("   - Statistics (min/max/count/nulls)")
-        print("   - Dictionary information")
+    for i in range(1, 1001):  # 1000 rows
+        data_dict['id'].append(i)
+        data_dict['name'].append("Item_" + String(i))
+        data_dict['score'].append(i % 100)
 
-        # Simulate metadata operations
-        print("\nMetadata Operations Example:")
-        print("ORC File: customer_data.orc")
-        print("")
-        print("File Metadata:")
-        print("  - Format version: 0.12")
-        print("  - Compression: ZSTD")
-        print("  - Total rows: 10,000,000")
-        print("  - Number of stripes: 156")
-        print("  - Schema: id(int64), name(string), email(string), score(float)")
-        print("")
-        print("Column Statistics (sample):")
-        print("  - id: min=1, max=10000000, nulls=0")
-        print("  - name: distinct≈9500000, nulls=0")
-        print("  - email: distinct≈9800000, nulls=0")
-        print("  - score: min=0.0, max=100.0, avg=67.3")
-        print("")
-        print("Stripe Information:")
-        print("  - Stripe 0: rows=64102, size=4.2MB")
-        print("  - Stripe 1: rows=64102, size=4.1MB")
-        print("  - Stripe 156: rows=12345, size=0.8MB")
+    var pd = Python.import_module("pandas")
+    var df = pd.DataFrame(data_dict)
+    var table = pa.Table.from_pandas(df)
 
-    except:
-        print("Metadata operations demonstration failed")
+    orc.write_table(table, "metadata_test.orc")
+
+    # Read metadata
+    print("REAL CODE: Reading ORC file metadata")
+    print("var orc_file = orc.ORCFile('metadata_test.orc')")
+    var orc_file = orc.ORCFile("metadata_test.orc")
+
+    print("ORC File Metadata:")
+    print("  - Schema:", String(orc_file.schema))
+    print("  - Number of rows:", String(orc_file.nrows))
+    print("  - Number of stripes:", String(orc_file.nstripes))
+    print("  - Compression:", String(orc_file.compression))
+
+    # Read the table and show column information
+    var read_table = orc.read_table("metadata_test.orc")
+    print("\nTable column information:")
+    for i in range(read_table.num_columns):
+        var col = read_table.column(i)
+        print("  - Column", String(i) + ":", String(col._name), "(" + String(col.type) + ")")
 
 
-def demonstrate_column_projection():
+fn demonstrate_column_projection() raises:
     """
     Demonstrate column projection for optimized ORC reading.
     """
-    print("\n=== ORC Column Projection ===")
+    print("\n=== REAL ORC Column Projection ===")
 
-    try:
-        print("Column Projection Concepts:")
-        print("1. Projection Benefits:")
-        print("   - Read only required columns")
-        print("   - Reduce I/O operations")
-        print("   - Lower memory usage")
-        print("   - Faster query execution")
+    var pa = Python.import_module("pyarrow")
+    var orc = Python.import_module("pyarrow.orc")
+    var pd = Python.import_module("pandas")
 
-        print("\n2. Projection Strategies:")
-        print("   - Specify column list in queries")
-        print("   - Automatic projection pushdown")
-        print("   - Schema-aware column selection")
-        print("   - Nested field projection")
+    # Create wide table with many columns
+    var data_dict = Python.dict()
+    var columns = ["id", "name", "email", "phone", "address", "city", "state", "zip", "score", "active"]
 
-        print("\n3. Performance Impact:")
-        print("   - Wide tables with many columns")
-        print("   - Analytical queries on subsets")
-        print("   - Memory-constrained environments")
-        print("   - Network bandwidth optimization")
+    for col in columns:
+        data_dict[col] = Python.list()
 
-        # Simulate column projection
-        print("\nColumn Projection Example:")
-        print("Table: wide_customer_table (50 columns, 1M rows)")
-        print("Query: SELECT id, name, score FROM table WHERE score > 90")
-        print("")
-        print("Without projection:")
-        print("  - Columns read: 50/50")
-        print("  - Data scanned: 2.5GB")
-        print("  - Memory usage: 1.2GB")
-        print("  - Execution time: 45 seconds")
-        print("")
-        print("With projection:")
-        print("  - Columns read: 3/50")
-        print("  - Data scanned: 180MB")
-        print("  - Memory usage: 85MB")
-        print("  - Execution time: 8 seconds")
-        print("")
-        print("Performance Improvement:")
-        print("  - I/O reduction: 93%")
-        print("  - Memory savings: 93%")
-        print("  - Speed improvement: 5.6x")
-        print("  - CPU efficiency: 4.2x")
+    for i in range(1, 1001):  # 1000 rows
+        data_dict['id'].append(i)
+        data_dict['name'].append("Name_" + String(i))
+        data_dict['email'].append("email" + String(i) + "@example.com")
+        var phone_num = i % 100
+        var phone_str = String(phone_num)
+        if phone_num < 10:
+            phone_str = "0" + phone_str
+        data_dict['phone'].append("555-010" + phone_str)
+        data_dict['address'].append("Address " + String(i))
+        data_dict['city'].append("City_" + String(i % 10))
+        data_dict['state'].append("State_" + String(i % 5))
+        data_dict['zip'].append(String(10000 + i))
+        data_dict['score'].append(i % 100)
+        data_dict['active'].append((i % 2) == 0)
 
-    except:
-        print("Column projection demonstration failed")
+    var df = pd.DataFrame(data_dict)
+    var table = pa.Table.from_pandas(df)
+
+    # Write the full table
+    orc.write_table(table, "wide_table.orc")
+
+    # Read with column projection
+    print("REAL CODE: Reading with column projection")
+    print("var columns_to_read = ['id', 'name', 'score']")
+    var columns_to_read = Python.list()
+    columns_to_read.append("id")
+    columns_to_read.append("name")
+    columns_to_read.append("score")
+
+    print("var projected_table = orc.read_table('wide_table.orc', columns=columns_to_read)")
+    var projected_table = orc.read_table("wide_table.orc", columns=columns_to_read)
+
+    print("Column projection results:")
+    print("  - Original table columns:", String(table.num_columns))
+    print("  - Projected table columns:", String(projected_table.num_columns))
+    print("  - Projected column names:", String(projected_table.column_names))
+    print("  - Rows preserved:", String(projected_table.num_rows))
+
+    # Demonstrate filtering with projection
+    print("\nREAL CODE: Combined projection and filtering")
+    var pc = Python.import_module("pyarrow.compute")
+    var score_col = projected_table.column("score")
+    var mask = pc.greater(score_col, 90)
+    var filtered_table = projected_table.filter(mask)
+
+    print("Filtered results (score > 90):")
+    print("  - Rows after filtering:", String(filtered_table.num_rows))
+    print("  - Columns maintained:", String(filtered_table.num_columns))
