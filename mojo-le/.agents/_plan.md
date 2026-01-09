@@ -1,71 +1,71 @@
-# LSM Tree Implementation Plan
+# PyArrow Columnar Database Implementation Plan
 
-## Set 2: SSTable with PyArrow and Unified Compaction
+## Overview
+Create a complete relational/columnar database system using PyArrow Parquet with B+ tree indexing and fractal tree metadata management, similar in scope to the LSM database implementation.
 
-### SSTable Implementation
-- Create `sstable.mojo` using PyArrow Parquet for persistent immutable files
-- Implement SSTable reader/writer with bloom filters
-- Add metadata management (min/max keys, size, timestamp)
-- Support for range queries and point lookups
+## Set 1: Core Database Architecture
+### Database Engine
+- Create `pyarrow_database.mojo` as main database engine
+- Implement DatabaseConnection for session management
+- Add DatabaseCatalog for schema and table management
+- Include TransactionManager for ACID properties
 
-### Unified Compaction Strategy
-- Create `compaction_strategy.mojo` with level-based and size-tiered merging
-- Implement compaction triggers (size thresholds, level limits)
-- Background compaction worker
-- Merge policies for overlapping SSTables
+### Table Management
+- Extend DatabaseTable with full CRUD operations
+- Add table creation, alteration, and deletion
+- Implement schema evolution support
+- Add table statistics and optimization
 
-### Integration Tasks
-- Update LSM tree coordinator to use SSTable persistence
-- Add compaction scheduling and background processing
-- Implement recovery from SSTable files on startup
-- Performance benchmarking and optimization
+## Set 2: Advanced Indexing and Querying
+### B+ Tree Enhancements
+- Implement multi-column composite indexes
+- Add range query optimization
+- Include index maintenance and updates
+- Support for different index types (unique, primary, secondary)
+
+### Query Engine
+- Create QueryPlanner for execution optimization
+- Implement PredicateEvaluator for filter pushdown
+- Add JoinProcessor for multi-table queries
+- Include AggregationEngine for GROUP BY operations
+
+## Set 3: Transaction and Concurrency
+### Transaction System
+- Implement MVCC (Multi-Version Concurrency Control)
+- Add transaction isolation levels
+- Include deadlock detection and prevention
+- Support for savepoints and nested transactions
+
+### Concurrency Control
+- Add row-level and table-level locking
+- Implement connection pooling
+- Include background maintenance tasks
+- Add performance monitoring and metrics
+
+## Set 4: Advanced Features
+### Data Types and Functions
+- Extend type system beyond basic strings/integers
+- Add user-defined functions (UDFs)
+- Implement complex data types (arrays, structs)
+- Include geospatial and temporal functions
+
+### Optimization and Analytics
+- Add query execution statistics
+- Implement cost-based query optimization
+- Include materialized views
+- Add analytical functions and windowing
 
 ## Priority Order (by impact on quality/performance)
-1. SSTable with PyArrow (core persistence)
-2. Basic compaction strategy (prevent storage bloat)
-3. LSM integration (tie everything together)
-4. Advanced compaction policies (optimization)
-5. Recovery mechanisms (reliability)
+1. Core database architecture (foundation)
+2. Advanced indexing (query performance)
+3. Transaction system (data integrity)
+4. Advanced features (scalability)
 
 ## Success Criteria
-- Data persistence across restarts
-- Efficient storage utilization through compaction
-- Fast queries combining memtable and SSTable lookups
-- Configurable compaction policies
-- Comprehensive testing of persistence layer
-
-- [ ] Implement LSM Tree core structure
-  - Create lsm_tree.mojo with main LSM coordination
-  - Implement memtable flushing to SSTable
-  - Add multi-level SSTable management
-  - Include read path with level merging
-
-- [ ] Implement Memtable variants
-  - Create memtable.mojo with basic sorted memtable
-  - Implement skiplist or tree-based in-memory storage
-  - Add size limits and flush triggers
-  - Include concurrent read/write support
-
-- [ ] Implement Trie Memtable
-  - Create trie_memtable.mojo with trie-based storage
-  - Implement prefix-based operations
-  - Add memory-efficient string handling
-  - Include trie-specific optimizations
-
-- [ ] Implement SSTable with PyArrow
-  - Create sstable.mojo using PyArrow Parquet
-  - Implement sorted immutable file storage
-  - Add bloom filters for efficient lookups
-  - Include metadata and indexing
-
-- [ ] Implement Unified Compaction Strategy
-  - Create compaction_strategy.mojo with unified compaction
-  - Implement level-based merging
-  - Add size-tiered compaction options
-  - Include performance monitoring
-
-- [ ] Create complete LSM database system
-  - Build lsm_database.mojo combining all components
-  - Implement WAL (Write-Ahead Log) for durability
-  - Add recovery mechanisms
-  - Include performance benchmarking
+- Full relational database functionality
+- ACID transaction support
+- Efficient columnar storage with indexing
+- Rich query capabilities with optimization
+- Comprehensive testing and benchmarking
+- Real-world performance comparable to established databases</content>
+<parameter name="filePath">/home/lnx/Dev/app-reference-26/mojo-le/.agents/_plan.md
