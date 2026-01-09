@@ -128,6 +128,15 @@ struct TrieMemtable:
 
         return result^
 
+    fn get_size_bytes(self) -> Int:
+        return self.size_bytes
+
+    fn get_entry_count(self) -> Int:
+        return len(self.entries)
+
+    fn get_all_entries(self) raises -> Dict[String, String]:
+        return self.entries.copy()
+
 # Demonstration functions
 fn demo_trie_memtable() raises:
     """Demonstrate trie memtable operations."""

@@ -32,8 +32,8 @@ Usage in LSM Tree:
 from collections import List, Dict
 import time
 
-# Forward declarations and imports
-alias Entry = Tuple[String, String]  # (key, value) pair
+# Common entry type
+alias Entry = Tuple[String, String]
 
 # Sorted Memtable using binary search
 struct SortedMemtable:
@@ -135,6 +135,18 @@ struct SortedMemtable:
 
         return left
 
+    fn get_size_bytes(self) -> Int:
+        return self.size_bytes
+
+    fn get_entry_count(self) -> Int:
+        return len(self.entries)
+
+    fn get_all_entries(self) raises -> Dict[String, String]:
+        var result = Dict[String, String]()
+        for entry in self.entries:
+            result[entry[0]] = entry[1]
+        return result^
+
 # Simplified SkipList-based Memtable
 struct SkipListMemtable:
     var entries: Dict[String, String]  # Simplified to Dict for now
@@ -171,7 +183,14 @@ struct SkipListMemtable:
         self.entries.clear()
         self.size_bytes = 0
 
-# Demonstration functions
+    fn get_size_bytes(self) -> Int:
+        return self.size_bytes
+
+    fn get_entry_count(self) -> Int:
+        return len(self.entries)
+
+    fn get_all_entries(self) raises -> Dict[String, String]:
+        return self.entries.copy()
 fn demo_sorted_memtable() raises:
     """Demonstrate sorted memtable operations."""
     print("=== Sorted Memtable Demonstration ===\n")
