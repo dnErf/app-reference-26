@@ -28,6 +28,11 @@ struct Database(Copyable, Movable):
     var plugins: Dict[String, PythonObject]
     var in_transaction: Bool
     var transaction_log: List[String]
+    var secrets: Dict[String, String]  # Encrypted secrets storage
+    var master_key: String  # Derived master key for encryption
+    var attached_databases: Dict[String, String]  # Attached database paths
+    var triggers: Dict[String, Query]  # Triggers
+    var cron_jobs: Dict[String, Query]  # Cron jobs
 
     fn __init__(out self) raises:
         self.tables = Dict[String, Table]()
@@ -46,6 +51,17 @@ struct Database(Copyable, Movable):
         self.plugins = Dict[String, PythonObject]()
         self.in_transaction = False
         self.transaction_log = List[String]()
+        self.secrets = Dict[String, String]()
+        self.attached_databases = Dict[String, String]()
+        self.triggers = Dict[String, Query]()
+        self.cron_jobs = Dict[String, Query]()
+        # Derive master key using PBKDF2
+        var hashlib = Python.import_module("hashlib")
+        var os = Python.import_module("os")
+        var salt = os.urandom(16)
+        var password = Python.evaluate("'default_master_password'")
+        var dk = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+        self.master_key = String(dk.hex())
 
     fn create_table(mut self, name: String) raises:
         """
@@ -75,6 +91,7 @@ struct Database(Copyable, Movable):
             # self.index.insert(key, row)
             self.fractal_tree.insert(row)
             self.wal_instance.append_log("INSERT INTO " + table_name)
+            self.execute_triggers(table_name, "INSERT", "AFTER", Row(), row)
         finally:
             self.lock.release()
 
@@ -179,6 +196,9 @@ struct Database(Copyable, Movable):
             self.create_table(table_name)
             return List[Row]()
         elif query.query_type == "SELECT":
+            var where_value = query.where_value
+            if query.using_secret != "":
+                where_value = self.get_secret(query.using_secret, query.using_secret_type)
             if query.where_column != "":
                 # Simple WHERE for = only
                 var results = List[Row]()
@@ -208,6 +228,51 @@ struct Database(Copyable, Movable):
         elif query.query_type == "CREATE_FUNCTION":
             self.functions[query.func_name] = query.copy()
             print("Function '" + query.func_name + "' created")
+            return List[Row]()
+        elif query.query_type == "CREATE_SECRET":
+            self.create_secret(query.secret_name, query.secret_type, query.secret_value)
+            return List[Row]()
+        elif query.query_type == "DROP_SECRET":
+            self.drop_secret(query.secret_name, query.secret_type)
+            return List[Row]()
+        elif query.query_type == "SHOW_SECRETS":
+            var secrets_list = self.show_secrets()
+            print("Secrets:")
+            for secret in secrets_list:
+                print("  " + secret)
+            return List[Row]()
+        elif query.query_type == "ATTACH":
+            self.attached_databases[query.attach_alias] = query.attach_path
+            print("Attached '" + query.attach_path + "' as '" + query.attach_alias + "'")
+            return List[Row]()
+        elif query.query_type == "DETACH":
+            if query.attach_alias in self.attached_databases:
+                _ = self.attached_databases.pop(query.attach_alias)
+                print("Detached '" + query.attach_alias + "'")
+            else:
+                print("Alias '" + query.attach_alias + "' not found")
+            return List[Row]()
+        elif query.query_type == "LOAD":
+            self.load_extension(query.load_extension)
+            return List[Row]()
+        elif query.query_type == "INSTALL":
+            self.install_extension(query.install_extension)
+            return List[Row]()
+        elif query.query_type == "CREATE_TRIGGER":
+            var key = query.trigger_table + "_" + query.trigger_event + "_" + query.trigger_timing
+            self.triggers[key] = query.copy()
+            print("Trigger '" + query.trigger_name + "' created")
+            return List[Row]()
+        elif query.query_type == "CREATE_CRON_JOB":
+            self.cron_jobs[query.cron_name] = query.copy()
+            print("Cron job '" + query.cron_name + "' created")
+            return List[Row]()
+        elif query.query_type == "DROP_CRON_JOB":
+            if query.cron_name in self.cron_jobs:
+                _ = self.cron_jobs.pop(query.cron_name)
+                print("Cron job '" + query.cron_name + "' dropped")
+            else:
+                print("Cron job '" + query.cron_name + "' not found")
             return List[Row]()
         else:
             raise Error("Query type not implemented: " + query.query_type)
@@ -363,3 +428,183 @@ struct Database(Copyable, Movable):
         Restore database from file (placeholder).
         """
         print("Restore from '" + filename + "' not implemented")
+
+    fn execute_function(mut self, name: String, args: List[String]) raises -> String:
+        """
+        Execute a stored PL function.
+        """
+        if name not in self.functions:
+            raise "Function not found"
+        var func = self.functions[name]
+        # Basic execution using Python eval for simple expressions
+        try:
+            var result = Python.eval(func.func_body)
+            return String(result)
+        except:
+            return "Function execution not fully implemented"
+
+    fn eval_pl_expression(mut self, expr: String) raises -> String:
+        """
+        Evaluate a PL expression.
+        """
+        try:
+            var result = Python.eval(expr)
+            return String(result)
+        except:
+            return "Expression evaluation not fully implemented"
+
+    fn execute_try_catch(mut self, try_expr: String, catch_patterns: Dict[String, String]) raises -> String:
+        """
+        Execute TRY/CATCH with pattern matching (placeholder).
+        """
+        try:
+            return self.eval_pl_expression(try_expr)
+        except:
+            # Placeholder for pattern matching
+            if "_" in catch_patterns:
+                return catch_patterns["_"]
+            return "Exception handling not fully implemented"
+
+    fn execute_pipe(mut self, initial: String, operations: List[String]) raises -> String:
+        """
+        Execute pipe operations (placeholder).
+        """
+        var result = initial
+        for op in operations:
+            # Placeholder: assume op is expression with 'result'
+            result = self.eval_pl_expression(op.replace("result", result))
+        return result
+
+    fn eval_match(mut self, value: String, cases: Dict[String, String]) raises -> String:
+        """
+        Evaluate MATCH expression with cases.
+        """
+        for case in cases.keys():
+            if case == value or case == "_":
+                return self.eval_pl_expression(cases[case])
+        return "No match"
+
+    fn execute_pl_query(mut self, pl_code: String) raises -> String:
+        """
+        Execute a PL script or expression.
+        """
+        # Basic: assume it's an expression
+        return self.eval_pl_expression(pl_code)
+
+    fn debug_pl_execution(mut self, code: String) raises -> String:
+        """
+        Debug PL execution with stack trace (placeholder).
+        """
+        try:
+            return self.execute_pl_query(code)
+        except e:
+            return "Error: " + String(e) + " (debug info placeholder)"
+
+    fn log_operation(mut self, op: String):
+        """
+        Log database operations for monitoring.
+        """
+        print("[LOG] " + op)
+
+    fn check_memory_usage(mut self) -> String:
+        """
+        Check memory usage (placeholder).
+        """
+        return "Memory usage: placeholder"
+
+    fn enable_access_control(mut self):
+        """
+        Enable basic access control (placeholder).
+        """
+        print("Access control enabled (placeholder)")
+
+    fn prevent_sql_injection(mut self, query: String) raises -> String:
+        """
+        Prevent SQL injection (basic sanitization).
+        """
+        # Placeholder: basic check
+        if "DROP" in query.upper():
+            raise "Potentially dangerous query"
+        return query
+
+    fn create_secret(mut self, name: String, secret_type: String, value: String) raises:
+        """
+        Create an encrypted secret.
+        """
+        var crypto = Python.import_module("cryptography.fernet")
+        var base64 = Python.import_module("base64")
+        var py_master_key = Python.evaluate("'" + self.master_key + "'")
+        var fernet_key = base64.urlsafe_b64encode(py_master_key[:32].encode())
+        var fernet = crypto.Fernet(fernet_key)
+        var py_value = Python.evaluate("'" + value + "'")
+        var encrypted = fernet.encrypt(py_value.encode())
+        var secret_key = secret_type + ":" + name
+        self.secrets[secret_key] = String(encrypted.hex())
+        print("Secret '" + name + "' of type '" + secret_type + "' created.")
+
+    fn get_secret(mut self, name: String, secret_type: String) raises -> String:
+        """
+        Retrieve and decrypt a secret.
+        """
+        var secret_key = secret_type + ":" + name
+        if secret_key not in self.secrets:
+            raise "Secret not found"
+        var crypto = Python.import_module("cryptography.fernet")
+        var base64 = Python.import_module("base64")
+        var py_master_key = Python.evaluate("'" + self.master_key + "'")
+        var fernet_key = base64.urlsafe_b64encode(py_master_key[:32].encode())
+        var fernet = crypto.Fernet(fernet_key)
+        var builtins = Python.import_module("builtins")
+        var py_hex = builtins.str(self.secrets[secret_key])
+        var encrypted_bytes = builtins.bytes.fromhex(py_hex)
+        var decrypted = fernet.decrypt(encrypted_bytes)
+        return String(decrypted.decode())
+
+    fn drop_secret(mut self, name: String, secret_type: String) raises:
+        """
+        Delete a secret.
+        """
+        var secret_key = secret_type + ":" + name
+        if secret_key not in self.secrets:
+            raise "Secret not found"
+        _ = self.secrets.pop(secret_key)
+        print("Secret '" + name + "' dropped.")
+
+    fn show_secrets(mut self) -> List[String]:
+        """
+        List all secret names (without values).
+        """
+        var result = List[String]()
+        for key in self.secrets.keys():
+            result.append(key)
+        return result^
+
+    fn load_extension(mut self, name: String) raises:
+        """
+        Load an extension.
+        """
+        if name == "httpfs":
+            print("Loaded httpfs extension")
+            # Placeholder for httpfs functionality
+        else:
+            print("Extension '" + name + "' not found")
+
+    fn install_extension(mut self, name: String) raises:
+        """
+        Install an extension.
+        """
+        print("Installing extension '" + name + "'")
+        # Placeholder for installation logic
+
+    fn execute_triggers(mut self, table_name: String, event: String, timing: String, old_row: Row = Row(), new_row: Row = Row()) raises:
+        """
+        Execute triggers for the given event and timing.
+        """
+        var key = table_name + "_" + event + "_" + timing
+        if key in self.triggers:
+            var trigger = self.triggers[key].copy()
+            if trigger.trigger_function in self.functions:
+                print("Executing trigger '" + trigger.trigger_name + "'")
+                # Placeholder for actual execution
+            else:
+                print("Trigger function '" + trigger.trigger_function + "' not found")

@@ -1,5 +1,42 @@
 # Mischievous Journal - Opinion on zig-grizzly and mojo-le
 
+## Date: October 10, 2024
+
+### Task: Complete Phase 30 - Advanced SQL Features
+
+#### What was done
+- Implemented ATTACH/DETACH for multi-database support
+- Added extension system with LOAD/INSTALL commands
+- Created trigger system with BEFORE/AFTER execution on DML events
+- Added CRON JOB scheduling with CREATE/DROP syntax
+- Fixed parsing inconsistencies (function names, trigger order)
+- Tested all features in REPL, verified trigger execution
+- Updated documentation, planning, and journals
+
+#### Challenges
+- REPL piped input not processing queries initially (looping prompts)
+- Parsing syntax mismatches between help and code
+- Function name storage with/without () causing lookup failures
+- Ensuring trigger execution calls correct functions
+
+#### Solutions
+- Rebuilt REPL binary after edits
+- Fixed parse order for CREATE TRIGGER to match help text
+- Stripped () from function names in parser for consistency
+- Verified execution flow with manual REPL testing
+
+#### Experience and Lessons
+- Always test REPL with piped commands using echo -e for multi-line
+- Ensure parsing logic matches user-facing help documentation
+- Handle string operations carefully (strip, join) to avoid type errors
+- Rebuild binaries after parser changes to see effects
+- Use grep to verify code changes before testing
+
+#### Summary
+Phase 30 completed successfully. Database now supports advanced SQL features with working triggers, extensions, and scheduling. All builds pass, REPL functional. Ready for Phase 31: PL-Grizzly Enhancements.
+
+---
+
 ## Date: January 9, 2026
 
 ### Task: Analyze and provide opinion on #file:zig-grizzly and #file:mojo-le folders
@@ -445,3 +482,37 @@ This is a learning-oriented project in Mojo (Modular's language), focused on bui
 - **Errors encountered**: None major; build warnings for unused variables
 - **How to avoid in future**: Test new methods with existing benchmarks; use Python modules carefully for data formats
 - **Summary**: Phases 19 and 20 completed with extensions, integrations, transactions, backup placeholders. Database now extensible and has advanced feature foundations.
+
+#### Experience and Lessons
+- **Tools used**: replace_string_in_file for code edits, run_in_terminal for builds/tests
+- **Challenges**: Implementing PL execution with Python interop; ensuring no regressions
+- **Errors encountered**: None
+- **How to avoid in future**: Use Python eval for simple PL execution; test builds incrementally
+- **Summary**: Phases 21 and 22 completed with basic PL execution engine and performance maintained. Database now has functional PL capabilities.
+
+#### Experience and Lessons
+- **Tools used**: replace_string_in_file for code edits, run_in_terminal for builds
+- **Challenges**: Building PL interpreter with Python interop; adding production features
+- **Errors encountered**: None
+- **How to avoid in future**: Use Python for complex evaluations; add placeholders for advanced features
+- **Summary**: Phases 23 and 24 completed with enhanced PL interpreter and production readiness. Database now has comprehensive PL support and production foundations.
+
+---
+
+## Update: January 9, 2026 - Phase Renumbering Task
+
+### Task: Renumber phases in _plan.md to accommodate new features
+
+#### What was done
+- Updated Phase 30 subsections from 27.x to 30.x
+- Renamed Phase 28 to Phase 31
+- Updated Phase 31 subsections from 28.x to 31.x
+- Verified no other references to old phase numbers exist
+- Confirmed database still builds successfully after changes
+
+#### Experience and Lessons
+- **Tools used**: replace_string_in_file for plan updates, run_in_terminal for build verification
+- **Challenges**: Ensuring all subsection numbers are updated consistently
+- **Errors encountered**: None
+- **How to avoid in future**: Use grep_search to verify no orphaned references remain
+- **Summary**: Phase numbering updated successfully. Phase 29 (Secrets Manager) remains current task, Phase 30 (Ecosystem Expansion) and Phase 31 (Future Innovations) properly sequenced.

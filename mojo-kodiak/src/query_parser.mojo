@@ -28,6 +28,23 @@ struct Query(Copyable, Movable):
     var func_returns: String  # Return type
     var func_raises: String  # Exception type
     var func_async: Bool  # Async flag
+    var secret_name: String  # For CREATE SECRET
+    var secret_type: String  # bearer, password, key, certificate, custom
+    var secret_value: String  # The secret value
+    var using_secret: String  # Secret name to use in query
+    var using_secret_type: String  # Type of secret to use
+    var attach_path: String  # For ATTACH
+    var attach_alias: String  # For ATTACH/DETACH
+    var load_extension: String  # For LOAD
+    var install_extension: String  # For INSTALL
+    var trigger_name: String  # For CREATE TRIGGER
+    var trigger_timing: String  # BEFORE/AFTER
+    var trigger_event: String  # INSERT/UPDATE/DELETE
+    var trigger_table: String
+    var trigger_function: String
+    var cron_name: String  # For CREATE CRON JOB
+    var cron_schedule: String
+    var cron_function: String
 
     fn __init__(out self):
         self.query_type = ""
@@ -50,6 +67,23 @@ struct Query(Copyable, Movable):
         self.func_returns = ""
         self.func_raises = ""
         self.func_async = False
+        self.secret_name = ""
+        self.secret_type = ""
+        self.secret_value = ""
+        self.using_secret = ""
+        self.using_secret_type = ""
+        self.attach_path = ""
+        self.attach_alias = ""
+        self.load_extension = ""
+        self.install_extension = ""
+        self.trigger_name = ""
+        self.trigger_timing = ""
+        self.trigger_event = ""
+        self.trigger_table = ""
+        self.trigger_function = ""
+        self.cron_name = ""
+        self.cron_schedule = ""
+        self.cron_function = ""
 
 fn parse_query(sql: String) raises -> Query:
     """
@@ -116,6 +150,8 @@ fn parse_query(sql: String) raises -> Query:
             # Function name
             if i < len(tokens):
                 query.func_name = String(tokens[i])
+                if query.func_name.endswith("()"):
+                    query.func_name = query.func_name[:-2]
                 i += 1
             # Parameters (arg: Type, ...)
             if i < len(tokens) and String(tokens[i]) == "(":
@@ -151,6 +187,101 @@ fn parse_query(sql: String) raises -> Query:
                     body_parts.append(String(tokens[i]))
                     i += 1
                 query.func_body = " ".join(body_parts)
+        elif tokens[i].upper() == "SECRET":
+            query.query_type = "CREATE_SECRET"
+            i += 1
+            if i < len(tokens):
+                query.secret_name = String(tokens[i])
+                i += 1
+                if i < len(tokens) and tokens[i].upper() == "TYPE":
+                    i += 1
+                    if i < len(tokens):
+                        query.secret_type = String(tokens[i])
+                        i += 1
+                        if i < len(tokens) and tokens[i].upper() == "VALUE":
+                            i += 1
+                            var value_parts = List[String]()
+                            while i < len(tokens):
+                                value_parts.append(String(tokens[i]))
+                                i += 1
+                            query.secret_value = String(" ".join(value_parts).strip("'\""))
+        elif tokens[i].upper() == "TRIGGER":
+            query.query_type = "CREATE_TRIGGER"
+            i += 1
+            if i < len(tokens):
+                query.trigger_name = String(tokens[i])
+                i += 1
+                if i < len(tokens) and (tokens[i].upper() == "BEFORE" or tokens[i].upper() == "AFTER"):
+                    query.trigger_timing = String(tokens[i])
+                    i += 1
+                if i < len(tokens) and (tokens[i].upper() == "INSERT" or tokens[i].upper() == "UPDATE" or tokens[i].upper() == "DELETE"):
+                    query.trigger_event = String(tokens[i])
+                    i += 1
+                if i < len(tokens) and tokens[i].upper() == "ON":
+                    i += 1
+                    if i < len(tokens):
+                        query.trigger_table = String(tokens[i])
+                        i += 1
+                # Skip to EXECUTE FUNCTION
+                while i < len(tokens) and not (tokens[i].upper() == "EXECUTE" and i + 1 < len(tokens) and tokens[i+1].upper() == "FUNCTION"):
+                    i += 1
+                if i + 1 < len(tokens):
+                    i += 2
+                    if i < len(tokens):
+                        query.trigger_function = String(tokens[i])
+        elif tokens[i].upper() == "CRON":
+            i += 1
+            if tokens[i].upper() == "JOB":
+                query.query_type = "CREATE_CRON_JOB"
+                i += 1
+                if i < len(tokens):
+                    query.cron_name = String(tokens[i])
+                    i += 1
+                if i < len(tokens) and tokens[i].upper() == "SCHEDULE":
+                    i += 1
+                    var sched_parts = List[String]()
+                    while i < len(tokens) and tokens[i].upper() != "EXECUTE":
+                        sched_parts.append(String(tokens[i]))
+                        i += 1
+                    query.cron_schedule = String(" ".join(sched_parts).strip("'\""))
+                if i < len(tokens) and tokens[i].upper() == "EXECUTE":
+                    i += 1
+                    if i < len(tokens) and tokens[i].upper() == "FUNCTION":
+                        i += 1
+                        if i < len(tokens):
+                            query.cron_function = String(tokens[i])
+    
+    elif tokens[i].upper() == "ATTACH":
+        query.query_type = "ATTACH"
+        i += 1
+        if i < len(tokens):
+            var path_parts = List[String]()
+            while i < len(tokens) and tokens[i].upper() != "AS":
+                path_parts.append(String(tokens[i]))
+                i += 1
+            query.attach_path = String(" ".join(path_parts).strip("'\""))
+            if i < len(tokens) and tokens[i].upper() == "AS":
+                i += 1
+                if i < len(tokens):
+                    query.attach_alias = String(tokens[i])
+    
+    elif tokens[i].upper() == "DETACH":
+        query.query_type = "DETACH"
+        i += 1
+        if i < len(tokens):
+            query.attach_alias = String(tokens[i])
+    
+    elif tokens[i].upper() == "LOAD":
+        query.query_type = "LOAD"
+        i += 1
+        if i < len(tokens):
+            query.load_extension = String(tokens[i])
+    
+    elif tokens[i].upper() == "INSTALL":
+        query.query_type = "INSTALL"
+        i += 1
+        if i < len(tokens):
+            query.install_extension = String(tokens[i])
     
     elif tokens[i].upper() == "SELECT":
         query.query_type = "SELECT"
@@ -174,6 +305,18 @@ fn parse_query(sql: String) raises -> Query:
                 var temp = String(tokens[i + 2])
                 var stripped = temp.strip("'\"")
                 query.where_value = String(stripped)
+        # USING SECRET
+        if i < len(tokens) and tokens[i].upper() == "USING":
+            i += 1
+            if i < len(tokens) and tokens[i].upper() == "SECRET":
+                i += 1
+                if i < len(tokens):
+                    query.using_secret = String(tokens[i])
+                    i += 1
+                    if i < len(tokens) and tokens[i].upper() == "TYPE":
+                        i += 1
+                        if i < len(tokens):
+                            query.using_secret_type = String(tokens[i])
     
     elif tokens[i].upper() == "FROM":
         query.query_type = "SELECT"
@@ -230,7 +373,29 @@ fn parse_query(sql: String) raises -> Query:
                     i += 1
                 query.var_value = String(" ".join(value_parts).strip())
     
-    else:
-        raise Error("Unsupported query type: " + String(tokens[i]))
+    elif tokens[i].upper() == "DROP":
+        i += 1
+        if i < len(tokens) and tokens[i].upper() == "SECRET":
+            query.query_type = "DROP_SECRET"
+            i += 1
+            if i < len(tokens):
+                query.secret_name = String(tokens[i])
+                i += 1
+                if i < len(tokens) and tokens[i].upper() == "TYPE":
+                    i += 1
+                    if i < len(tokens):
+                        query.secret_type = String(tokens[i])
+        elif tokens[i].upper() == "CRON":
+            i += 1
+            if tokens[i].upper() == "JOB":
+                query.query_type = "DROP_CRON_JOB"
+                i += 1
+                if i < len(tokens):
+                    query.cron_name = String(tokens[i])
+    
+    elif tokens[i].upper() == "SHOW":
+        i += 1
+        if i < len(tokens) and tokens[i].upper() == "SECRETS":
+            query.query_type = "SHOW_SECRETS"
     
     return query ^
