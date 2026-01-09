@@ -1,0 +1,42 @@
+- [x] Create intermediate_async_direct.mojo with basic async concepts (pure asyncio)
+- [x] Create advanced_async_direct.mojo with channels and task groups (pure asyncio)
+- [x] Create expert_async_direct.mojo with iterators and benchmarking (pure asyncio)
+- [x] Remove uvloop dependency, use pure asyncio
+- [x] Fix Python interop issues (Python.evaluate with exec() for async code)
+- [x] Test all examples for real async functionality
+- [x] Create documentation (README_direct_uvloop.md updated for pure asyncio)
+- [x] Update diary (_mischievous.md) with session summary
+- [x] Create threading_examples.mojo with Python threading module integration
+- [x] Demonstrate concurrent execution with real thread interleaving
+- [x] Use Python.evaluate with exec() for multi-line Python code execution
+- [x] Test threading examples with venv activation
+- Create in-depth example for Mojo parameters: demonstrate compile-time parameterization concepts from https://docs.modular.com/mojo/manual/parameters/ including parameterized functions, structs, comptime values, parameter inference, infer-only parameters, and variadic parameters.
+- Set up virtual environment in mojo-le folder if not exists.
+- Activate the virtual environment.
+- Install Mojo package (use pip install mojo or appropriate installation method).
+- Create an intermediate level Mojo example: demonstrate structs, functions, error handling, and basic memory management.
+- Create an advanced level Mojo example: demonstrate traits, generics, async/await, memory ownership, and expert features.
+- Test both examples to ensure they compile and run correctly.
+- Create documentation for the examples in d/ folder as 260108-mojo-examples.md.
+- Create expert example for Memory Ownership and Lifetimes: demonstrate owned/borrowed references, lifetime management, and safe memory handling.
+- Create expert example for Traits, Generics, and Concurrency: show traits for polymorphism, generics for abstractions, and async/await with concurrency.
+- Create intermediate SIMD example: demonstrate basic SIMD types, operations, and vectorized math for performance gains.
+- Create advanced SIMD example: show SIMD with custom structs, masks, and compile-time parameterization for optimized algorithms.
+- Create expert SIMD example: implement a vectorized algorithm (e.g., matrix multiplication or image processing) with benchmarking.
+- Set up virtual environment in mojo-le folder if not exists.
+- Activate the virtual environment.
+- Install Mojo package (use pip install mojo or appropriate installation method).
+- Create an intermediate level Mojo example: demonstrate structs, functions, error handling, and basic memory management.
+- Create an advanced level Mojo example: demonstrate traits, generics, async/await, memory ownership, and expert features.
+- Test both examples to ensure they compile and run correctly.
+- Create documentation for the examples in d/ folder as 260108-mojo-examples.md.
+- Create intermediate GPU example: basic kernel launch, data transfer, and simple parallel operations.
+- Create advanced GPU example: shared memory, thread synchronization, and complex kernels.
+- Create expert GPU example: multi-kernel pipeline or integration with CPU code for hybrid computing.
+- Create intermediate async example: basic async/await, coroutines, and concurrent execution patterns.
+- Create advanced async example: async with channels, task groups, and structured concurrency.
+- Create expert async example: custom async primitives, async iterators, and performance benchmarking.
+- Create intermediate I/O example: basic file reading/writing, text/binary formats, and error handling.
+- Create advanced I/O example: buffered I/O, memory mapping, and concurrent file operations.
+- Create expert I/O example: custom data formats, streaming processing, and I/O-bound performance optimization.
+- Redo async examples with uvloop interop: Update intermediate, advanced, and expert async examples to use real async functionality via Python asyncio with uvloop integration.

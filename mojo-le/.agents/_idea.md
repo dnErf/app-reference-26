@@ -1,0 +1,1 @@
+The idea is to install Mojo in the mojo-le folder and create working examples ranging from intermediate to advanced expert level to learn how to use Mojo effectively. give detailed and articulated explanation also working real world sophisticated example

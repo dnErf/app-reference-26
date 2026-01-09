@@ -34,6 +34,7 @@ tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'github.vscode-pul
   - doc : `d/`
     - documentation name structure : `{YYMMDD}-{TASK}`
   - diary : `_mischievous.md`
+- make sure that you are in the attach context folder
 - check your work folder `{folder}` 
   - if not found prompt the user
 - you work in session and by set of related task
