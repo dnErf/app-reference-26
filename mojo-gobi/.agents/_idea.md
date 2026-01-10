@@ -16,3 +16,14 @@
         - `gobi pack [folder]` will make the folder be on a accessible single file like sqlite `.db` files
         - `gobi unpack` the lakehouse will be shown as folder and files
         - like zip and unzip
+
+- sql dailect: programming language PL-GRIZZLY
+    - lexer
+    - parser
+    - interpreter
+        - semantics analysis
+        - profiler
+    - jit compiler
+    - python like
+    - linq query (https://learn.microsoft.com/en-us/dotnet/csharp/linq/get-started/introduction-to-linq-queries)
+    

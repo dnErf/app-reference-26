@@ -1,0 +1,1 @@
+{"name": "test_model", "sql": "SELECT u.name FROM users u JOIN orders o ON u.id = o.user_id", "dependencies": ["users"], "created_at": "1768079450.4096267", "updated_at": "1768079450.4096267", "last_hash": "SELECT u.name FROM users u JOIN orders o ON u.id = o.user_id", "last_execution": "never"}

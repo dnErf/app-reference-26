@@ -1,10 +1,9 @@
-Implement core Merkle B+ Tree data structure with SHA-256 hashing and universal compaction strategy
-Design BLOB storage abstraction compatible with Azure ADLS Gen 2 patterns
-Create CLI application using Rich library with repl, init, pack, and unpack commands
-Implement lakehouse schema management for tables and metadata
-Add SQLMesh-inspired transformation staging capabilities
-Develop pack/unpack functionality for .gobi file format
-Implement embedded database operations with CRUD functionality
-Add data integrity verification using Merkle tree hashes
-Optimize compaction strategy for performance and space efficiency
-Add SQLMesh-inspired transformation staging with data pipeline workflows
+- Implement pipeline execution engine with dependency resolution and topological sorting
+- Add data quality checks and validation rules for transformation outputs
+- Implement PL-GRIZZLY interpreter with semantic analysis and profiling capabilities
+- Add PL-GRIZZLY JIT compiler for performance optimization
+- Integrate Python-like syntax features (functions, pattern matching, pipes)
+- Implement LINQ-style query expressions in PL-GRIZZLY
+- Add type system with custom STRUCT and EXCEPTION types
+- Create function system with receivers and method-style syntax
+- Implement advanced language features (try/catch, binary operations, pipe chaining)

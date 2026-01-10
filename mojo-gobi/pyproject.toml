@@ -10,7 +10,8 @@ authors = [{name = "Godi Team"}]
 dependencies = [
     "rich>=13.0.0",
     "pyarrow>=10.0.0",
-    "pandas>=1.5.0"
+    "pandas>=1.5.0",
+    "sqlparse>=0.4.0"
 ]
 
 [project.scripts]

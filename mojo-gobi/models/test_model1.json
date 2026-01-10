@@ -1,0 +1,1 @@
+{"name": "test_model1", "sql": "'SELECT * FROM table1'", "dependencies": [], "created_at": "1768077660.0434499", "updated_at": "1768077660.0434499", "last_hash": "'SELECT * FROM table1'", "last_execution": "1768077662.5449781"}

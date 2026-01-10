@@ -21,6 +21,8 @@ from blob_storage import BlobStorage
 from merkle_tree import MerkleBPlusTree
 from schema_manager import SchemaManager, DatabaseSchema, TableSchema, Column
 from orc_storage import ORCStorage, test_pyarrow_orc
+from transformation_staging import TransformationStaging
+from pl_grizzly_lexer import PLGrizzlyLexer, Token
 
 # Import required Python modules
 fn initialize_python_modules() raises:
@@ -104,6 +106,7 @@ fn start_repl(rich_console: PythonObject) raises:
     bloom_cols.append("id")
     bloom_cols.append("category")
     var orc_storage = ORCStorage(storage, "ZSTD", True, 10000, 65536, bloom_cols)
+    var transform_staging = TransformationStaging(current_db)
 
     # Simple REPL loop (in real implementation, use proper async/event loop)
     var running = True
@@ -124,6 +127,18 @@ fn start_repl(rich_console: PythonObject) raises:
             rich_console.print("  create table <name> (<col1> <type1>, <col2> <type2>, ...) - Create table")
             rich_console.print("  insert into <table> values (<val1>, <val2>, ...) - Insert data")
             rich_console.print("  select * from <table> - Query table")
+            rich_console.print("  create model <name> <sql> - Create transformation model")
+            rich_console.print("  create env <name> [parent] [type] - Create environment")
+            rich_console.print("  run pipeline <env> - Execute pipeline in environment")
+            rich_console.print("  list models   - List all transformation models")
+            rich_console.print("  show dependencies <model> - Show dependencies for a model")
+            rich_console.print("  view history  - Show execution history for all models")
+            rich_console.print("  list envs     - List all environments")
+            rich_console.print("  set env config <env> <key> <value> - Set environment configuration")
+            rich_console.print("  get env config <env> - Get environment configuration")
+            rich_console.print("  validate sql <sql> - Validate SQL syntax")
+            rich_console.print("  validate model <name> <sql> - Validate a transformation model")
+            rich_console.print("  tokenize <code> - Tokenize PL-GRIZZLY code")
         elif cmd == "status":
             rich_console.print("[green]Database status: Operational[/green]")
             rich_console.print("[dim]Current database: " + current_db + "[/dim]")
@@ -222,6 +237,149 @@ fn start_repl(rich_console: PythonObject) raises:
                         row_str += "'" + row[i] + "'"
                     row_str += ")"
                     rich_console.print("  " + row_str)
+        elif cmd.startswith("create model "):
+            # Parse: create model <name> <sql>
+            var parts = cmd[13:].split(" ", 1)  # Split on first space only
+            if len(parts) >= 2:
+                var model_name = String(parts[0])
+                var sql = String(parts[1])
+                var dependencies = List[String]()
+                var success = transform_staging.create_model(model_name, sql, dependencies)
+                if success:
+                    rich_console.print("[green]Model '" + model_name + "' created successfully[/green]")
+                else:
+                    rich_console.print("[red]Failed to create model '" + model_name + "'[/red]")
+            else:
+                rich_console.print("[red]Usage: create model <name> <sql>[/red]")
+        elif cmd.startswith("create env "):
+            # Parse: create env <name> [parent] [type]
+            var parts = cmd[11:].strip().split(" ")
+            if len(parts) >= 1:
+                var env_name = String(parts[0])
+                var parent = "" if len(parts) < 2 else String(parts[1])
+                var env_type = "dev" if len(parts) < 3 else String(parts[2])
+                var success = transform_staging.create_environment(env_name, "", parent, env_type)
+                if success:
+                    rich_console.print("[green]Environment '" + env_name + "' created successfully[/green]")
+                else:
+                    rich_console.print("[red]Failed to create environment '" + env_name + "'[/red]")
+            else:
+                rich_console.print("[red]Usage: create env <name> [parent] [type][/red]")
+        elif cmd == "list models":
+            # List all transformation models
+            var models = transform_staging.list_models()
+            if len(models) == 0:
+                rich_console.print("[yellow]No transformation models found[/yellow]")
+            else:
+                rich_console.print("[green]Transformation models:[/green]")
+                for model_name in models:
+                    rich_console.print("  " + model_name)
+        elif cmd.startswith("show dependencies "):
+            # Parse: show dependencies <model>
+            var model_name = String(cmd[18:].strip())
+            var dependencies = transform_staging.get_model_dependencies(model_name)
+            if len(dependencies) == 0:
+                rich_console.print("[yellow]Model '" + model_name + "' has no dependencies[/yellow]")
+            else:
+                rich_console.print("[green]Dependencies for '" + model_name + "':[/green]")
+                for dep in dependencies:
+                    rich_console.print("  " + dep)
+        elif cmd == "view history":
+            # Show execution history for all models
+            var history = transform_staging.get_execution_history()
+            if len(history) == 0:
+                rich_console.print("[yellow]No execution history found[/yellow]")
+            else:
+                rich_console.print("[green]Execution history:[/green]")
+                for entry in history:
+                    rich_console.print("  " + entry)
+        elif cmd == "list envs":
+            # List all environments
+            var envs = transform_staging.list_environments()
+            if len(envs) == 0:
+                rich_console.print("[yellow]No environments found[/yellow]")
+            else:
+                rich_console.print("[green]Environments:[/green]")
+                for env_name in envs:
+                    rich_console.print("  " + env_name)
+        elif cmd.startswith("set env config "):
+            # Parse: set env config <env> <key> <value>
+            var parts = cmd[15:].strip().split(" ")
+            if len(parts) >= 3:
+                var env_name = String(parts[0])
+                var key = String(parts[1])
+                var value = String(" ".join(parts[2:]))  # Join remaining parts for value
+                var success = transform_staging.set_environment_config(env_name, key, value)
+                if success:
+                    rich_console.print("[green]Configuration '" + key + "' set for environment '" + env_name + "'[/green]")
+                else:
+                    rich_console.print("[red]Failed to set configuration for environment '" + env_name + "'[/red]")
+            else:
+                rich_console.print("[red]Usage: set env config <env> <key> <value>[/red]")
+        elif cmd.startswith("get env config "):
+            # Parse: get env config <env>
+            var env_name = String(cmd[16:].strip())
+            var config = transform_staging.get_environment_config(env_name)
+            if len(config) == 0:
+                rich_console.print("[yellow]No configuration found for environment '" + env_name + "'[/yellow]")
+            else:
+                rich_console.print("[green]Configuration for '" + env_name + "':[/green]")
+                # Collect keys first to avoid aliasing issues
+                var keys = List[String]()
+                for key in config.keys():
+                    keys.append(key)
+                for key in keys:
+                    var value = config[key]
+                    rich_console.print("  " + key + " = " + value)
+        elif cmd.startswith("run pipeline "):
+            # Parse: run pipeline <env>
+            var env_name = String(cmd[13:].strip())
+            var execution = transform_staging.execute_pipeline(env_name)
+            rich_console.print("[green]Pipeline execution completed[/green]")
+            rich_console.print("[dim]Status: " + execution.status + "[/dim]")
+            rich_console.print("[dim]Executed models: " + String(len(execution.executed_models)) + "[/dim]")
+            if len(execution.errors) > 0:
+                rich_console.print("[red]Errors:[/red]")
+                for error in execution.errors:
+                    rich_console.print("  " + error)
+        elif cmd.startswith("validate sql "):
+            # Parse: validate sql <sql>
+            var sql = String(cmd[13:].strip())
+            var result = transform_staging.validate_sql(sql)
+            if result.is_valid:
+                rich_console.print("[green]SQL is valid[/green]")
+            else:
+                rich_console.print("[red]SQL validation failed: " + result.error_message + "[/red]")
+        elif cmd.startswith("validate model "):
+            # Parse: validate model <name> <sql>
+            var parts = cmd[15:].strip().split(" ", 1)
+            if len(parts) >= 2:
+                var model_name = String(parts[0])
+                var sql = String(parts[1])
+                var result = transform_staging.validate_model(model_name, sql)
+                if result.is_valid:
+                    rich_console.print("[green]Model '" + model_name + "' is valid[/green]")
+                    # Also show extracted dependencies
+                    var deps = transform_staging.extract_dependencies_from_sql(sql)
+                    if len(deps) > 0:
+                        rich_console.print("[dim]Extracted dependencies:[/dim]")
+                        for dep in deps:
+                            rich_console.print("  " + dep)
+                else:
+                    rich_console.print("[red]Model validation failed: " + result.error_message + "[/red]")
+            else:
+                rich_console.print("[red]Usage: validate model <name> <sql>[/red]")
+        elif cmd.startswith("tokenize "):
+            # Parse: tokenize <code>
+            var code = String(cmd[9:].strip())
+            var lexer = PLGrizzlyLexer(code)
+            try:
+                var tokens = lexer.tokenize()
+                rich_console.print("[green]Tokens:[/green]")
+                for token in tokens:
+                    rich_console.print("  " + token.type + ": '" + token.value + "' (line " + String(token.line) + ", col " + String(token.column) + ")")
+            except:
+                rich_console.print("[red]Tokenization failed[/red]")
         else:
             rich_console.print("[red]Unknown command: " + cmd + "[/red]")
 
