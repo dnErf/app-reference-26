@@ -1,1 +1,0 @@
-{"name": "default","tables": [{"name": "users","columns": [{"name": "id", "type": "int"},{"name": "name", "type": "string"},{"name": "email", "type": "string"}]}]}

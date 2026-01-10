@@ -6,3 +6,4 @@ Implement lakehouse schema management for tables and metadata
 Develop pack/unpack functionality for .gobi file format
 Implement embedded database operations with CRUD functionality
 Implement data integrity verification using SHA-256 Merkle tree hashing with compaction support
+Optimize compaction strategy for performance and space efficiency

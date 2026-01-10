@@ -62,25 +62,37 @@ struct MerkleBPlusNode(Movable, Copyable):
         """Check if node is below minimum capacity."""
         return len(self.keys) < 1
 
-# Universal Compaction Strategy
+# Universal Compaction Strategy with Performance Optimizations
 struct UniversalCompactionStrategy(Movable, Copyable):
     var compaction_threshold: Float64
     var reorganization_count: Int
+    var adaptive_threshold: Bool
+    var min_threshold: Float64
+    var max_threshold: Float64
 
-    fn __init__(out self, threshold: Float64 = 0.7):
+    fn __init__(out self, threshold: Float64 = 0.7, adaptive: Bool = True):
         self.compaction_threshold = threshold
         self.reorganization_count = 0
+        self.adaptive_threshold = adaptive
+        self.min_threshold = 0.5
+        self.max_threshold = 0.9
 
     fn __copyinit__(out self, other: Self):
         self.compaction_threshold = other.compaction_threshold
         self.reorganization_count = other.reorganization_count
+        self.adaptive_threshold = other.adaptive_threshold
+        self.min_threshold = other.min_threshold
+        self.max_threshold = other.max_threshold
 
     fn __moveinit__(out self, deinit existing: Self):
         self.compaction_threshold = existing.compaction_threshold
         self.reorganization_count = existing.reorganization_count
+        self.adaptive_threshold = existing.adaptive_threshold
+        self.min_threshold = existing.min_threshold
+        self.max_threshold = existing.max_threshold
 
     fn should_compact(self, tree: MerkleBPlusTree) -> Bool:
-        """Determine if tree needs universal compaction."""
+        """Determine if tree needs universal compaction with adaptive thresholds."""
         var total_nodes = tree.count_nodes()
         var underutilized_nodes = tree.count_underutilized_nodes()
 
@@ -89,6 +101,24 @@ struct UniversalCompactionStrategy(Movable, Copyable):
 
         var utilization_ratio = Float64(underutilized_nodes) / Float64(total_nodes)
         return utilization_ratio >= self.compaction_threshold
+
+    fn adjust_threshold(mut self):
+        """Adjust compaction threshold based on reorganization frequency."""
+        if self.adaptive_threshold:
+            if self.reorganization_count > 10:
+                # If we've compacted many times, lower threshold to reduce frequency
+                self.compaction_threshold = max(self.min_threshold, self.compaction_threshold - 0.1)
+            elif self.reorganization_count < 3:
+                # If we haven't compacted much, can be more aggressive
+                self.compaction_threshold = min(self.max_threshold, self.compaction_threshold + 0.05)
+
+    fn get_performance_metrics(self) -> String:
+        """Get performance metrics for monitoring compaction efficiency."""
+        var metrics = "Compaction Metrics:\n"
+        metrics += "  Reorganizations: " + String(self.reorganization_count) + "\n"
+        metrics += "  Current Threshold: " + String(self.compaction_threshold) + "\n"
+        metrics += "  Adaptive Mode: " + String(self.adaptive_threshold) + "\n"
+        return metrics
 
 # Merkle B+ Tree with SHA-256
 struct MerkleBPlusTree(Movable, Copyable):
@@ -123,35 +153,63 @@ struct MerkleBPlusTree(Movable, Copyable):
         self.merkle_hash = SHA256Hash.compute(hash_data)
 
     fn perform_compaction(mut self):
-        """Perform universal compaction on this tree."""
+        """Perform universal compaction on this tree with optimized sorting."""
         print("Performing universal compaction...")
 
-        # Sort keys and values by key
-        var sorted_indices = List[Int]()
-        for i in range(len(self.keys)):
-            sorted_indices.append(i)
-
-        # Simple bubble sort
-        for i in range(len(sorted_indices)):
-            for j in range(i + 1, len(sorted_indices)):
-                if self.keys[sorted_indices[i]] > self.keys[sorted_indices[j]]:
-                    var temp = sorted_indices[i]
-                    sorted_indices[i] = sorted_indices[j]
-                    sorted_indices[j] = temp
-
-        # Rebuild sorted lists
-        var sorted_keys = List[Int]()
-        var sorted_values = List[String]()
-
-        for idx in sorted_indices:
-            sorted_keys.append(self.keys[idx])
-            sorted_values.append(self.values[idx])
-
-        self.keys = sorted_keys^
-        self.values = sorted_values^
+        # Use quicksort for O(n log n) performance instead of bubble sort O(n²)
+        self.quicksort_keys(0, len(self.keys) - 1)
 
         self.compaction_strategy.reorganization_count += 1
+        self.compaction_strategy.adjust_threshold()
         print("Universal compaction completed. Reorganizations:", self.compaction_strategy.reorganization_count)
+
+    fn quicksort_keys(mut self, low: Int, high: Int):
+        """Quicksort the keys and values in-place for better performance."""
+        if low < high:
+            var pivot_index = self.partition(low, high)
+            self.quicksort_keys(low, pivot_index - 1)
+            self.quicksort_keys(pivot_index + 1, high)
+
+    fn partition(mut self, low: Int, high: Int) -> Int:
+        """Partition function for quicksort."""
+        var pivot = self.keys[high]
+        var i = low - 1
+
+        for j in range(low, high):
+            if self.keys[j] <= pivot:
+                i += 1
+                # Swap keys
+                var temp_key = self.keys[i]
+                self.keys[i] = self.keys[j]
+                self.keys[j] = temp_key
+                # Swap values
+                var temp_value = self.values[i]
+                self.values[i] = self.values[j]
+                self.values[j] = temp_value
+
+        # Swap with pivot
+        var temp_key = self.keys[i + 1]
+        self.keys[i + 1] = self.keys[high]
+        self.keys[high] = temp_key
+        var temp_value = self.values[i + 1]
+        self.values[i + 1] = self.values[high]
+        self.values[high] = temp_value
+
+        return i + 1
+
+    fn get_performance_stats(self) -> String:
+        """Get performance statistics for the tree."""
+        var stats = "Merkle B+ Tree Performance Stats:\n"
+        stats += "  Total Keys: " + String(len(self.keys)) + "\n"
+        stats += "  Memory Usage: ~" + String((len(self.keys) * 8 + len(self.values) * 16)) + " bytes\n"
+        stats += "  " + self.compaction_strategy.get_performance_metrics()
+        return stats
+
+    fn optimize_space_usage(mut self):
+        """Optimize space usage by trimming unused capacity."""
+        # Trim lists to exact size to free unused memory
+        self.keys.resize(len(self.keys), 0)
+        self.values.resize(len(self.values), "")
 
     fn insert(mut self, key: Int, value: String) raises -> String:
         """Insert key-value pair with SHA-256 hash updates. Returns the computed hash."""

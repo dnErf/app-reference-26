@@ -1,1 +1,0 @@
-Optimize compaction strategy for performance and space efficiency
