@@ -112,13 +112,9 @@ struct UniversalCompactionStrategy(Movable, Copyable):
                 # If we haven't compacted much, can be more aggressive
                 self.compaction_threshold = min(self.max_threshold, self.compaction_threshold + 0.05)
 
-    fn get_performance_metrics(self) -> String:
-        """Get performance metrics for monitoring compaction efficiency."""
-        var metrics = "Compaction Metrics:\n"
-        metrics += "  Reorganizations: " + String(self.reorganization_count) + "\n"
-        metrics += "  Current Threshold: " + String(self.compaction_threshold) + "\n"
-        metrics += "  Adaptive Mode: " + String(self.adaptive_threshold) + "\n"
-        return metrics
+    fn compact(mut self, tree: MerkleBPlusTree):
+        """Perform compaction on the given tree."""
+        tree.perform_compaction()
 
 # Merkle B+ Tree with SHA-256
 struct MerkleBPlusTree(Movable, Copyable):

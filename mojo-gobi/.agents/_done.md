@@ -34,3 +34,6 @@ Implement SELECT statement parsing
 Implement CREATE FUNCTION statement parsing
 Test parsing of complex PL-GRIZZLY expressions
 Add transformation validation and SQL parsing capabilities
+Integrate PyArrow filesystem interface in blob storage for cross-platform compatibility
+Remove pandas dependency from ORC storage and use direct PyArrow APIs
+Change ORC storage default compression to none and implement ZSTD ORC compression for pack/unpack

@@ -1,0 +1,13 @@
+20260110 - PyArrow Filesystem Integration in Blob Storage
+- Migrated BlobStorage from direct file operations to PyArrow filesystem interface
+- Replaced os.path operations with pyarrow.fs.LocalFileSystem for cross-platform compatibility
+- Updated write_blob to use fs.open_output_stream with proper UTF-8 encoding
+- Updated read_blob to use fs.open_input_stream with UTF-8 decoding
+- Modified write_blob_binary and read_blob_binary to use PyArrow streams for binary data
+- Replaced os.remove with fs.delete_file for blob deletion
+- Implemented list_blobs using fs.get_file_info with FileSelector for recursive directory traversal
+- Updated blob_exists to use fs.get_file_info for file existence checking
+- Maintained Azure ADLS Gen 2 compatibility patterns while leveraging PyArrow's filesystem abstraction
+- Resolved Mojo compilation issues with proper PythonObject conversions for encoding/decoding
+- Build succeeds with PyArrow filesystem integration, maintaining all existing functionality
+- Blob storage now uses industry-standard PyArrow filesystem interface for better portability and features

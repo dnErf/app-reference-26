@@ -1,0 +1,13 @@
+20260110 - ORC Storage Compression and Pandas Removal
+- Changed ORC storage default compression from "ZSTD" to "none" for better performance control
+- Removed pandas dependency from orc_storage.mojo as it's not needed according to PyArrow ORC docs
+- Replaced pandas DataFrame creation with direct PyArrow table construction using pyarrow.array() and pyarrow.table()
+- Updated read_table() to work directly with PyArrow tables instead of converting to pandas DataFrame
+- Fixed List[String] copying issues by using .copy() method for non-ImplicitlyCopyable types
+- Updated test_pyarrow_orc() to create PyArrow tables directly without pandas intermediary
+- Implemented pack/unpack functionality using ZSTD ORC compression instead of zip files
+- Created pack_database_zstd() function that stores database files as ORC table with path, content, and size columns
+- Updated unpack_database() to read from ORC format and extract files to directory structure
+- Maintained .gobi file format but changed internal compression from ZIP to ZSTD ORC
+- Build succeeds with pandas-free ORC storage and ZSTD compression for database packaging
+- ORC storage now uses direct PyArrow APIs for better performance and reduced dependencies

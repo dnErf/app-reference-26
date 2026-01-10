@@ -3,13 +3,14 @@ BLOB Storage Abstraction
 ========================
 
 File-based BLOB storage abstraction compatible with Azure ADLS Gen 2 patterns.
-Provides hierarchical namespace and efficient file operations.
+Provides hierarchical namespace and efficient file operations using PyArrow filesystem interface.
 """
 
 from python import Python, PythonObject
 import os
 
 struct BlobStorage(Movable, Copyable):
+    var fs: PythonObject
     var root_path: String
 
     fn __init__(out self, root_path: String) raises:
@@ -17,11 +18,17 @@ struct BlobStorage(Movable, Copyable):
         # Ensure root directory exists
         var os_module = Python.import_module("os")
         os_module.makedirs(root_path, exist_ok=True)
+        
+        # Initialize PyArrow LocalFileSystem
+        var pyarrow_fs = Python.import_module("pyarrow.fs")
+        self.fs = pyarrow_fs.LocalFileSystem()
 
     fn __copyinit__(out self, other: Self):
+        self.fs = other.fs
         self.root_path = other.root_path
 
     fn __moveinit__(out self, deinit existing: Self):
+        self.fs = existing.fs^
         self.root_path = existing.root_path^
 
     fn write_blob(self, path: String, data: String) -> Bool:
@@ -31,10 +38,11 @@ struct BlobStorage(Movable, Copyable):
             var os_module = Python.import_module("os")
             var dirname = os_module.path.dirname(full_path)
             os_module.makedirs(dirname, exist_ok=True)
-
-            var file = open(full_path, "w")
-            file.write(data)
-            file.close()
+            
+            var stream = self.fs.open_output_stream(full_path)
+            var py_data = PythonObject(data)
+            stream.write(py_data.encode("utf-8"))
+            stream.close()
             return True
         except:
             return False
@@ -43,10 +51,10 @@ struct BlobStorage(Movable, Copyable):
         """Read data from a blob at the specified path."""
         try:
             var full_path = self.root_path + "/" + path
-            var file = open(full_path, "r")
-            var data = file.read()
-            file.close()
-            return data
+            var stream = self.fs.open_input_stream(full_path)
+            var data = stream.read()
+            stream.close()
+            return String(data.decode("utf-8"))
         except:
             return ""
 
@@ -57,10 +65,10 @@ struct BlobStorage(Movable, Copyable):
             var os_module = Python.import_module("os")
             var dirname = os_module.path.dirname(full_path)
             os_module.makedirs(dirname, exist_ok=True)
-
-            var file = open(full_path, "wb")
-            file.write(data)
-            file.close()
+            
+            var stream = self.fs.open_output_stream(full_path)
+            stream.write(data)
+            stream.close()
             return True
         except:
             return False
@@ -69,9 +77,9 @@ struct BlobStorage(Movable, Copyable):
         """Read binary data from a blob at the specified path."""
         try:
             var full_path = self.root_path + "/" + path
-            var file = open(full_path, "rb")
-            var data = file.read()
-            file.close()
+            var stream = self.fs.open_input_stream(full_path)
+            var data = stream.read()
+            stream.close()
             return data
         except:
             return Python.none()
@@ -80,8 +88,7 @@ struct BlobStorage(Movable, Copyable):
         """Delete a blob at the specified path."""
         try:
             var full_path = self.root_path + "/" + path
-            var os_module = Python.import_module("os")
-            os_module.remove(full_path)
+            self.fs.delete_file(full_path)
             return True
         except:
             return False
@@ -90,10 +97,13 @@ struct BlobStorage(Movable, Copyable):
         """List blobs with optional prefix."""
         var results = List[String]()
         try:
-            var os_module = Python.import_module("os")
-            for root, dirs, files in os_module.walk(self.root_path):
-                for file in files:
-                    var full_path = os_module.path.join(root, file)
+            var pyarrow_fs = Python.import_module("pyarrow.fs")
+            var selector = pyarrow_fs.FileSelector(self.root_path, recursive=True)
+            var file_infos = self.fs.get_file_info(selector)
+            
+            for file_info in file_infos:
+                if file_info.is_file:
+                    var full_path = String(file_info.path)
                     var rel_path = full_path[len(self.root_path) + 1:]
                     if prefix == "" or rel_path.startswith(prefix):
                         results.append(rel_path)
@@ -103,6 +113,9 @@ struct BlobStorage(Movable, Copyable):
 
     fn blob_exists(self, path: String) -> Bool:
         """Check if a blob exists."""
-        var full_path = self.root_path + "/" + path
-        var os_module = Python.import_module("os")
-        return os_module.path.exists(full_path)
+        try:
+            var full_path = self.root_path + "/" + path
+            var file_info = self.fs.get_file_info(full_path)
+            return file_info.is_file
+        except:
+            return False

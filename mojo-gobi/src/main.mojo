@@ -20,7 +20,7 @@ from sys import argv
 from blob_storage import BlobStorage
 from merkle_tree import MerkleBPlusTree
 from schema_manager import SchemaManager, DatabaseSchema, TableSchema, Column
-from orc_storage import ORCStorage, test_pyarrow_orc
+from orc_storage import ORCStorage, test_pyarrow_orc, pack_database_zstd
 from transformation_staging import TransformationStaging
 from pl_grizzly_lexer import PLGrizzlyLexer, Token
 from pl_grizzly_parser import PLGrizzlyParser, Expr
@@ -61,7 +61,7 @@ fn main() raises:
         if len(args) < 3:
             rich_console.print("[red]Error: pack requires a folder path[/red]")
             return
-        pack_database(String(args[2]), rich_console)
+        pack_database_zstd(String(args[2]), rich_console)
     elif command == "unpack":
         if len(args) < 3:
             rich_console.print("[red]Error: unpack requires a .gobi file path[/red]")
@@ -448,7 +448,7 @@ fn pack_database(folder: String, rich_console: PythonObject) raises:
         rich_console.print("[red]Error: Failed to pack database[/red]")
 
 fn unpack_database(file_path: String, rich_console: PythonObject) raises:
-    """Unpack .gobi file to folder structure."""
+    """Unpack .gobi ORC file to folder structure."""
     rich_console.print("[green]Unpacking database from: " + file_path + "[/green]")
 
     # Check if file exists
@@ -467,19 +467,41 @@ fn unpack_database(file_path: String, rich_console: PythonObject) raises:
     rich_console.print("[dim]Extracting to: " + target_folder + "[/dim]")
 
     try:
-        # Use zipfile for extraction
-        var zipfile = Python.import_module("zipfile")
-        var zipf = zipfile.ZipFile(file_path, "r")
+        # Import PyArrow for ORC reading
+        var pyarrow = Python.import_module("pyarrow")
+        var pyarrow_orc = Python.import_module("pyarrow.orc")
+        var builtins = Python.import_module("builtins")
 
-        # Extract all files
-        zipf.extractall(target_folder)
+        # Read ORC file
+        var table = pyarrow_orc.read_table(file_path)
+        
+        # Ensure target directory exists
+        os.makedirs(target_folder, exist_ok=True)
 
-        # List extracted files
-        var namelist = zipf.namelist()
-        for name in namelist:
-            rich_console.print("[dim]  Extracted: " + String(name) + "[/dim]")
+        # Extract files from the table
+        var paths = table.column("path")
+        var contents = table.column("content")
+        var num_rows = table.num_rows
 
-        zipf.close()
+        for i in range(num_rows):
+            var file_path_rel = String(paths[i].as_py())
+            var file_content = contents[i].as_py()
+            
+            # Create full path
+            var full_path = os.path.join(target_folder, file_path_rel)
+            
+            # Ensure directory exists
+            var dirname = os.path.dirname(full_path)
+            if dirname:
+                os.makedirs(dirname, exist_ok=True)
+            
+            # Write file
+            var file_obj = builtins.open(full_path, "wb")
+            file_obj.write(file_content)
+            file_obj.close()
+            
+            rich_console.print("[dim]  Extracted: " + file_path_rel + "[/dim]")
+
         rich_console.print("[green]Database unpacked successfully to: " + target_folder + "[/green]")
 
     except:

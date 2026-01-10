@@ -180,13 +180,16 @@
 - Resolution: Added basic validation checks beyond sqlparse for better SQL correctness
 - Learned: Mojo's strict type system requires careful String/StringSlice handling, Python interop needs explicit error management
 
-20260110 - Enhanced pipeline execution engine with incremental execution and data quality checks
-- Implemented incremental execution that only runs models when their SQL or dependencies have changed
-- Added hash-based change detection using model SQL and dependency hashes
-- Enhanced execute_pipeline to determine models needing execution based on incremental changes
-- Integrated data quality checks that validate SQL syntax, dependency existence, and environment configuration
-- Added execution history tracking with PipelineExecution struct and storage
-- Improved topological sorting for dependency resolution during pipeline execution
-- Resolved Mojo struct copying issues with proper .copy() usage for non-ImplicitlyCopyable types
-- Pipeline now executes only changed models, improving performance for large transformation graphs
-- Data quality validation ensures transformation integrity before and after execution
+20260110 - ORC Storage Compression and Pandas Removal
+- Changed ORC storage default compression from "ZSTD" to "none" for better performance control as requested
+- Removed pandas dependency from orc_storage.mojo since PyArrow ORC works directly with Arrow tables
+- Replaced pandas DataFrame creation with direct PyArrow table construction using pyarrow.array() and pyarrow.table()
+- Updated read_table() to work directly with PyArrow tables instead of converting through pandas DataFrame
+- Fixed Mojo compilation issues with List[String] copying by using .copy() method
+- Implemented pack/unpack functionality using ZSTD ORC compression instead of zip files
+- Created pack_database_zstd() that stores database files as ORC table with path, content, and size columns
+- Updated unpack_database() to read from ORC format and extract files to directory structure
+- Maintained .gobi file format but changed internal compression from ZIP to ZSTD ORC for better columnar compression
+- Build succeeds with pandas-free ORC storage and ZSTD compression for database packaging
+- ORC storage now uses direct PyArrow APIs for better performance and reduced dependencies
+- Learned: PyArrow ORC can work without pandas, providing more efficient columnar operations

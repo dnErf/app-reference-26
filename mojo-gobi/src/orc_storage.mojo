@@ -20,7 +20,7 @@ struct ORCStorage:
     var compression_block_size: Int
     var bloom_filter_columns: List[String]
 
-    fn __init__(out self, storage: BlobStorage, compression: String = "ZSTD", use_dictionary_encoding: Bool = True, row_index_stride: Int = 10000, compression_block_size: Int = 65536, bloom_filter_columns: List[String] = List[String]()):
+    fn __init__(out self, storage: BlobStorage, compression: String = "none", use_dictionary_encoding: Bool = True, row_index_stride: Int = 10000, compression_block_size: Int = 65536, bloom_filter_columns: List[String] = List[String]()):
         self.storage = storage.copy()
         self.merkle_tree = MerkleBPlusTree()
         self.compression = compression
@@ -72,7 +72,6 @@ struct ORCStorage:
             # Import PyArrow
             var pyarrow = Python.import_module("pyarrow")
             var pyarrow_orc = Python.import_module("pyarrow.orc")
-            var pandas = Python.import_module("pandas")
             _ = Python.import_module("io")
             _ = Python.import_module("builtins")
 
@@ -80,36 +79,39 @@ struct ORCStorage:
 
             print("Number of columns:", num_columns)
 
-            print("Creating DataFrame...")
+            print("Creating PyArrow table...")
 
-            # Create pandas DataFrame with dynamic columns based on data
-            var df_data = Python.dict()
-            for col_idx in range(num_columns):
-                df_data["col_" + String(col_idx)] = Python.list()
-            df_data["__integrity_hash__"] = Python.list()
+            # Create PyArrow arrays for each column
+            var arrays = Python.list()
+            var column_names = Python.list()
             
+            for col_idx in range(num_columns):
+                var col_name = "col_" + String(col_idx)
+                column_names.append(col_name)
+                var col_data = Python.list()
+                for row_idx in range(len(all_data)):
+                    var row = all_data[row_idx].copy()
+                    col_data.append(String(row[col_idx] if len(row) > col_idx else ""))
+                arrays.append(pyarrow.array(col_data))
+            
+            # Add integrity hash column
+            column_names.append("__integrity_hash__")
+            var hash_data = Python.list()
             for row_idx in range(len(all_data)):
                 var row = all_data[row_idx].copy()
-                for col_idx in range(num_columns):
-                    df_data["col_" + String(col_idx)].append(String(row[col_idx] if len(row) > col_idx else ""))
-                
                 var row_data = table_name + ":"
                 for i in range(len(row)):
                     if i > 0:
                         row_data += "|"
                     row_data += row[i]
                 var row_hash = SHA256Hash.compute(row_data)
-                df_data["__integrity_hash__"].append(row_hash)
-
+                hash_data.append(row_hash)
                 # Store in Merkle tree for indexing
                 _ = self.merkle_tree.insert(row_idx, row_data)
+            arrays.append(pyarrow.array(hash_data))
 
-            var df = pandas.DataFrame(df_data)
-
-            print("Converting to PyArrow table...")
-
-            # Convert to PyArrow table and write as ORC
-            var arrow_table = pyarrow.Table.from_pandas(df)
+            # Create PyArrow table directly
+            var arrow_table = pyarrow.table(arrays, names=column_names)
             print("PyArrow table created, num columns:", arrow_table.num_columns, "num rows:", arrow_table.num_rows)
 
             print("Writing ORC...")
@@ -187,7 +189,6 @@ struct ORCStorage:
             # Import PyArrow
             _ = Python.import_module("pyarrow")
             var pyarrow_orc = Python.import_module("pyarrow.orc")
-            _ = Python.import_module("pandas")
             _ = Python.import_module("io")
             var builtins = Python.import_module("builtins")
 
@@ -210,27 +211,22 @@ struct ORCStorage:
                 os.remove(temp_filename)
                 return results.copy()
 
-            # Convert to pandas DataFrame for easier processing
-            var df = arrow_table.to_pandas()
-
-            # Extract data rows
+            # Convert PyArrow table to Python lists for processing
+            var num_rows = arrow_table.num_rows
+            var column_names = arrow_table.column_names
             var integrity_violations = 0
-            var num_rows = len(df)
 
             for row_idx in range(num_rows):
                 var row = List[String]()
                 var stored_hash = ""
 
-                # Get the integrity hash
-                if df.__contains__("__integrity_hash__"):
-                    stored_hash = String(df["__integrity_hash__"].iloc[row_idx])
-
                 # Extract column data (skip the hash column)
-                var columns = df.columns
-                for col_name in columns:
+                for col_name in column_names:
                     var col_str = String(col_name)
-                    if col_str != "__integrity_hash__":
-                        var cell_value = String(df[col_name].iloc[row_idx])
+                    if col_str == "__integrity_hash__":
+                        stored_hash = String(arrow_table.column(col_name)[row_idx].as_py())
+                    else:
+                        var cell_value = String(arrow_table.column(col_name)[row_idx].as_py())
                         row.append(cell_value)
 
                 # Verify integrity if we have stored hash
@@ -259,6 +255,70 @@ struct ORCStorage:
 
         return results.copy()
 
+fn pack_database_zstd(folder: String, rich_console: PythonObject) raises:
+    """Pack database folder into a .gobi file using ZSTD ORC compression."""
+    rich_console.print("[green]Packing database from: " + folder + " using ZSTD ORC compression[/green]")
+
+    # Check if folder exists
+    var os = Python.import_module("os")
+    if not os.path.exists(folder):
+        rich_console.print("[red]Error: Database folder '" + folder + "' does not exist[/red]")
+        return
+
+    # Create .gobi filename
+    var gobi_file = folder + ".gobi"
+    rich_console.print("[dim]Creating ORC archive: " + gobi_file + "[/dim]")
+
+    try:
+        # Import PyArrow for ORC compression
+        var pyarrow = Python.import_module("pyarrow")
+        var pyarrow_orc = Python.import_module("pyarrow.orc")
+        var builtins = Python.import_module("builtins")
+
+        # Collect all files and their contents
+        var file_paths = Python.list()
+        var file_contents = Python.list()
+        var file_sizes = Python.list()
+
+        # Walk through all files in the folder
+        var walk_iter = os.walk(folder)
+        for walk_item in walk_iter:
+            var root = walk_item[0]
+            var _ = walk_item[1]  # dirs not used
+            var files = walk_item[2]
+
+            for file in files:
+                var full_path = os.path.join(root, file)
+                var arcname = os.path.relpath(full_path, folder)
+                
+                # Read file content
+                try:
+                    var file_obj = builtins.open(full_path, "rb")
+                    var content = file_obj.read()
+                    file_obj.close()
+                    
+                    file_paths.append(arcname)
+                    file_contents.append(content)
+                    file_sizes.append(len(content))
+                    
+                    rich_console.print("[dim]  Added: " + String(arcname) + " (" + String(len(content)) + " bytes)[/dim]")
+                except:
+                    rich_console.print("[yellow]  Skipped: " + String(arcname) + " (could not read)[/yellow]")
+
+        # Create PyArrow table with file data
+        var table = pyarrow.table([
+            pyarrow.array(file_paths, type=pyarrow.string()),
+            pyarrow.array(file_contents, type=pyarrow.binary()),
+            pyarrow.array(file_sizes, type=pyarrow.int64())
+        ], names=["path", "content", "size"])
+
+        # Write as ORC with ZSTD compression
+        pyarrow_orc.write_table(table, gobi_file, compression="ZSTD")
+        
+        rich_console.print("[green]Database packed successfully: " + gobi_file + "[/green]")
+
+    except:
+        rich_console.print("[red]Error: Failed to pack database[/red]")
 fn test_pyarrow_orc():
     """Test PyArrow ORC functionality."""
     try:
@@ -271,20 +331,12 @@ fn test_pyarrow_orc():
         var pyarrow_orc = Python.import_module("pyarrow.orc")
         print("PyArrow ORC module imported successfully")
         
-        var pandas = Python.import_module("pandas")
-        print("Pandas imported successfully")
+        # Create simple test data using PyArrow directly
+        var test_data = Python.list()
+        test_data.append(pyarrow.array(["Alice", "Bob"]))
+        test_data.append(pyarrow.array(["25", "30"]))
         
-        # Create simple test data
-        var test_data = Python.dict()
-        test_data["name"] = Python.list()
-        test_data["name"].append("Alice")
-        test_data["age"] = Python.list()  
-        test_data["age"].append("25")
-        
-        var df = pandas.DataFrame(test_data)
-        print("DataFrame created")
-        
-        var table = pyarrow.Table.from_pandas(df)
+        var table = pyarrow.table(test_data, names=["name", "age"])
         print("PyArrow table created")
         
         # Try writing to file
