@@ -1,217 +1,74 @@
-# Database Plan: Mojo Kodiak DB
+### 1.1 ULID and UUID Implementation
+- **ULID Generation**: Implement Universally Unique Lexicographically Sortable Identifier
+  - Create ULID struct with timestamp and randomness components
+  - Add generation functions with proper sorting properties
+  - Include encoding/decoding utilities
+- **UUID v5 Generation**: Implement name-based UUID generation
+  - Create UUID struct with standard format
+  - Implement v5 algorithm using SHA-224 hashing
+  - Add namespace support for consistent ID generation
 
-## Completed Phases
-- Phases 1-30: Core database implementation with storage layers, indexing, PL-Grizzly, extensions, transactions, secrets, advanced SQL features
+### 1.2 ORC Data Format Migration
+- **ORC Support**: Replace Feather with ORC for repository storage
+  - Implement ORC reading/writing in block_store.mojo
+  - Update scm_pack/scm_unpack to use ORC format
+  - Maintain backward compatibility with existing .kdk files
+- **Multi-format Support**: Support both ORC and Feather formats
+  - Auto-detect format in repository files
+  - Migration utilities for existing repositories
 
-## Future Phases
+  ### 2.1 BLOB Storage Implementation
+- **S3-Compatible API**: Implement object storage with S3-like features
+  - Create BlobStore struct with bucket/container management
+  - Implement put/get/delete operations for objects
+  - Add metadata support and versioning
+- **Azure Lake Gen2 Features**: Add hierarchical namespace support
+  - Implement directory-like operations
+  - Support for efficient directory listings
+  - Add ACL and permission management
 
-### Phase 31: PL-Grizzly Enhancements
-Focus on completing the PL-Grizzly language features for full scripting capability.
+### 2.2 Storage Operations
+- **Multipart Upload**: Support large file uploads
+  - Implement multipart upload/download
+  - Add resumable transfer capabilities
+  - Include integrity checking (MD5, SHA-256)
+- **Lifecycle Management**: Add storage lifecycle policies
+  - Implement object expiration and archival
+  - Add storage class transitions
+  - Create cleanup and maintenance operations
 
-#### 31.1 Advanced Expression Evaluation
-- Implement full expression parsing and evaluation
-- Support for arithmetic, comparisons, logical operators
-- Variable scope and context management
+### 2.3 Lakehouse Integration
+- **Unified Storage API**: Create common interface for BLOB and lakehouse data
+  - Abstract storage operations across formats
+  - Enable cross-storage data movement
+  - Support for Parquet, ORC, and other formats
 
-#### 31.2 Data Types and Receivers
-- Complete STRUCT and EXCEPTION type implementation
-- Add receiver method execution for custom types
-- Type checking and validation
+  ### 3.2 Virtual Schema Workspaces
+- **Workspace Isolation**: Create isolated development environments
+  - Implement workspace creation and switching
+  - Add environment-specific configurations
+  - Support workspace merging and conflict resolution
+- **Development Environment**: Enhanced development workflow
+  - Add workspace status and diffing
+  - Implement workspace promotion (dev → staging → prod)
+  - Create environment parity features
 
-#### 31.3 Function Enhancements
-- Full function execution with parameter passing
-- Return value handling and error propagation
-- Async function support
+  ### 5.1 SCM Integration
+- **Unified Workflow**: Integrate all SCM components
+  - Connect project structure with versioning
+  - Link package management with workspaces
+  - Integrate BLOB storage with repository operations
+- **Workflow Optimization**: Streamline development workflow
+  - Add workflow automation and scripting
+  - Implement CI/CD integration points
+  - Create development best practices
 
-### Phase 32: Production Optimization
-Enhance performance, scalability, and production readiness.
-
-#### 32.1 Scalability Improvements
-- Connection pooling for concurrent access
-- Memory management optimization
-- Large dataset handling (millions of rows)
-
-#### 32.2 Monitoring and Observability
-- Performance metrics collection
-- Query execution statistics
-- Health checks and diagnostics
-
-#### 32.3 Deployment and Operations
-- Configuration management
-- Backup/restore automation
-- Containerization support
-    - Performance benchmarks.
-
-12. **Documentation and examples**:
-    - API documentation.
-    - Usage examples.
-    - Performance tuning guides.
-
-### Phase 6: Concurrency and Performance Optimization
-13. **Concurrency control**:
-    - Implement locking mechanisms for thread-safe operations.
-    - Support for concurrent reads/writes.
-    - Prevent race conditions in multi-threaded environments.
-
-14. **Performance optimization**:
-    - Optimize B+ tree operations for faster lookups.
-    - Improve fractal tree merging for write efficiency.
-    - Memory pooling and garbage collection tuning.
-
-15. **Benchmarking and profiling**:
-    - Create performance benchmarks for read/write throughput.
-    - Profile memory usage and identify bottlenecks.
-    - Compare with baseline implementations.
-
-### Phase 7: Query Language, REPL, and Extensions
-16. **Basic query language**:
-    - Implement a simple SQL-like query parser.
-    - Support for SELECT, INSERT, UPDATE, DELETE statements.
-    - Expression evaluation for WHERE clauses.
-
-17. **Interactive REPL**:
-    - Build a Read-Eval-Print Loop for interactive database queries.
-    - Command-line interface for executing queries and commands.
-    - Error handling and help system in the REPL.
-
-## Quality Attributes
-- **Performance**: Optimize for both read and write operations.
-- **Reliability**: Ensure data durability with WAL and recovery.
-- **Efficiency**: Minimize memory and disk usage.
-- **Maintainability**: Clean, modular code with good separation of concerns.
-
-## Dependencies
-- PyArrow (for Feather format)
-- Mojo standard library
-- Python interop for external libraries
-
-## Timeline
-- Phase 2: 2-3 days
-- Phase 3: 3-4 days
-- Phase 4: 4-5 days
-- Phase 5: 2-3 days
-- Phase 6: 3-4 days
-- Phase 7: 4-5 days
-
-## Phase 25: Advanced Analytics
-
-Add advanced analytical capabilities to the database.
-
-### 25.1 Statistical Functions
-- Implement common statistical operations (mean, median, std)
-- Aggregate functions in PL
-- Data analysis helpers
-
-### 25.2 Machine Learning Integration
-- Basic ML model storage and execution
-- Integration with Python ML libraries
-- Predictive analytics in queries
-
-### 25.3 Time Series Support
-- Time series data handling
-- Temporal queries and aggregations
-- Trend analysis functions
-
-### 25.4 Visualization Integration
-- Chart generation from query results
-- Export to visualization formats
-- Dashboard support
-
-## Phase 26: Cloud Deployment
-
-Enable cloud-native deployment and operations.
-
-### 26.1 Containerization
-- Docker container setup
-- Kubernetes deployment manifests
-- Microservices architecture
-
-### 26.2 Cloud Services Integration
-- AWS/Azure/GCP integration
-- Managed database services
-- Serverless deployment options
-
-### 26.3 Monitoring and Logging
-- Comprehensive logging system
-- Performance monitoring
-- Alerting and notifications
-
-### 26.4 Backup and Disaster Recovery
-- Automated backups
-- Cross-region replication
-- Disaster recovery procedures
-
-## Phase 29: Advanced SQL Features
-
-Implement advanced SQL capabilities for database management and automation.
-
-### 29.1 ATTACH/DETACH
-- Implement ATTACH for attaching external SQL files or database files
-- Support DETACH for disconnecting attached databases
-- Handle multiple attached databases with namespace management
-
-### 29.2 Extension System
-- Create extension manager for loading/installing extensions
-- httpfs extension installed by default, LOAD to activate
-- INSTALL command for other extensions
-- Plugin architecture for custom extensions
-
-### 29.3 Triggers
-- Implement CREATE TRIGGER syntax (like PostgreSQL)
-- Support BEFORE/AFTER triggers on INSERT/UPDATE/DELETE
-- Trigger execution in PL with access to old/new rows
-
-### 29.4 CRON JOB
-- Add CRON JOB scheduling for automated tasks
-- Support recurring PL script execution
-- Job management (CREATE/DROP CRON JOB)
-
-## Phase 30: Ecosystem Expansion
-
-Expand the database ecosystem with tools and integrations.
-
-### 30.1 Development Tools
-- IDE plugins and extensions
-- Command-line tools
-- Development SDKs
-
-### 30.2 Third-party Integrations
-- ORM support
-- Framework integrations
-- API gateways
-
-### 30.3 Community and Documentation
-- Open-source community building
-- Comprehensive documentation
-- Training materials
-
-### 30.4 Marketplace
-- Plugin marketplace
-- Template library
-- Extension ecosystem
-
-## Phase 31: Future Innovations
-
-Explore cutting-edge features and technologies.
-
-### 31.1 AI/ML Enhancements
-- Advanced AI integrations
-- Automated query optimization
-- Intelligent indexing
-
-### 31.2 Quantum Computing
-- Quantum-resistant encryption
-- Quantum algorithm implementations
-- Hybrid classical-quantum operations
-
-### 31.3 Edge Computing
-- Edge database deployments
-- IoT data processing
-- Real-time analytics at edge
-
-### 31.4 Sustainability
-- Energy-efficient operations
-- Carbon footprint reduction
-- Green computing optimizations
-
-Total remaining: 4 weeks for advanced features.
+### 5.2 Testing & Validation
+- **Comprehensive Testing**: Test all SCM functionality
+  - Unit tests for all components
+  - Integration tests for workflows
+  - Performance testing for large repositories
+- **Documentation**: Complete SCM documentation
+  - User guides for all features
+  - API documentation for extensions
+  - Best practices and troubleshooting

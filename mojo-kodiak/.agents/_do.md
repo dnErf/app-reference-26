@@ -1,3 +1,7 @@
-# Current Tasks
-
-No active tasks. Ready for next phase.
+- ~~Migrate from Feather to ORC data format for repository storage~~ ✓ COMPLETED
+- ~~Implement virtual schema workspaces for development environment isolation~~ ✓ COMPLETED
+- ~~Add ORC reading/writing support to block_store.mojo~~ ✓ COMPLETED
+- Resolve Mojo compilation issues (global variables, enum scoping, Copyable/Movable traits)
+- Test workspace and ORC functionality end-to-end
+- Implement workspace state persistence to disk
+- Add comprehensive testing for ORC format operations

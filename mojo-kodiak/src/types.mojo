@@ -20,13 +20,34 @@ struct Row(Copyable, Movable):
     fn __setitem__(mut self, key: String, value: String):
         self.data[key] = value
 
+    fn keys(self) -> List[String]:
+        """
+        Get all keys in the row.
+        """
+        var result = List[String]()
+        for key in self.data.keys():
+            result.append(key)
+        return result^
+
+    fn __contains__(self, key: String) -> Bool:
+        """
+        Check if key exists in the row.
+        """
+        return key in self.data
+
 @fieldwise_init
 struct Table(Copyable, Movable):
     """
     Represents a table with rows.
     """
     var name: String
+    var schema: Dict[String, String]  # Column name -> type
     var rows: List[Row]
+
+    fn __init__(out self, name: String, rows: List[Row]):
+        self.name = name
+        self.schema = Dict[String, String]()
+        self.rows = rows.copy()
 
     fn insert_row(mut self, row: Row):
         """

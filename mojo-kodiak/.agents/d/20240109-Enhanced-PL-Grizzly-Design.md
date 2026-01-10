@@ -77,11 +77,16 @@ CREATE FUNCTION [UserProfile] validate(self) RETURNS BOOLEAN RAISE ValidationErr
     TRUE
 }
 
--- Async functions
-CREATE FUNCTION process_data(data: JSON) RETURNS JSON AS ASYNC {
+-- Async functions (default behavior)
+CREATE FUNCTION process_data(data: JSON) RETURNS JSON {
     TRY expensive_computation(data) CATCH {
         { error: "Processing failed", input: data }
     }
+}
+
+-- Synchronous functions (explicit)
+CREATE FUNCTION validate_sync(data: JSON) RETURNS BOOLEAN AS SYNC {
+    data.valid == TRUE
 }
 ```
 

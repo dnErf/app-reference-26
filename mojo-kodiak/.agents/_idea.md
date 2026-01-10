@@ -46,5 +46,21 @@ RAISE MyNewException
     -- i am a funtion here
     price * 0.8
 }
-
 ```
+
+- #file:_plan.md plan to be full featured and comparable to https://docs.getdbt.com/docs/introduction and https://sqlmesh.readthedocs.io/en/stable/ . take note to focus on that for now.
+
+- plan to have an scm extension, simple like fossil (https://fossil-scm.org/home/doc/tip/www/fossil-v-git.wiki) and merculiar (https://www.mercurial-scm.org/)
+    - will use ORC data format
+    - can be pack or unpack into a database
+    - after user `kodiak extension install scm`. user will be able to use `kodiak scm ini`. and this will setup the virtual schema workspace environment
+    - implement ULID
+    - implement UUID v5 
+    - implement BLOB comparable to S3 features and ADS Lake Gen2 feature this will be also the BLOB that will be used in lakehouse extension 
+    - implement project structure with models, seeds, tests and sqls
+    - implement virtual schema workspace environments for development isolation
+    - create package management for shared models and macros
+
+- lakehouse extension
+    - will use PARQUET
+    - compatible with apache iceberg (https://iceberg.apache.org/) wuth apache hudi features (https://hudi.apache.org/)
