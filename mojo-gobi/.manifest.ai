@@ -1,9 +1,0 @@
-{
-  "ai_project": true,
-  "structure_version": "1.0",
-  "agent_hooks": ["validate_structure", "check_dependencies"],
-  "folders": [".ai", ".ai/agents", ".ai/models", ".gobi", ".gobi/scripts", ".gobi/plugins"],
-  "managed_by": "gobi",
-  "use_cli": true,
-  "contact": "Run 'gobi validate' for agent review"
-}
