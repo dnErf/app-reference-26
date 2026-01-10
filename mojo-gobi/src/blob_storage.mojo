@@ -6,7 +6,7 @@ File-based BLOB storage abstraction compatible with Azure ADLS Gen 2 patterns.
 Provides hierarchical namespace and efficient file operations.
 """
 
-from python import Python
+from python import Python, PythonObject
 import os
 
 struct BlobStorage(Movable, Copyable):
@@ -49,6 +49,32 @@ struct BlobStorage(Movable, Copyable):
             return data
         except:
             return ""
+
+    fn write_blob_binary(self, path: String, data: PythonObject) -> Bool:
+        """Write binary data to a blob at the specified path."""
+        try:
+            var full_path = self.root_path + "/" + path
+            var os_module = Python.import_module("os")
+            var dirname = os_module.path.dirname(full_path)
+            os_module.makedirs(dirname, exist_ok=True)
+
+            var file = open(full_path, "wb")
+            file.write(data)
+            file.close()
+            return True
+        except:
+            return False
+
+    fn read_blob_binary(self, path: String) -> PythonObject:
+        """Read binary data from a blob at the specified path."""
+        try:
+            var full_path = self.root_path + "/" + path
+            var file = open(full_path, "rb")
+            var data = file.read()
+            file.close()
+            return data
+        except:
+            return Python.none()
 
     fn delete_blob(self, path: String) -> Bool:
         """Delete a blob at the specified path."""

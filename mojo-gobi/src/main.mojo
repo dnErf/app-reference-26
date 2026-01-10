@@ -20,7 +20,7 @@ from sys import argv
 from blob_storage import BlobStorage
 from merkle_tree import MerkleBPlusTree
 from schema_manager import SchemaManager, DatabaseSchema, TableSchema, Column
-from orc_storage import ORCStorage
+from orc_storage import ORCStorage, test_pyarrow_orc
 
 # Import required Python modules
 fn initialize_python_modules() raises:
@@ -100,7 +100,10 @@ fn start_repl(rich_console: PythonObject) raises:
     var current_db = "."
     var storage = BlobStorage(current_db)
     var schema_manager = SchemaManager(storage)
-    var orc_storage = ORCStorage(storage)
+    var bloom_cols = List[String]()
+    bloom_cols.append("id")
+    bloom_cols.append("category")
+    var orc_storage = ORCStorage(storage, "ZSTD", True, 10000, 65536, bloom_cols)
 
     # Simple REPL loop (in real implementation, use proper async/event loop)
     var running = True
@@ -116,6 +119,7 @@ fn start_repl(rich_console: PythonObject) raises:
             rich_console.print("  help          - Show this help")
             rich_console.print("  quit          - Exit REPL")
             rich_console.print("  status        - Show database status")
+            rich_console.print("  test          - Run PyArrow ORC test")
             rich_console.print("  use <db>      - Switch to database")
             rich_console.print("  create table <name> (<col1> <type1>, <col2> <type2>, ...) - Create table")
             rich_console.print("  insert into <table> values (<val1>, <val2>, ...) - Insert data")
@@ -123,6 +127,10 @@ fn start_repl(rich_console: PythonObject) raises:
         elif cmd == "status":
             rich_console.print("[green]Database status: Operational[/green]")
             rich_console.print("[dim]Current database: " + current_db + "[/dim]")
+        elif cmd == "test":
+            rich_console.print("[yellow]Running PyArrow ORC test...[/yellow]")
+            test_pyarrow_orc()
+            rich_console.print("[green]Test completed[/green]")
         elif cmd.startswith("use "):
             var parts = cmd.split(" ")
             if len(parts) >= 2:
