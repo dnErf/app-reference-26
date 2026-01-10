@@ -9,3 +9,8 @@
 - Moved completed tasks to _done.md: CLI, Merkle tree, BLOB storage, ORC integration, schema management
 - Successfully tested CLI commands: init creates database with schema, repl starts interactive mode, pack/unpack show appropriate messages
 - Database initialization verified: creates testdb/schema/database.json with proper JSON structure
+- Implemented pack/unpack functionality using Python zipfile for .gobi format compression
+- Pack/unpack tested successfully: database can be compressed to .gobi and restored
+- Implemented CRUD operations in REPL: create table, insert data, select queries working
+- Simplified ORC storage to JSON Lines format for reliable data persistence
+- Table creation, data insertion, and querying verified functional

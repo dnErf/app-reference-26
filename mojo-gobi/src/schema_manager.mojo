@@ -78,7 +78,7 @@ struct DatabaseSchema(Movable, Copyable):
 
     fn add_table(mut self, table: TableSchema):
         """Add a table to the database schema."""
-        self.tables.append(table)
+        self.tables.append(table.copy())
 
     fn get_table(self, name: String) -> TableSchema:
         """Get a table by name."""
@@ -123,7 +123,7 @@ struct SchemaManager:
         # Simple JSON parsing (in real implementation, use proper JSON parser)
         var schema = DatabaseSchema("default")
         # TODO: Implement proper JSON parsing
-        return schema
+        return schema.copy()
 
     fn create_table(mut self, table_name: String, columns: List[Column]) -> Bool:
         """Create a new table in the schema."""

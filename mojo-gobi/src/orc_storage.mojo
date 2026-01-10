@@ -14,55 +14,61 @@ struct ORCStorage:
     var storage: BlobStorage
 
     fn __init__(out self, storage: BlobStorage):
-        self.storage = storage
+        self.storage = storage.copy()
 
     fn write_table(self, table_name: String, data: List[List[String]]) -> Bool:
-        """Write table data in ORC format."""
+        """Write table data in simplified format (JSON lines for now)."""
         try:
-            var pyarrow = Python.import_module("pyarrow")
-            var pandas = Python.import_module("pandas")
+            var json_lines = ""
+            for row in data:
+                var json_row = "{"
+                for i in range(len(row)):
+                    if i > 0:
+                        json_row += ","
+                    json_row += "\"" + String(i) + "\":\"" + row[i] + "\""
+                json_row += "}\n"
+                json_lines += json_row
 
-            # Convert data to pandas DataFrame (simplified)
-            # In real implementation, handle proper column types
-            var df = pandas.DataFrame(data)
-
-            # Write to ORC
-            var buffer = pyarrow.BufferOutputStream()
-            var table = pyarrow.Table.from_pandas(df)
-            pyarrow.orc.write_table(table, buffer)
-
-            # Save to blob storage
-            var orc_data = buffer.getvalue().to_pybytes()
-            return self.storage.write_blob("tables/" + table_name + ".orc", String(orc_data))
+            return self.storage.write_blob("tables/" + table_name + ".jsonl", json_lines)
         except:
             return False
 
     fn read_table(self, table_name: String) -> List[List[String]]:
-        """Read table data from ORC format."""
+        """Read table data from simplified format."""
         var results = List[List[String]]()
 
         try:
-            var pyarrow = Python.import_module("pyarrow")
+            var jsonl_data = self.storage.read_blob("tables/" + table_name + ".jsonl")
+            if jsonl_data == "":
+                return results.copy()
 
-            var orc_data = self.storage.read_blob("tables/" + table_name + ".orc")
-            if orc_data == "":
-                return results
+            # Parse JSON lines (very basic parsing)
+            var lines = jsonl_data.split("\n")
+            for line in lines:
+                var trimmed = String(line).strip()
+                if trimmed == "":
+                    continue
 
-            # Read ORC data
-            var buffer = pyarrow.py_buffer(orc_data.encode())
-            var table = pyarrow.orc.ORCFile(buffer).read()
-
-            # Convert to list of lists (simplified)
-            var df = table.to_pandas()
-            var records = df.to_dict('records')
-
-            for record in records:
                 var row = List[String]()
-                for value in record.values():
-                    row.append(String(value))
-                results.append(row)
+                # Very basic JSON parsing - extract values between quotes
+                var in_value = False
+                var current_value = ""
+                var i = 0
+                while i < len(trimmed):
+                    var char = trimmed[i]
+                    if char == "\"":
+                        if in_value:
+                            row.append(current_value)
+                            current_value = ""
+                        in_value = not in_value
+                    elif in_value:
+                        current_value += char
+                    i += 1
+
+                if len(row) > 0:
+                    results.append(row.copy())
 
         except:
             pass
 
-        return results
+        return results.copy()
