@@ -11,10 +11,23 @@ The PL-GRIZZLY parser builds Abstract Syntax Trees (AST) from tokenized PL-GRIZZ
 
 ## Grammar Rules
 
+### Statements
+```
+statement → SELECT select_clause | CREATE FUNCTION function_clause | expression
+select_clause → * FROM expression (WHERE expression)?
+function_clause → IDENTIFIER ( parameters ) => expression
+parameters → IDENTIFIER ( , IDENTIFIER )*
+```
+
 ### Expressions
 ```
 expression → pipe
-pipe → call ( "|>" call )*
+pipe → equality ( "|>" equality )*
+equality → comparison ( ( "!=" | "=" ) comparison )*
+comparison → term ( ( ">" | "<" | ">=" | "<=" ) term )*
+term → factor ( ( "-" | "+" ) factor )*
+factor → unary ( ( "/" | "*" ) unary )*
+unary → ( "!" | "-" ) unary | call
 call → primary ( "(" arguments? ")" )*
 primary → NUMBER | STRING | TRUE | FALSE | IDENTIFIER | VARIABLE | "(" expression ")"
 arguments → expression ( "," expression )*
@@ -39,11 +52,15 @@ The parser generates string-based AST representations:
 - Binary ops: `"(+ 1 2)"`, `"(== x y)"`
 - Function calls: `"(call filter u)"`
 - Pipes: `"(|> { users } (call filter u))"`
+- SELECT: `"(SELECT from: { users } where: (== active true))"`
+- FUNCTION: `"(FUNCTION add(a, b) => (+ a b))"`
 
 ## Implementation Details
 
 ### Core Methods
-- `parse()`: Entry point returning parsed expression
+- `parse()`: Entry point returning parsed statement or expression
+- `select_statement()`: Parse SELECT statements
+- `function_statement()`: Parse CREATE FUNCTION statements
 - `expression()`: Parse full expression with all operators
 - `pipe()`: Handle pipe operations
 - `equality()`: Equality operators
@@ -68,6 +85,8 @@ The parser generates string-based AST representations:
 - **Binary Operations**: All standard arithmetic and comparison operators
 - **Function Calls**: `func(arg1, arg2)`
 - **Pipe Operations**: `expr |> func`
+- **SELECT Statements**: `SELECT * FROM {table} WHERE condition`
+- **CREATE FUNCTION**: `CREATE FUNCTION name(params) => body`
 - **Parenthesized Expressions**: `(expr)`
 
 ## Usage
@@ -78,16 +97,25 @@ godi> parse 1 + 2 * 3
 Parsed successfully
 AST: (+ 1 (* 2 3))
 
-godi> parse {users} |> filter(u -> u.active)
+godi> parse {users} |> filter(u) |> map(v => v.name)
 Parsed successfully
-AST: (|> { users } (call filter u))
+AST: (|> (|> { users } (call filter u)) (call map v => v.name))
+
+godi> parse SELECT * FROM {users} WHERE active == true
+Parsed successfully
+AST: (SELECT from: { users } where: (== active true))
+
+godi> parse CREATE FUNCTION add(a, b) => a + b
+Parsed successfully
+AST: (FUNCTION add(a, b) => (+ a b))
 ```
 
 ## Limitations
-- No statement parsing (SELECT, CREATE FUNCTION) yet
-- Arrow functions (`->`, `=>`) not fully parsed in expressions
-- No error reporting with line/column information
-- String-based AST limits semantic analysis capabilities
+- No complex SELECT clauses (only `SELECT *`)
+- Arrow functions in expressions not fully parsed
+- No semantic validation
+- String-based AST limits advanced analysis
+- Error messages are basic
 
 ## Future Extensions
 - Statement parsing for SQL constructs

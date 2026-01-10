@@ -24,6 +24,7 @@ from orc_storage import ORCStorage, test_pyarrow_orc
 from transformation_staging import TransformationStaging
 from pl_grizzly_lexer import PLGrizzlyLexer, Token
 from pl_grizzly_parser import PLGrizzlyParser, Expr
+from pl_grizzly_interpreter import PLGrizzlyInterpreter
 
 # Import required Python modules
 fn initialize_python_modules() raises:
@@ -108,6 +109,7 @@ fn start_repl(rich_console: PythonObject) raises:
     bloom_cols.append("category")
     var orc_storage = ORCStorage(storage, "ZSTD", True, 10000, 65536, bloom_cols)
     var transform_staging = TransformationStaging(current_db)
+    var interpreter = PLGrizzlyInterpreter(storage)
 
     # Simple REPL loop (in real implementation, use proper async/event loop)
     var running = True
@@ -141,6 +143,7 @@ fn start_repl(rich_console: PythonObject) raises:
             rich_console.print("  validate model <name> <sql> - Validate a transformation model")
             rich_console.print("  tokenize <code> - Tokenize PL-GRIZZLY code")
             rich_console.print("  parse <code> - Parse PL-GRIZZLY code into AST")
+            rich_console.print("  interpret <code> - Interpret PL-GRIZZLY code")
         elif cmd == "status":
             rich_console.print("[green]Database status: Operational[/green]")
             rich_console.print("[dim]Current database: " + current_db + "[/dim]")
@@ -394,6 +397,15 @@ fn start_repl(rich_console: PythonObject) raises:
                 rich_console.print("AST: " + expression)
             except:
                 rich_console.print("[red]Parsing failed[/red]")
+        elif cmd.startswith("interpret "):
+            # Parse: interpret <code>
+            var code = String(cmd[10:].strip())
+            try:
+                var result = interpreter.interpret(code)
+                rich_console.print("[green]Interpretation result:[/green]")
+                rich_console.print(String(result))
+            except:
+                rich_console.print("[red]Interpretation failed[/red]")
         else:
             rich_console.print("[red]Unknown command: " + cmd + "[/red]")
 

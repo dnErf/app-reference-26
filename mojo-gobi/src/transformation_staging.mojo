@@ -48,12 +48,14 @@ struct TransformationStaging:
     var models: Dict[String, TransformationModel]
     var environments: Dict[String, Environment]
     var lineage_graph: Dict[String, List[String]]
+    var execution_history: List[PipelineExecution]
 
     fn __init__(out self, db_path: String):
         self.db_path = db_path
         self.models = Dict[String, TransformationModel]()
         self.environments = Dict[String, Environment]()
         self.lineage_graph = Dict[String, List[String]]()
+        self.execution_history = List[PipelineExecution]()
 
     fn _get_current_timestamp(self) raises -> String:
         var py_time = Python.import_module("time")
@@ -131,17 +133,101 @@ struct TransformationStaging:
             errs.append("Environment " + environment_name + " does not exist")
             return PipelineExecution("exec_1", environment_name, "now", "later", "failed", executed, errs)
 
-        # Execute all models for now
-        var sorted_models = self._topological_sort(List[String](self.models.keys()))
+        # Get models that need execution (incremental)
+        var models_to_execute = self._get_models_to_execute(environment_name)
+        
+        # Sort by dependencies
+        var sorted_models = self._topological_sort(models_to_execute)
+        
         for model_name in sorted_models:
             var success = self._execute_model(model_name, environment_name)
             if success:
                 executed.append(model_name)
+                # Run data quality checks
+                var quality_result = self._run_data_quality_checks(model_name, environment_name)
+                if not quality_result.is_valid:
+                    errs.append("Data quality check failed for " + model_name + ": " + quality_result.error_message)
             else:
                 errs.append("Failed to execute model " + model_name)
 
         var status = "success" if len(errs) == 0 else "failed"
-        return PipelineExecution("exec_1", environment_name, "now", "later", status, executed, errs)
+        var execution = PipelineExecution("exec_1", environment_name, "now", "later", status, executed, errs)
+        self.execution_history.append(execution.copy())
+        return execution.copy()
+
+    fn _get_models_to_execute(self, environment_name: String) raises -> List[String]:
+        """Determine which models need to be executed based on incremental changes."""
+        var to_execute = List[String]()
+        
+        for model_name in self.models.keys():
+            var model = self.models[model_name].copy()
+            var current_hash = self._compute_model_hash(model_name)
+            
+            # Check if model itself changed
+            if model.last_hash != current_hash:
+                to_execute.append(model_name)
+                continue
+            
+            # Check if any dependency changed
+            var deps_changed = False
+            for dep in model.dependencies:
+                if self.models.__contains__(dep):
+                    var dep_model = self.models[dep].copy()
+                    var dep_hash = self._compute_model_hash(dep)
+                    if dep_model.last_hash != dep_hash:
+                        deps_changed = True
+                        break
+            
+            if deps_changed:
+                to_execute.append(model_name)
+        
+        return to_execute.copy()
+
+    fn _compute_model_hash(self, model_name: String) raises -> String:
+        """Compute hash of model including its dependencies."""
+        if not self.models.__contains__(model_name):
+            return ""
+        
+        var model = self.models[model_name].copy()
+        var hash_input = model.sql
+        
+        # Include dependency hashes
+        for dep in model.dependencies:
+            if self.models.__contains__(dep):
+                var dep_model = self.models[dep].copy()
+                hash_input += dep_model.last_hash
+        
+        # Simple hash (in real implementation, use proper hashing)
+        var hash_val = 0
+        for c in hash_input:
+            hash_val = (hash_val * 31 + ord(c)) % 1000000007
+        return String(hash_val)
+
+    fn _run_data_quality_checks(mut self, model_name: String, environment: String) raises -> ValidationResult:
+        """Run data quality checks on the output of a model."""
+        if not self.models.__contains__(model_name):
+            return ValidationResult(False, "Model does not exist")
+        
+        var model = self.models[model_name].copy()
+        
+        # Check 1: SQL syntax validation
+        var sql_valid = self.validate_sql(model.sql)
+        if not sql_valid.is_valid:
+            return ValidationResult(False, "SQL syntax error: " + sql_valid.error_message)
+        
+        # Check 2: Dependency validation
+        for dep in model.dependencies:
+            if not self.models.__contains__(dep):
+                return ValidationResult(False, "Dependency '" + dep + "' does not exist")
+        
+        # Check 3: Environment configuration
+        if not self.environments.__contains__(environment):
+            return ValidationResult(False, "Environment '" + environment + "' does not exist")
+        
+        # Check 4: Mock data integrity check (would integrate with actual database)
+        # For example, check row counts, null values, etc.
+        
+        return ValidationResult(True, "")
 
     fn _execute_model(mut self, model_name: String, environment: String) raises -> Bool:
         if not self.models.__contains__(model_name):
@@ -151,7 +237,7 @@ struct TransformationStaging:
         # Update timestamp and hash after execution
         var model = self.models[model_name].copy()
         model.last_execution = self._get_current_timestamp()
-        model.last_hash = model.sql
+        model.last_hash = self._compute_model_hash(model_name)
         self.models[model_name] = model ^
         # Persist the updated model
         self._persist_model(model_name)

@@ -26,4 +26,9 @@
     - jit compiler
     - python like
     - linq query (https://learn.microsoft.com/en-us/dotnet/csharp/linq/get-started/introduction-to-linq-queries)
-    
+
+- panda is not needed in orc_storage (https://arrow.apache.org/docs/python/orc.html)
+- for pack instead of zip file use zstd orc compression
+    - by default we will not use compression or none
+- in blob use pyarrow filesystem interface (https://arrow.apache.org/docs/python/filesystems.html)
+- `compaction_strategy.compact(self)` is not implmented  

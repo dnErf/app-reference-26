@@ -1,4 +1,0 @@
-- Implement SELECT statement parsing
-- Implement CREATE FUNCTION statement parsing
-- Integrate parser with REPL for testing
-- Test parsing of complex PL-GRIZZLY expressions

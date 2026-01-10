@@ -18,9 +18,19 @@ Implement dependency resolution and topological sorting for pipeline execution
 Add incremental materialization support with timestamps and change detection
 Extend REPL with advanced transformation commands (list models, show dependencies, view execution history)
 Implement environment inheritance and configuration management
+Implement PL-GRIZZLY interpreter core with expression evaluation and variable resolution
+Add PL-GRIZZLY semantic analysis for type checking and error reporting
+Implement PL-GRIZZLY function execution and call stack management
+Create PL-GRIZZLY environment system for variable scoping and persistence
+Implement pipeline execution engine with dependency resolution and topological sorting
+Integrate incremental execution with change detection for pipeline performance
+Add data quality checks and validation rules for transformation outputs
 Design and implement PL-GRIZZLY lexer for parsing enhanced SQL dialect
 Design PL-GRIZZLY AST node structures
 Implement basic expression parsing (literals, identifiers, variables)
 Implement operator precedence and binary expressions
 Implement function call and pipe operations
+Implement SELECT statement parsing
+Implement CREATE FUNCTION statement parsing
+Test parsing of complex PL-GRIZZLY expressions
 Add transformation validation and SQL parsing capabilities

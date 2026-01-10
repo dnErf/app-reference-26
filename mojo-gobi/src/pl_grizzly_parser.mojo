@@ -7,18 +7,19 @@ from pl_grizzly_lexer import Token, PLGrizzlyLexer
 # AST Node Definition (simplified as string representation)
 alias Expr = String
 
-# Statement types
+# Statement parsing
 struct SelectStmt:
-    var from_clause: Expr
-    var select_list: List[Expr]
-    var where_clause: Expr
+    var from_clause: String
+    var select_list: List[String]
+    var where_clause: String
 
 struct FunctionStmt:
     var name: String
     var parameters: List[String]
-    var body: Expr
+    var body: String
 
-alias Stmt = Variant[SelectStmt, FunctionStmt]
+# For now, use string-based statements
+alias Stmt = String
 
 # PL-GRIZZLY Parser
 struct PLGrizzlyParser:
@@ -29,9 +30,17 @@ struct PLGrizzlyParser:
         self.tokens = tokens.copy()
         self.current = 0
 
-    fn parse(mut self) raises -> Expr:
-        """Parse the tokens into an expression."""
-        return self.expression()
+    fn parse(mut self) raises -> String:
+        """Parse the tokens into a statement or expression."""
+        if self.match("SELECT"):
+            return self.select_statement()
+        elif self.match("CREATE"):
+            if self.match("FUNCTION"):
+                return self.function_statement()
+            else:
+                return "(error: expected FUNCTION after CREATE)"
+        else:
+            return self.expression()
 
     fn statement(mut self) -> Stmt:
         """Parse a statement."""
@@ -43,29 +52,80 @@ struct PLGrizzlyParser:
         # Default to expression statement or error
         return None  # For now
 
-    fn select_statement(mut self) -> Stmt:
-        # TODO: Implement SELECT parsing
-        return None
+    fn select_statement(mut self) -> String:
+        """Parse a SELECT statement."""
+        var select_list = List[String]()
+        if self.match("*"):
+            select_list.append("*")
+        else:
+            return "(error: expected * or column list)"
+        
+        if not self.match("FROM"):
+            return "(error: expected FROM)"
+        
+        var from_clause = self.expression()
+        var where_clause = ""
+        if self.match("WHERE"):
+            where_clause = self.expression()
+        
+        var result = "(SELECT from: " + from_clause
+        if where_clause != "":
+            result += " where: " + where_clause
+        result += ")"
+        return result
 
-    fn function_statement(mut self) -> Stmt:
-        # TODO: Implement FUNCTION parsing
-        return None
+    fn function_statement(mut self) -> String:
+        """Parse a CREATE FUNCTION statement."""
+        var name = ""
+        if self.match("IDENTIFIER"):
+            name = self.previous().value
+        else:
+            return "(error: expected function name)"
+        
+        if not self.match("("):
+            return "(error: expected ( after function name)"
+        
+        var parameters = List[String]()
+        if not self.check(")"):
+            if self.match("IDENTIFIER"):
+                parameters.append(self.previous().value)
+            while self.match(","):
+                if self.match("IDENTIFIER"):
+                    parameters.append(self.previous().value)
+                else:
+                    return "(error: expected parameter name)"
+        
+        if not self.match(")"):
+            return "(error: expected ) after parameters)"
+        
+        if not self.match("=>"):
+            return "(error: expected => after parameters)"
+        
+        var body = self.expression()
+        
+        var params_str = ""
+        for i in range(len(parameters)):
+            if i > 0:
+                params_str += ", "
+            params_str += parameters[i]
+        
+        return "(FUNCTION " + name + "(" + params_str + ") => " + body + ")"
 
     fn expression(mut self) -> Expr:
         """Parse an expression."""
         return self.pipe()
 
     fn pipe(mut self) -> Expr:
-        var expr = self.call()
+        var expr = self.equality()
         while self.match("|>"):
             var operator = self.previous().value
-            var right = self.call()
+            var right = self.equality()
             expr = "(" + operator + " " + expr + " " + right + ")"
         return expr
 
     fn equality(mut self) -> Expr:
         var expr = self.comparison()
-        while self.match("!=") or self.match("=="):
+        while self.match("!=") or self.match("="):
             var operator = self.previous().value
             var right = self.comparison()
             expr = "(" + operator + " " + expr + " " + right + ")"
