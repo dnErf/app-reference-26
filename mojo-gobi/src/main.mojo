@@ -172,21 +172,21 @@ fn start_repl(rich_console: PythonObject) raises:
 
             var table_name = String(insert_def[:values_pos].strip())
             var vals_def = String(insert_def[values_pos+8:].strip())  # Remove " values "
-            if vals_def.startswith("(") and vals_def.endswith(")"):
-                vals_def = String(vals_def[1:-1])
+            if not (vals_def.startswith("(") and vals_def.endswith(")")):
+                rich_console.print("[red]Invalid insert syntax. Values must be in parentheses.[/red]")
+                continue
 
-            # Parse values (simplified - assume string values for now)
+            # Parse values using Python ast.literal_eval for safety
             var values = List[String]()
-            var val_parts = vals_def.split(",")
-            for i in range(len(val_parts)):
-                var val = val_parts[i]
-                # Simple quote removal (very basic)
-                var clean_val = String(val)
-                if clean_val.startswith("'") and clean_val.endswith("'"):
-                    clean_val = clean_val[1:-1]
-                elif clean_val.startswith("\"") and clean_val.endswith("\""):
-                    clean_val = clean_val[1:-1]
-                values.append(clean_val)
+            try:
+                var ast = Python.import_module("ast")
+                # Parse the values tuple
+                var parsed_vals = ast.literal_eval(vals_def)
+                for i in range(len(parsed_vals)):
+                    values.append(String(parsed_vals[i]))
+            except:
+                rich_console.print("[red]Failed to parse values: " + vals_def + "[/red]")
+                continue
 
             # Insert data using ORC storage
             var data = List[List[String]]()

@@ -8,6 +8,15 @@
 - Core data structures (Merkle B+ Tree, BLOB storage, schema management, ORC storage) implemented
 - Moved completed tasks to _done.md: CLI, Merkle tree, BLOB storage, ORC integration, schema management
 - Successfully tested CLI commands: init creates database with schema, repl starts interactive mode, pack/unpack show appropriate messages
+
+20260110 - Completed data integrity verification with SHA-256 Merkle B+ Tree
+- Resolved StringSlice to String conversion issues in JSON parsing by switching to Python json module
+- Fixed argument aliasing in Merkle tree compaction by implementing perform_compaction method in MerkleBPlusTree
+- Implemented content-based integrity verification instead of position-based to handle data reordering from compaction
+- Modified write_table to append rows instead of overwriting, enabling multiple inserts
+- Fixed value parsing in REPL using Python ast.literal_eval for proper quote handling
+- Successfully tested integrity verification: "Integrity verified for users - 2 rows OK"
+- Data integrity verification now works with compaction, ensuring data authenticity
 - Database initialization verified: creates testdb/schema/database.json with proper JSON structure
 - Implemented pack/unpack functionality using Python zipfile for .gobi format compression
 - Pack/unpack tested successfully: database can be compressed to .gobi and restored
