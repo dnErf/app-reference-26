@@ -1,0 +1,18 @@
+## Godi Idea Concept
+- an embeded lakehouse like hudi (https://hudi.apache.org/docs/overview) but with capabilities of sqlmesh (https://sqlmesh.readthedocs.io/en/stable/#core-features) to act as a transformation staging area
+    - uses pyarrow ORC
+    - uses dynamic merkle b+ tree with universal compaction strategy
+    - uses sha-256
+    - uses BLOB comparable to Azure ADS Lake Gen 2 (https://docs.azure.cn/en-us/hdinsight/overview-data-lake-storage-gen2)
+    - saved database to lakehouse format
+        - `[name].gobi`
+        - schema
+        - tables
+        - files
+        - etc
+- cli application that uses rich
+    - when `gobi repl` it will launch repl
+    - when `gobi init [folder]` it will initialize the root folder or targer folder the database
+        - `gobi pack [folder]` will make the folder be on a accessible single file like sqlite `.db` files
+        - `gobi unpack` the lakehouse will be shown as folder and files
+        - like zip and unzip

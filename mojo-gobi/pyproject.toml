@@ -1,0 +1,20 @@
+[build-system]
+requires = ["mojo>=0.1.0"]
+build-backend = "mojo"
+
+[project]
+name = "godi"
+version = "0.1.0"
+description = "Embedded Lakehouse Database"
+authors = [{name = "Godi Team"}]
+dependencies = [
+    "rich>=13.0.0",
+    "pyarrow>=10.0.0",
+    "pandas>=1.5.0"
+]
+
+[project.scripts]
+gobi = "main:main"
+
+[tool.mojo]
+# Mojo-specific configuration
