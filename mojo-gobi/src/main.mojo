@@ -23,6 +23,7 @@ from schema_manager import SchemaManager, DatabaseSchema, TableSchema, Column
 from orc_storage import ORCStorage, test_pyarrow_orc
 from transformation_staging import TransformationStaging
 from pl_grizzly_lexer import PLGrizzlyLexer, Token
+from pl_grizzly_parser import PLGrizzlyParser, Expr
 
 # Import required Python modules
 fn initialize_python_modules() raises:
@@ -139,6 +140,7 @@ fn start_repl(rich_console: PythonObject) raises:
             rich_console.print("  validate sql <sql> - Validate SQL syntax")
             rich_console.print("  validate model <name> <sql> - Validate a transformation model")
             rich_console.print("  tokenize <code> - Tokenize PL-GRIZZLY code")
+            rich_console.print("  parse <code> - Parse PL-GRIZZLY code into AST")
         elif cmd == "status":
             rich_console.print("[green]Database status: Operational[/green]")
             rich_console.print("[dim]Current database: " + current_db + "[/dim]")
@@ -380,6 +382,18 @@ fn start_repl(rich_console: PythonObject) raises:
                     rich_console.print("  " + token.type + ": '" + token.value + "' (line " + String(token.line) + ", col " + String(token.column) + ")")
             except:
                 rich_console.print("[red]Tokenization failed[/red]")
+        elif cmd.startswith("parse "):
+            # Parse: parse <code>
+            var code = String(cmd[6:].strip())
+            var lexer = PLGrizzlyLexer(code)
+            try:
+                var tokens = lexer.tokenize()
+                var parser = PLGrizzlyParser(tokens)
+                var expression = parser.parse()
+                rich_console.print("[green]Parsed successfully[/green]")
+                rich_console.print("AST: " + expression)
+            except:
+                rich_console.print("[red]Parsing failed[/red]")
         else:
             rich_console.print("[red]Unknown command: " + cmd + "[/red]")
 

@@ -19,4 +19,8 @@ Add incremental materialization support with timestamps and change detection
 Extend REPL with advanced transformation commands (list models, show dependencies, view execution history)
 Implement environment inheritance and configuration management
 Design and implement PL-GRIZZLY lexer for parsing enhanced SQL dialect
+Design PL-GRIZZLY AST node structures
+Implement basic expression parsing (literals, identifiers, variables)
+Implement operator precedence and binary expressions
+Implement function call and pipe operations
 Add transformation validation and SQL parsing capabilities
