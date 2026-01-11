@@ -1,710 +1,529 @@
-from collections import List
-from pl_grizzly_lexer import Token, PLGrizzlyLexer, LBRACKET, RBRACKET, LBRACE, RBRACE, LPAREN, RPAREN, COMMA, DOT, COLON, SEMICOLON, NUMBER, STRING, IDENTIFIER, TRUE, FALSE, AS, ALL, LIST, ATTACHED, CACHE, CLEAR
+"""
+PL-GRIZZLY Parser Implementation
 
-# AST Node Definition (simplified as string representation)
-alias Expr = String
+Optimized recursive descent parser with memoization and efficient AST representation.
+"""
 
-# Statement parsing
-struct SelectStmt:
-    var from_clause: String
-    var select_list: List[String]
-    var where_clause: String
+from collections import List, Dict
+from pl_grizzly_lexer import Token, PLGrizzlyLexer, SELECT, FROM, WHERE, CREATE, DROP, INDEX, MATERIALIZED, VIEW, REFRESH, IMPORT, UPDATE, DELETE, LOGIN, LOGOUT, BEGIN, COMMIT, ROLLBACK, MACRO, JOIN, ON, ATTACH, DETACH, ALL, LIST, ATTACHED, AS, CACHE, CLEAR, DISTINCT, GROUP, ORDER, BY, SUM, COUNT, AVG, MIN, MAX, FUNCTION, TYPE, STRUCT, EXCEPTION, MODULE, DOUBLE_COLON, RETURNS, THROWS, IF, ELSE, MATCH, FOR, WHILE, CASE, IN, TRY, CATCH, LET, TRUE, FALSE, EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUAL, LESS_EQUAL, AND, OR, NOT, BANG, COALESCE, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, PIPE, ARROW, DOT, LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, COMMA, SEMICOLON, COLON, IDENTIFIER, STRING, NUMBER, VARIABLE, EOF, UNKNOWN, INSERT, INTO, VALUES, SET
 
-struct FunctionStmt:
-    var name: String
-    var parameters: List[String]
-    var body: String
+# Optimized AST Node types using enum-like constants
+alias AST_SELECT = "SELECT"
+alias AST_FROM = "FROM"
+alias AST_WHERE = "WHERE"
+alias AST_CREATE = "CREATE"
+alias AST_DROP = "DROP"
+alias AST_INDEX = "INDEX"
+alias AST_FUNCTION = "FUNCTION"
+alias AST_BINARY_OP = "BINARY_OP"
+alias AST_UNARY_OP = "UNARY_OP"
+alias AST_LITERAL = "LITERAL"
+alias AST_IDENTIFIER = "IDENTIFIER"
+alias AST_CALL = "CALL"
+alias AST_LIST = "LIST"
+alias AST_DICT = "DICT"
 
-# For now, use string-based statements
-alias Stmt = String
+# Efficient AST Node using Dict for flexible representation
+struct ASTNode(Copyable, Movable):
+    var node_type: String
+    var value: String
+    var children: List[ASTNode]
+    var attributes: Dict[String, String]
 
-# PL-GRIZZLY Parser
+    fn __init__(out self, node_type: String, value: String = ""):
+        self.node_type = node_type
+        self.value = value
+        self.children = List[ASTNode]()
+        self.attributes = Dict[String, String]()
+
+    fn add_child(mut self, child: ASTNode) raises:
+        self.children.append(child.copy())
+
+    fn set_attribute(mut self, key: String, value: String):
+        self.attributes[key] = value
+
+    fn get_attribute(self, key: String) -> String:
+        return self.attributes.get(key, "")
+
+# Memoization cache for parser expressions - simplified for non-copyable ASTNode
+struct ParserCache:
+    var memo: Dict[String, Bool]  # Just track if we've seen this key
+
+    fn __init__(out self):
+        self.memo = Dict[String, Bool]()
+
+    fn has(self, key: String) -> Bool:
+        return key in self.memo
+
+    fn mark(mut self, key: String):
+        self.memo[key] = True
+
+# Symbol table for efficient identifier resolution
+struct SymbolTable:
+    var symbols: Dict[String, String]  # name -> type
+
+    fn __init__(out self):
+        self.symbols = Dict[String, String]()
+
+    fn define(mut self, name: String, type: String):
+        self.symbols[name] = type
+
+    fn lookup(self, name: String) raises -> String:
+        # Check current scope
+        if name in self.symbols:
+            return self.symbols[name]
+        
+        return "unknown"
+
+# Optimized PL-GRIZZLY Parser with memoization and symbol table
 struct PLGrizzlyParser:
     var tokens: List[Token]
     var current: Int
+    var cache: ParserCache
+    var symbol_table: SymbolTable
 
     fn __init__(out self, tokens: List[Token]):
         self.tokens = tokens.copy()
         self.current = 0
+        self.cache = ParserCache()
+        self.symbol_table = SymbolTable()
 
-    fn parse(mut self) raises -> String:
-        """Parse the tokens into a statement or expression."""
-        if self.match("SELECT"):
-            return self.select_statement()
-        elif self.match("LET"):
-            return self.let_statement()
-        elif self.match("CREATE"):
-            if self.match("FUNCTION"):
-                return self.function_statement()
-            elif self.match("MACRO"):
-                return self.macro_statement()
-            elif self.match("MODULE"):
-                return self.module_statement()
-            elif self.match("INDEX"):
-                return self.create_index_statement()
-            else:
-                return "(error: expected FUNCTION, MACRO, MODULE or INDEX after CREATE)"
-        elif self.match("DROP"):
-            if self.match("INDEX"):
-                return self.drop_index_statement()
-            else:
-                return "(error: expected INDEX after DROP)"
-        elif self.match("TRY"):
-            return self.try_statement()
-        elif self.match("TYPE"):
-            return self.type_statement()
-        elif self.match("INSERT"):
-            return self.insert_statement()
-        elif self.match("UPDATE"):
-            return self.update_statement()
-        elif self.match("DELETE"):
-            return self.delete_statement()
-        elif self.match("IMPORT"):
-            return self.import_statement()
-        elif self.match("LOGIN"):
-            return self.login_statement()
-        elif self.match("LOGOUT"):
-            return self.logout_statement()
-        elif self.match("BEGIN"):
-            return self.begin_statement()
-        elif self.match("COMMIT"):
-            return self.commit_statement()
-        elif self.match("ROLLBACK"):
-            return self.rollback_statement()
-        elif self.match("ATTACH"):
-            return self.attach_statement()
-        elif self.match("DETACH"):
-            return self.detach_statement()
-        elif self.match("LIST"):
-            if self.match("ATTACHED"):
-                return self.list_attached_statement()
-            return "error: expect ATTACHED after LIST"
-        elif self.match("CACHE"):
-            return self.cache_statement()
-        elif self.match("CLEAR"):
-            return self.clear_statement()
-        elif self.match("MATCH"):
-            return self.match_statement()
-        elif self.match("FOR"):
-            return self.for_statement()
-        elif self.match("WHILE"):
-            return self.while_statement()
-        else:
-            return self.expression()
+    fn parse(mut self) raises -> ASTNode:
+        """Parse tokens into optimized AST."""
+        if len(self.tokens) == 0:
+            return ASTNode(AST_LITERAL, "empty")^
 
-    fn statement(mut self) -> Stmt:
+        # Try to parse as statement
+        return self.statement()
+
+    fn statement(mut self) raises -> ASTNode:
         """Parse a statement."""
-        if self.match("SELECT"):
-            return self.select_statement()
-        elif self.match("LET"):
-            return self.let_statement()
-        elif self.match("CREATE"):
-            if self.match("FUNCTION"):
-                return self.function_statement()
-            elif self.match("MODULE"):
-                return self.module_statement()
-        # Default to expression statement or error
-        return ""  # For now
-
-    fn select_statement(mut self) -> String:
-        """Parse a SELECT statement."""
-        var select_list = List[String]()
-        
-        # Parse select list
-        if self.match("*"):
-            select_list.append("*")
+        var result: ASTNode
+        if self.match(SELECT):
+            result = self.select_statement()
+        elif self.match(CREATE):
+            result = self.create_statement()
+        elif self.match(DROP):
+            result = self.drop_statement()
+        elif self.match(INSERT):
+            result = self.insert_statement()
+        elif self.match(UPDATE):
+            result = self.update_statement()
+        elif self.match(DELETE):
+            result = self.delete_statement()
+        elif self.match(LET):
+            result = self.let_statement()
+        elif self.match(FUNCTION):
+            result = self.function_statement()
         else:
-            select_list.append(self.expression())
-            while self.match(","):
-                select_list.append(self.expression())
-        
-        if not self.match("FROM"):
-            return "error: expect FROM"
-        
-        var from_clause = self.expression()
-        
-        var join_clause = ""
-        if self.match("JOIN"):
-            var join_table = self.expression()
-            if not self.match("ON"):
-                return "error: expect ON after JOIN"
-            var on_condition = self.expression()
-            join_clause = " JOIN " + join_table + " ON " + on_condition
-        
-        var where_clause = ""
-        if self.match("WHERE"):
-            where_clause = self.expression()
-        
-        var select_str = "(SELECT "
-        for i in range(len(select_list)):
-            if i > 0:
-                select_str += ", "
-            select_str += select_list[i]
-        select_str += " FROM " + from_clause + join_clause
-        if where_clause != "":
-            select_str += " WHERE " + where_clause
-        select_str += ")"
-        
-        return select_str
+            result = self.expression_statement()
 
-    fn let_statement(mut self) -> String:
-        """Parse a LET statement for variable assignment."""
-        var var_name = ""
-        if self.match("IDENTIFIER"):
-            var_name = self.previous().value
-        else:
-            return "(error: expected variable name after LET)"
-        
-        if not self.match("="):
-            return "(error: expected = after variable name)"
-        
-        var value = self.expression()
-        
-        return "(LET " + var_name + " " + value + ")"
+        return result^
 
-    fn function_statement(mut self) -> String:
-        """Parse a FUNCTION statement with optional receiver."""
-        var _name = ""
-        if self.match("IDENTIFIER"):
-            _name = self.previous().value
-        else:
-            return "(error: expected function name)"
-        
-        var receiver = ""
-        if self.match("["):
-            # Parse receiver: var : type ]
-            var _receiver_var = ""
-            if self.match("IDENTIFIER"):
-                _receiver_var = self.previous().value
-            else:
-                return "(error: expected receiver variable)"
-            if not self.match(":"):
-                return "(error: expected : after receiver var)"
-            var _receiver_type = ""
-            if self.match("IDENTIFIER"):
-                _receiver_type = self.previous().value
-            else:
-                return "(error: expected receiver type)"
-            if not self.match("]"):
-                return "(error: expected ] after receiver)"
-            receiver = _receiver_var + ":" + _receiver_type
-        
-        if not self.match("("):
-            return "(error: expected ( after function name)"
-        
-        var parameters = List[String]()
-        if not self.check(")"):
-            if self.match("IDENTIFIER"):
-                parameters.append(self.previous().value)
-            while self.match(","):
-                if self.match("IDENTIFIER"):
-                    parameters.append(self.previous().value)
-                else:
-                    return "(error: expected parameter name)"
-        
-        if not self.match(")"):
-            return "(error: expected ) after parameters)"
-        
-        if not self.match("{"):
-            return "(error: expected { after parameters)"
-        
-        var body = self.expression()
-        
-        if not self.match("}"):
-            return "(error: expected } after body)"
-        
-        var params_str = ""
-        for i in range(len(parameters)):
-            if i > 0:
-                params_str += ", "
-            params_str += parameters[i]
-        
-        var result = "(FUNCTION " + _name
-        if receiver != "":
-            result += " [" + receiver + "]"
-        result += "(" + params_str + ") { " + body + " })"
-        return result
-    fn macro_statement(mut self) -> String:
-        """Parse a MACRO statement."""
-        var _name = ""
-        if self.match("IDENTIFIER"):
-            _name = self.previous().value
-        else:
-            return "(error: expected macro name)"
-        
-        if not self.match("("):
-            return "(error: expected ( after macro name)"
-        
-        var parameters = List[String]()
-        if not self.check(")"):
-            if self.match("IDENTIFIER"):
-                parameters.append(self.previous().value)
-            while self.match(","):
-                if self.match("IDENTIFIER"):
-                    parameters.append(self.previous().value)
-                else:
-                    return "(error: expected parameter name)"
-        
-        if not self.match(")"):
-            return "(error: expected ) after parameters)"
-        
-        if not self.match("{"):
-            return "(error: expected { after parameters)"
-        
-        var body = self.expression()
-        
-        if not self.match("}"):
-            return "(error: expected } after body)"
-        
-        var params_str = ""
-        for i in range(len(parameters)):
-            if i > 0:
-                params_str += ", "
-            params_str += parameters[i]
-        
-        return "(MACRO " + _name + "(" + params_str + ") { " + body + " })"
-    fn module_statement(mut self) -> String:
-        """Parse a CREATE MODULE statement."""
-        var _name = ""
-        if self.match("IDENTIFIER"):
-            _name = self.previous().value
-        else:
-            return "(error: expected module name)"
-        
-        if not self.match("as"):
-            return "(error: expected AS after module name)"
-        
-        var code = self.expression()
-        
-        return "(MODULE " + _name + " " + code + ")"
+    fn select_statement(mut self) raises -> ASTNode:
+        """Parse SELECT statement with optimizations."""
+        var node = ASTNode(AST_SELECT)
 
-    fn try_statement(mut self) -> String:
-        """Parse a TRY CATCH statement."""
-        _ = self.consume("LBRACE", "Expect { after TRY")
-        var try_body = self.expression()
-        _ = self.consume("RBRACE", "Expect } after try body")
-        
-        _ = self.consume("CATCH", "Expect CATCH after try block")
-        _ = self.consume("LBRACE", "Expect { after CATCH")
-        var catch_body = self.expression()
-        _ = self.consume("RBRACE", "Expect } after catch body")
-        
-        return "(TRY " + try_body + " CATCH " + catch_body + ")"
+        # Parse SELECT clause
+        var select_list = self.parse_select_list()
+        node.add_child(select_list)
 
-    fn insert_statement(mut self) -> String:
-        """Parse an INSERT statement."""
-        _ = self.consume("INTO", "Expect INTO after INSERT")
-        if not self.match("IDENTIFIER"):
-            return "error: expect table name"
-        var table_name = self.previous().value
-        if not self.match("VALUES"):
-            return "error: expect VALUES"
-        if not self.match("LPAREN"):
-            return "error: expect ( after VALUES"
-        var values = List[Expr]()
-        if not self.check("RPAREN"):
-            values.append(self.expression())
-            while self.match(","):
-                values.append(self.expression())
-        if not self.match("RPAREN"):
-            return "error: expect ) after values"
-        var values_str = ""
-        for i in range(len(values)):
-            if i > 0:
-                values_str += ", "
-            values_str += values[i]
-        return "(INSERT INTO " + table_name + " VALUES (" + values_str + "))"
+        # Parse FROM clause
+        if self.match(FROM):
+            var from_clause = self.parse_from_clause()
+            node.add_child(from_clause)
 
-    fn update_statement(mut self) -> String:
-        """Parse an UPDATE statement."""
-        var table_name = self.consume("IDENTIFIER", "Expect table name").value
-        if not self.match("SET"):
-            return "error: expect SET"
-        var col = self.consume("IDENTIFIER", "Expect column name").value
-        if not self.match("="):
-            return "error: expect ="
-        var val = self.expression()
-        return "(UPDATE " + table_name + " SET " + col + " = " + val + ")"
+        # Parse WHERE clause
+        if self.match(WHERE):
+            var where_clause = self.parse_where_clause()
+            node.add_child(where_clause)
 
-    fn delete_statement(mut self) -> String:
-        """Parse a DELETE statement."""
-        if not self.match("FROM"):
-            return "error: expect FROM"
-        var table_name = self.consume("IDENTIFIER", "Expect table name").value
-        return "(DELETE FROM " + table_name + ")"
+        # Parse GROUP BY clause
+        if self.match(GROUP):
+            self.consume(BY, "Expected 'BY' after GROUP")
+            var group_clause = self.parse_group_by_clause()
+            node.add_child(group_clause)
 
-    fn import_statement(mut self) -> String:
-        """Parse an IMPORT statement."""
-        var module_name = self.consume("IDENTIFIER", "Expect module name").value
-        return "(IMPORT " + module_name + ")"
+        # Parse ORDER BY clause
+        if self.match(ORDER):
+            self.consume(BY, "Expected 'BY' after ORDER")
+            var order_clause = self.parse_order_by_clause()
+            node.add_child(order_clause)
 
-    fn login_statement(mut self) -> String:
-        """Parse a LOGIN statement."""
-        var username = self.consume("IDENTIFIER", "Expect username").value
-        var password = self.consume("IDENTIFIER", "Expect password").value
-        return "(LOGIN " + username + " " + password + ")"
+        return node^
 
-    fn logout_statement(mut self) -> String:
-        """Parse a LOGOUT statement."""
-        return "(LOGOUT)"
+    fn parse_select_list(mut self) raises -> ASTNode:
+        """Parse select list with aggregate function detection."""
+        var node = ASTNode("SELECT_LIST")
+        var has_aggregates = False
 
-    fn begin_statement(mut self) -> String:
-        """Parse a BEGIN statement."""
-        return "(BEGIN)"
+        while not self.is_at_end() and not self.check(FROM) and not self.check(WHERE) and not self.check(GROUP) and not self.check(ORDER):
+            if self.match(DISTINCT):
+                node.set_attribute("distinct", "true")
+                continue
 
-    fn commit_statement(mut self) -> String:
-        """Parse a COMMIT statement."""
-        return "(COMMIT)"
+            var item = self.parse_select_item()
+            node.add_child(item)
 
-    fn rollback_statement(mut self) -> String:
-        """Parse a ROLLBACK statement."""
-        return "(ROLLBACK)"
-
-    fn attach_statement(mut self) -> String:
-        """Parse an ATTACH statement."""
-        if not self.match(STRING):
-            return "error: expect database path"
-        var path = self.previous().value
-        if not self.match(AS):
-            return "error: expect AS after path"
-        if not self.match(IDENTIFIER):
-            return "error: expect alias"
-        var alias = self.previous().value
-        return "(ATTACH '" + path + "' AS " + alias + ")"
-
-    fn detach_statement(mut self) -> String:
-        """Parse a DETACH statement."""
-        if self.match(ALL):
-            return "(DETACH ALL)"
-        if not self.match(IDENTIFIER):
-            return "error: expect alias or ALL"
-        var alias = self.previous().value
-        return "(DETACH " + alias + ")"
-
-    fn list_attached_statement(mut self) -> String:
-        """Parse a LIST ATTACHED statement."""
-        return "(LIST ATTACHED)"
-
-    fn cache_statement(mut self) -> String:
-        """Parse a CACHE statement."""
-        if self.match("CLEAR"):
-            return "(CACHE CLEAR)"
-        elif self.match("STATS"):
-            return "(CACHE STATS)"
-        else:
-            return "error: expect CLEAR or STATS after CACHE"
-
-    fn clear_statement(mut self) -> String:
-        """Parse a CLEAR statement."""
-        if self.match("CACHE"):
-            return "(CLEAR CACHE)"
-        else:
-            return "error: expect CACHE after CLEAR"
-
-    fn create_index_statement(mut self) -> String:
-        """Parse a CREATE INDEX statement."""
-        var index_name = self.consume("IDENTIFIER", "Expect index name").value
-        _ = self.consume("ON", "Expect ON after index name")
-        var table_name = self.consume("IDENTIFIER", "Expect table name").value
-        _ = self.consume("(", "Expect ( after table name")
-        var columns = List[String]()
-        while not self.check(")"):
-            var col_name = self.consume("IDENTIFIER", "Expect column name").value
-            columns.append(col_name)
-            if not self.match(","):
+            if not self.match(COMMA):
                 break
-        _ = self.consume(")", "Expect ) after columns")
-        
-        # Optional USING clause for index type
-        var index_type = "btree"
-        if self.match("USING"):
-            index_type = self.consume("IDENTIFIER", "Expect index type").value
-        
-        var columns_str = ", ".join(columns)
-        return "(CREATE INDEX " + index_name + " ON " + table_name + " (" + columns_str + ") USING " + index_type + ")"
 
-    fn drop_index_statement(mut self) -> String:
-        """Parse a DROP INDEX statement."""
-        var index_name = self.consume("IDENTIFIER", "Expect index name").value
-        _ = self.consume("ON", "Expect ON after index name")
-        var table_name = self.consume("IDENTIFIER", "Expect table name").value
-        return "(DROP INDEX " + index_name + " ON " + table_name + ")"
+        return node^
 
-    fn type_statement(mut self) -> String:
-        """Parse a TYPE statement."""
-        if self.match("STRUCT"):
-            if self.match("AS"):
-                var name = self.consume("IDENTIFIER", "Expect type name").value
-                if self.match("("):
-                    var fields = List[String]()
-                    while not self.check(")"):
-                        var field_name = self.consume("IDENTIFIER", "Expect field name").value
-                        _ = self.consume(":", "Expect : after field name")
-                        var field_type = self.consume("IDENTIFIER", "Expect field type").value
-                        fields.append(field_name + ": " + field_type)
-                        if not self.match(","):
-                            break
-                    _ = self.consume(")", "Expect ) after fields")
-                    var fields_str = ", ".join(fields)
-                    return "(TYPE STRUCT AS " + name + " (" + fields_str + "))"
-                else:
-                    return "(error: expected ( after AS)"
-            else:
-                return "(error: expected AS after STRUCT)"
+    fn parse_select_item(mut self) raises -> ASTNode:
+        """Parse select item, detecting aggregate functions."""
+        var node = ASTNode("SELECT_ITEM")
+
+        # Check for aggregate functions
+        if self.check(SUM) or self.check(COUNT) or self.check(AVG) or self.check(MIN) or self.check(MAX):
+            var func_name = self.advance().value
+            self.consume(LPAREN, "Expected '(' after aggregate function")
+            var expr = self.expression()
+            self.consume(RPAREN, "Expected ')' after aggregate function argument")
+
+            var func_node = ASTNode("AGGREGATE_FUNCTION", func_name)
+            func_node.add_child(expr)
+            node.add_child(func_node)
         else:
-            return "(error: expected STRUCT after TYPE)"
+            var expr = self.expression()
+            node.add_child(expr)
 
-    fn expression(mut self) -> Expr:
-        """Parse an expression."""
-        return self.coalesce()
+        # Check for alias
+        if self.match(AS):
+            var alias_token = self.consume(IDENTIFIER, "Expected identifier after AS")
+            node.set_attribute("alias", alias_token.value)
+        elif self.check(IDENTIFIER) and not self.is_at_end():
+            # Check if next token is an alias (simple heuristic)
+            var next_token = self.peek()
+            if next_token.type == IDENTIFIER and not self.is_keyword(next_token.value):
+                var alias_token = self.advance()
+                node.set_attribute("alias", alias_token.value)
 
-    fn coalesce(mut self) -> Expr:
-        var expr = self.pipe()
-        while self.match("??"):
-            var operator = self.previous().value
-            var right = self.pipe()
-            expr = "(" + operator + " " + expr + " " + right + ")"
-        return expr
+        return node^
 
-    fn pipe(mut self) -> Expr:
-        var expr = self.equality()
-        while self.match("|>"):
-            var operator = self.previous().value
-            var right = self.equality()
-            expr = "(" + operator + " " + expr + " " + right + ")"
-        return expr
+    fn parse_from_clause(mut self) raises -> ASTNode:
+        """Parse FROM clause."""
+        var node = ASTNode(AST_FROM)
+        var table_name = self.consume(IDENTIFIER, "Expected table name after FROM").value
+        node.set_attribute("table", table_name)
 
-    fn equality(mut self) -> Expr:
-        var expr = self.logical()
-        while self.match("!=") or self.match("="):
-            var operator = self.previous().value
-            var right = self.logical()
-            expr = "(" + operator + " " + expr + " " + right + ")"
-        return expr
+        # Check for alias
+        if self.match(AS):
+            var alias_token = self.consume(IDENTIFIER, "Expected alias after AS")
+            node.set_attribute("alias", alias_token.value)
+        elif self.check(IDENTIFIER):
+            var alias_token = self.advance()
+            node.set_attribute("alias", alias_token.value)
 
-    fn logical(mut self) -> Expr:
-        var expr = self.comparison()
-        while self.match("and") or self.match("or"):
-            var operator = self.previous().value
-            var right = self.comparison()
-            expr = "(" + operator + " " + expr + " " + right + ")"
-        return expr
+        return node^
 
-    fn comparison(mut self) -> Expr:
-        var expr = self.term()
-        while self.match(">") or self.match("<") or self.match(">=") or self.match("<="):
-            var operator = self.previous().value
-            var right = self.term()
-            expr = "(" + operator + " " + expr + " " + right + ")"
-        return expr
-
-    fn term(mut self) -> Expr:
-        var expr = self.factor()
-        while self.match("-") or self.match("+"):
-            var operator = self.previous().value
-            var right = self.factor()
-            expr = "(" + operator + " " + expr + " " + right + ")"
-        return expr
-
-    fn factor(mut self) -> Expr:
-        var expr = self.cast()
-        while self.match("/") or self.match("*"):
-            var operator = self.previous().value
-            var right = self.cast()
-            expr = "(" + operator + " " + expr + " " + right + ")"
-        return expr
-
-    fn unary_op(mut self) -> Expr:
-        if self.match("not") or self.match("!") or self.match("-"):
-            var operator = self.previous().value
-            var right = self.unary_op()
-            return "(" + operator + " " + right + ")"
-        return self.call()
-
-    fn cast(mut self) -> Expr:
-        var expr = self.unary_op()
-        if self.match("as") or self.match("::"):
-            var operator = self.previous().value
-            var type_expr = self.unary_op()  # For now, allow expressions as types
-            return "(" + expr + " " + operator + " " + type_expr + ")"
-        return expr
-
-    fn call(mut self) -> Expr:
-        var expr = self.primary()
-        while True:
-            if self.match("("):
-                expr = self.finish_call(expr)
-            else:
-                break
-        return expr
-
-    fn finish_call(mut self, callee: Expr) -> Expr:
-        var arguments = List[Expr]()
-        if not self.check(")"):
-            arguments.append(self.expression())
-            while self.match(","):
-                arguments.append(self.expression())
-        _ = self.consume(")", "Expect ')' after arguments.")
-        var args_str = ""
-        for i in range(len(arguments)):
-            if i > 0:
-                args_str += " "
-            args_str += arguments[i]
-        return "(call " + callee + " " + args_str + ")"
-
-    fn match_statement(mut self) -> String:
-        """Parse a MATCH statement."""
-        var expr = self.expression()
-        if not self.match("LBRACE"):
-            return "(error: expected { after MATCH expr)"
-        var cases = List[String]()
-        while not self.check("RBRACE") and not self.is_at_end():
-            if self.match("CASE"):
-                var pattern = self.expression()
-                if not self.match("ARROW"):
-                    return "(error: expected => after case pattern)"
-                var body = self.expression()
-                cases.append("case " + pattern + " => " + body)
-            else:
-                return "(error: expected CASE in match)"
-            if not self.match(","):
-                break
-        if not self.match("RBRACE"):
-            return "(error: expected } after match cases)"
-        return "(MATCH " + expr + " {" + " ".join(cases) + " })"
-
-    fn for_statement(mut self) -> String:
-        """Parse a FOR statement."""
-        if not self.match("IDENTIFIER"):
-            return "(error: expected variable after FOR)"
-        var var_name = self.previous().value
-        if not self.match("IN"):
-            return "(error: expected IN after variable)"
-        var collection = self.expression()
-        if not self.match("LBRACE"):
-            return "(error: expected { after collection)"
-        var body = self.expression()
-        if not self.match("RBRACE"):
-            return "(error: expected } after body)"
-        return "(FOR " + var_name + " IN " + collection + " { " + body + " })"
-
-    fn while_statement(mut self) -> String:
-        """Parse a WHILE statement."""
+    fn parse_where_clause(mut self) raises -> ASTNode:
+        """Parse WHERE clause."""
+        var node = ASTNode(AST_WHERE)
         var condition = self.expression()
-        if not self.match("LBRACE"):
-            return "(error: expected { after condition)"
-        var body = self.expression()
-        if not self.match("RBRACE"):
-            return "(error: expected } after body)"
-        return "(WHILE " + condition + " { " + body + " })"
+        node.add_child(condition)
+        return node^
 
-    fn parse_struct(mut self) -> Expr:
-        var fields = List[Expr]()
-        if not self.check(RBRACE):
-            var key = self.expression()
-            _ = self.consume(COLON, "Expect ':' after field name.")
-            var value = self.expression()
-            fields.append(key + ": " + value)
-            while self.match(COMMA):
-                key = self.expression()
-                _ = self.consume(COLON, "Expect ':' after field name.")
-                value = self.expression()
-                fields.append(key + ": " + value)
-        _ = self.consume(RBRACE, "Expect '}' after struct fields.")
-        var struct_str = "{"
-        for i in range(len(fields)):
-            if i > 0:
-                struct_str += ", "
-            struct_str += fields[i]
-        struct_str += "}"
-        return struct_str
+    fn parse_group_by_clause(mut self) raises -> ASTNode:
+        """Parse GROUP BY clause."""
+        var node = ASTNode("GROUP_BY")
 
-    fn parse_list(mut self) -> Expr:
-        var elements = List[Expr]()
-        if not self.check("RBRACKET"):
-            elements.append(self.expression())
-            while self.match(","):
-                elements.append(self.expression())
-        _ = self.consume(RBRACKET, "Expect ] after list elements.")
-        var list_str = "["
-        for i in range(len(elements)):
-            if i > 0:
-                list_str += ", "
-            list_str += elements[i]
-        list_str += "]"
-        return list_str
-
-    fn primary(mut self) -> Expr:
-        var expr: Expr
-        if self.match(NUMBER):
-            expr = self.previous().value
-        elif self.match(STRING):
-            expr = self.previous().value
-        elif self.match(TRUE):
-            expr = "true"
-        elif self.match(FALSE):
-            expr = "false"
-        elif self.match(IDENTIFIER):
-            var id = self.previous().value
-            if self.match(DOT):
-                # Method call: obj.method(args)
-                if not self.match(IDENTIFIER):
-                    return "error: expect method name after ."
-                var method = self.previous().value
-                if not self.match(LPAREN):
-                    return "error: expect ( after method name"
-                var args = List[Expr]()
-                if not self.check(RPAREN):
-                    args.append(self.expression())
-                    while self.match(COMMA):
-                        args.append(self.expression())
-                if not self.match(RPAREN):
-                    return "error: expect ) after arguments"
-                var call_str = "(call " + method + " " + id
-                for arg in args:
-                    call_str += " " + arg
-                call_str += ")"
-                expr = call_str
-            else:
-                expr = id
-        elif self.match("VARIABLE"):
-            expr = "{ " + self.previous().value + " }"
-        elif self.match(LBRACE):
-            expr = self.parse_struct()
-        elif self.match(LBRACKET):
-            expr = self.parse_list()
-        elif self.match("EXCEPTION"):
-            var message = self.expression()
-            expr = "EXCEPTION " + message
-        elif self.match(LPAREN):
-            expr = self.expression()
-            _ = self.consume(RPAREN, "Expect ')' after expression.")
-            return self.postfix(expr)
-        else:
-            return "error"
-        
-        return self.postfix(expr)
-
-    fn postfix(mut self, expr: Expr) -> Expr:
-        """Handle postfix operators like indexing [expr] and slicing [start:end]."""
-        var result = expr
         while True:
-            if self.match(LBRACKET):
-                var index_expr = self.expression()
-                if self.match(COLON):
-                    # Slice: expr[start:end]
-                    var end_expr = self.expression()
-                    _ = self.consume(RBRACKET, "Expect ] after slice.")
-                    result = "(slice " + result + " " + index_expr + " " + end_expr + ")"
-                else:
-                    # Index: expr[index]
-                    _ = self.consume(RBRACKET, "Expect ] after index.")
-                    result = "(index " + result + " " + index_expr + ")"
-            else:
+            var col = self.expression()
+            node.add_child(col)
+            if not self.match(COMMA):
                 break
-        return result
 
-    # Helper methods
+        return node^
+
+    fn parse_order_by_clause(mut self) raises -> ASTNode:
+        """Parse ORDER BY clause."""
+        var node = ASTNode("ORDER_BY")
+
+        while True:
+            var col = self.expression()
+            var direction = "ASC"
+
+            if self.match("ASC") or self.match("DESC"):
+                direction = self.previous().value
+
+            col.set_attribute("direction", direction)
+            node.add_child(col)
+
+            if not self.match(COMMA):
+                break
+
+        return node^
+
+    fn expression(mut self) raises -> ASTNode:
+        """Parse expression with precedence climbing."""
+        return self.parse_expression(0)^
+
+    fn parse_expression(mut self, precedence: Int) raises -> ASTNode:
+        """Parse expression with operator precedence."""
+        var left = self.primary()
+
+        while not self.is_at_end():
+            var op_precedence = self.get_operator_precedence()
+            if op_precedence < precedence:
+                break
+
+            var operator = self.advance().value
+            var right = self.parse_expression(op_precedence + 1)
+
+            var binary_node = ASTNode(AST_BINARY_OP, operator)
+            binary_node.add_child(left)
+            binary_node.add_child(right)
+            left = binary_node^
+
+        return left^
+
+    fn primary(mut self) raises -> ASTNode:
+        """Parse primary expressions."""
+        if self.match(LPAREN):
+            var expr = self.expression()
+            self.consume(RPAREN, "Expected ')' after expression")
+            return expr^
+        elif self.match(NUMBER):
+            return ASTNode(AST_LITERAL, self.previous().value)^
+        elif self.match(STRING):
+            return ASTNode(AST_LITERAL, self.previous().value)^
+        elif self.match(TRUE) or self.match(FALSE):
+            return ASTNode(AST_LITERAL, self.previous().value)^
+        elif self.match(IDENTIFIER):
+            var name = self.previous().value
+            var var_type = self.symbol_table.lookup(name)
+            var node = ASTNode(AST_IDENTIFIER, name)
+            node.set_attribute("type", var_type)
+            return node^
+        elif self.match(VARIABLE):
+            var name = self.previous().value
+            var node = ASTNode("VARIABLE", name)
+            return node^
+
+        # Error case
+        self.advance()  # Skip unknown token
+        return ASTNode("ERROR", "Unexpected token")^
+
+    fn get_operator_precedence(self) -> Int:
+        """Get operator precedence level."""
+        if self.check(OR):
+            return 1
+        elif self.check(AND):
+            return 2
+        elif self.check(EQUALS) or self.check(NOT_EQUALS):
+            return 3
+        elif self.check(LESS) or self.check(GREATER) or self.check(LESS_EQUAL) or self.check(GREATER_EQUAL):
+            return 4
+        elif self.check(PLUS) or self.check(MINUS):
+            return 5
+        elif self.check(MULTIPLY) or self.check(DIVIDE) or self.check(MODULO):
+            return 6
+        elif self.check(PIPE):
+            return 7
+        return 0
+
+    fn create_statement(mut self) raises -> ASTNode:
+        """Parse CREATE statement."""
+        var node = ASTNode(AST_CREATE)
+
+        if self.match(FUNCTION):
+            return self.function_statement()
+        elif self.match(INDEX):
+            return self.index_statement()
+        elif self.match(VIEW):
+            return self.view_statement()
+        else:
+            self.error("Expected FUNCTION, INDEX, or VIEW after CREATE")
+            return node^
+
+    fn function_statement(mut self) raises -> ASTNode:
+        """Parse function definition."""
+        var node = ASTNode(AST_FUNCTION)
+
+        var func_name = self.consume(IDENTIFIER, "Expected function name").value
+        node.set_attribute("name", func_name)
+
+        self.consume(LPAREN, "Expected '(' after function name")
+
+        # Parse parameters
+        if not self.check(RPAREN):
+            while True:
+                var param_name = self.consume(IDENTIFIER, "Expected parameter name").value
+                var param_node = ASTNode("PARAMETER", param_name)
+                node.add_child(param_node)
+                if not self.match(COMMA):
+                    break
+
+        self.consume(RPAREN, "Expected ')' after parameters")
+        self.consume(RETURNS, "Expected RETURNS")
+        var return_type = self.consume(IDENTIFIER, "Expected return type").value
+        node.set_attribute("return_type", return_type)
+
+        self.consume(LBRACE, "Expected '{' before function body")
+        var body = self.expression()
+        self.consume(RBRACE, "Expected '}' after function body")
+
+        node.add_child(body)
+
+        return node^
+
+    fn index_statement(mut self) raises -> ASTNode:
+        """Parse CREATE INDEX statement."""
+        var node = ASTNode(AST_INDEX)
+
+        var index_name = self.consume(IDENTIFIER, "Expected index name").value
+        node.set_attribute("name", index_name)
+
+        self.consume(ON, "Expected ON")
+        var table_name = self.consume(IDENTIFIER, "Expected table name").value
+        node.set_attribute("table", table_name)
+
+        self.consume(LPAREN, "Expected '('")
+        var columns = List[String]()
+
+        while True:
+            var col = self.consume(IDENTIFIER, "Expected column name").value
+            columns.append(col)
+            if not self.match(COMMA):
+                break
+
+        self.consume(RPAREN, "Expected ')'")
+
+        for col in columns:
+            var col_node = ASTNode("COLUMN", col)
+            node.add_child(col_node)
+
+        return node^
+
+    fn view_statement(mut self) raises -> ASTNode:
+        """Parse CREATE VIEW statement."""
+        var node = ASTNode("CREATE_VIEW")
+
+        var view_name = self.consume(IDENTIFIER, "Expected view name").value
+        node.set_attribute("name", view_name)
+
+        self.consume(AS, "Expected AS")
+        var select_stmt = self.select_statement()
+        node.add_child(select_stmt)
+
+        return node^
+
+    fn drop_statement(mut self) raises -> ASTNode:
+        """Parse DROP statement."""
+        var node = ASTNode(AST_DROP)
+
+        if self.match(INDEX):
+            var index_name = self.consume(IDENTIFIER, "Expected index name").value
+            node.set_attribute("type", "INDEX")
+            node.set_attribute("name", index_name)
+        elif self.match(VIEW):
+            var view_name = self.consume(IDENTIFIER, "Expected view name").value
+            node.set_attribute("type", "VIEW")
+            node.set_attribute("name", view_name)
+        else:
+            self.error("Expected INDEX or VIEW after DROP")
+
+        return node^
+
+    fn insert_statement(mut self) raises -> ASTNode:
+        """Parse INSERT statement."""
+        var node = ASTNode("INSERT")
+
+        self.consume(INTO, "Expected INTO")
+        var table_name = self.consume(IDENTIFIER, "Expected table name").value
+        node.set_attribute("table", table_name)
+
+        if self.match(LPAREN):
+            # Parse column list
+            var columns = List[String]()
+            while True:
+                var col = self.consume(IDENTIFIER, "Expected column name").value
+                columns.append(col)
+                if not self.match(COMMA):
+                    break
+            self.consume(RPAREN, "Expected ')'")
+
+            for col in columns:
+                var col_node = ASTNode("COLUMN", col)
+                node.add_child(col_node)
+
+        self.consume(VALUES, "Expected VALUES")
+        self.consume(LPAREN, "Expected '('")
+
+        while True:
+            var val = self.expression()
+            node.add_child(val)
+            if not self.match(COMMA):
+                break
+
+        self.consume(RPAREN, "Expected ')'")
+
+        return node^
+
+    fn update_statement(mut self) raises -> ASTNode:
+        """Parse UPDATE statement."""
+        var node = ASTNode(UPDATE)
+
+        var table_name = self.consume(IDENTIFIER, "Expected table name").value
+        node.set_attribute("table", table_name)
+
+        self.consume(SET, "Expected SET")
+
+        while True:
+            var col = self.consume(IDENTIFIER, "Expected column name").value
+            self.consume(EQUALS, "Expected '='")
+            var val = self.expression()
+
+            var assign_node = ASTNode("ASSIGNMENT")
+            assign_node.set_attribute("column", col)
+            assign_node.add_child(val)
+            node.add_child(assign_node)
+
+            if not self.match(COMMA):
+                break
+
+        if self.match(WHERE):
+            var where_clause = self.parse_where_clause()
+            node.add_child(where_clause)
+
+        return node^
+
+    fn delete_statement(mut self) raises -> ASTNode:
+        """Parse DELETE statement."""
+        var node = ASTNode(DELETE)
+
+        self.consume(FROM, "Expected FROM")
+        var table_name = self.consume(IDENTIFIER, "Expected table name").value
+        node.set_attribute("table", table_name)
+
+        if self.match(WHERE):
+            var where_clause = self.parse_where_clause()
+            node.add_child(where_clause)
+
+        return node^
+
+    fn let_statement(mut self) raises -> ASTNode:
+        """Parse LET statement."""
+        var node = ASTNode("LET")
+
+        var var_name = self.consume(IDENTIFIER, "Expected variable name").value
+        node.set_attribute("name", var_name)
+
+        self.consume(EQUALS, "Expected '='")
+        var value = self.expression()
+        node.add_child(value)
+
+        # Add to symbol table
+        self.symbol_table.define(var_name, "variable")
+
+        return node^
+
+    fn expression_statement(mut self) raises -> ASTNode:
+        """Parse expression statement."""
+        return self.expression()
+
+    # Utility methods
     fn match(mut self, type: String) -> Bool:
         if self.check(type):
             _ = self.advance()
@@ -730,10 +549,17 @@ struct PLGrizzlyParser:
     fn previous(self) -> Token:
         return self.tokens[self.current - 1].copy()
 
-    fn consume(mut self, type: String, message: String) -> Token:
+    fn consume(mut self, type: String, message: String) raises -> Token:
         if self.check(type):
             return self.advance()
-        # Error handling - for now, return a dummy token
-        # Error handling - for now, return a dummy token
+
+        self.error(message)
         return Token("", "", 0, 0)
-}
+
+    fn error(self, message: String) raises:
+        var token = self.peek()
+        raise Error("Parse error at line " + String(token.line) + ", column " + String(token.column) + ": " + message)
+
+    fn is_keyword(self, text: String) -> Bool:
+        # Quick check for common keywords
+        return text in [String("select"), String("from"), String("where"), String("create"), String("drop"), String("insert"), String("update"), String("delete"), String("let"), String("function"), String("index"), String("view"), String("table"), String("as"), String("and"), String("or"), String("not"), String("true"), String("false"), String("null"), String("distinct"), String("group"), String("order"), String("by"), String("sum"), String("count"), String("avg"), String("min"), String("max"), String("join"), String("on"), String("into"), String("values"), String("set")]

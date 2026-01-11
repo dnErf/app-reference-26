@@ -101,9 +101,11 @@ struct HashIndex(Movable, Copyable):
         try:
             var bucket_key = String(self._hash(key))
             var bucket = self.buckets.get(bucket_key, Python.list())
-            if not Python.isinstance(bucket, Python.list):
+            try:
+                _ = bucket[0]  # Try to access first element to check if it's a list
+            except:
                 bucket = Python.list()
-            bucket.append((key, row_id))
+            bucket.append([key, row_id])
             self.buckets[bucket_key] = bucket
         except:
             pass
@@ -114,12 +116,18 @@ struct HashIndex(Movable, Copyable):
         try:
             var bucket_key = String(self._hash(key))
             var bucket = self.buckets.get(bucket_key, Python.list())
-            if Python.type(bucket) == Python.type(Python.list()):
+            try:
+                _ = bucket[0]  # Check if it's a list
                 for item in bucket:
-                    if Python.isinstance(item, Python.tuple) and len(item) == 2:
-                        var item_key = String(item[0])
-                        if item_key == key:
-                            results.append(Int(item[1]))
+                    try:
+                        if len(item) == 2:
+                            var item_key = String(item[0])
+                            if item_key == key:
+                                results.append(Int(item[1]))
+                    except:
+                        pass
+            except:
+                pass
         except:
             pass
         return results
@@ -144,9 +152,11 @@ struct BitmapIndex(Movable, Copyable):
         """Insert a value-row_id pair into the bitmap index."""
         try:
             var bitmap = self.bitmaps.get(value, Python.list())
-            if not Python.isinstance(bitmap, Python.list):
+            try:
+                _ = bitmap[0]  # Try to access first element to check if it's a list
+            except:
                 bitmap = Python.list()
-                # Initialize bitmap with zeros
+                
                 for i in range(self.max_row_id):
                     bitmap.append(0)
 
@@ -217,19 +227,19 @@ struct IndexStorage(Copyable, Movable):
         except:
             return False
 
-    fn _build_btree_index(mut self, btree_index: BTreeIndex, index: Index, table_data: List[List[String]], column_positions: Dict[String, Int]) raises:
+    fn _build_btree_index(mut self, mut btree_index: BTreeIndex, index: Index, table_data: List[List[String]], column_positions: Dict[String, Int]) raises:
         """Build a B-tree index."""
         for row_id in range(len(table_data)):
             var key = self._build_composite_key(index.columns, table_data[row_id], column_positions)
             btree_index.insert(key, row_id)
 
-    fn _build_hash_index(mut self, hash_index: HashIndex, index: Index, table_data: List[List[String]], column_positions: Dict[String, Int]) raises:
+    fn _build_hash_index(mut self, mut hash_index: HashIndex, index: Index, table_data: List[List[String]], column_positions: Dict[String, Int]) raises:
         """Build a hash index."""
         for row_id in range(len(table_data)):
             var key = self._build_composite_key(index.columns, table_data[row_id], column_positions)
             hash_index.insert(key, row_id)
 
-    fn _build_bitmap_index(mut self, bitmap_index: BitmapIndex, index: Index, table_data: List[List[String]], column_positions: Dict[String, Int]) raises:
+    fn _build_bitmap_index(mut self, mut bitmap_index: BitmapIndex, index: Index, table_data: List[List[String]], column_positions: Dict[String, Int]) raises:
         """Build a bitmap index."""
         for row_id in range(len(table_data)):
             for col_name in index.columns:

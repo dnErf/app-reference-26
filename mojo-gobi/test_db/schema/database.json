@@ -1,1 +1,1 @@
-{"name": "godi_db","tables": []}
+{"name": "godi_db","tables": [{"name": "users","columns": [{"name": "username", "type": "string"},{"name": "password_hash", "type": "string"},{"name": "role", "type": "string"}],"indexes": []}]}

@@ -222,7 +222,7 @@ struct ORCStorage:
                 var row_hash = ""
                 for col_idx in range(num_columns):
                     row_hash += data[row_idx][col_idx] + "|"
-                var hash_obj = self.merkle_tree.hash_string(row_hash)
+                var hash_obj = SHA256Hash.compute(row_hash)
                 hash_data.append(hash_obj)
             
             arrays.append(pyarrow.array(hash_data))
@@ -344,19 +344,6 @@ struct ORCStorage:
 
         return results.copy()
 
-    fn save_table(mut self, table_name: String, data: List[List[String]]) -> Bool:
-        """Save table data by overwriting existing data."""
-        # For now, since write_table appends, we need to clear first. But since it's ORC, perhaps delete and write new.
-        # For simplicity, assume we delete the blob first.
-        _ = self.storage.delete_blob("tables/" + table_name + ".orc")
-        _ = self.storage.delete_blob("integrity/" + table_name + ".merkle")
-        
-        # Reset Merkle tree
-        self.merkle_tree = MerkleBPlusTree()
-        
-        # Write new data
-        return self.write_table(table_name, data)
-
     fn create_index(mut self, index_name: String, table_name: String, columns: List[String], index_type: String = "btree", unique: Bool = False) -> Bool:
         """Create an index on a table."""
         # First, create index in schema
@@ -394,7 +381,7 @@ struct ORCStorage:
         """Get all indexes for a table."""
         return self.schema_manager.get_indexes(table_name)
 
-    fn search_with_index(self, table_name: String, index_name: String, key: String, start_key: String = "", end_key: String = "") -> List[List[String]]:
+    fn search_with_index(mut self, table_name: String, index_name: String, key: String, start_key: String = "", end_key: String = "") -> List[List[String]]:
         """Search table using an index."""
         var indexes = self.get_indexes(table_name)
         var index_type = ""
@@ -418,7 +405,7 @@ struct ORCStorage:
             if row_id < len(table_data):
                 results.append(table_data[row_id].copy())
 
-        return results
+        return results.copy()
 
 fn pack_database_zstd(folder: String, rich_console: PythonObject) raises:
     """Pack database folder into a .gobi file using ZSTD ORC compression."""

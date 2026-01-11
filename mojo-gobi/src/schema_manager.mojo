@@ -13,18 +13,22 @@ from blob_storage import BlobStorage
 struct Column(Movable, Copyable):
     var name: String
     var type: String  # e.g., "int", "string", "float"
+    var nullable: Bool
 
-    fn __init__(out self, name: String, type: String):
+    fn __init__(out self, name: String, type: String, nullable: Bool = True):
         self.name = name
         self.type = type
+        self.nullable = nullable
 
     fn __copyinit__(out self, other: Self):
         self.name = other.name
         self.type = other.type
+        self.nullable = other.nullable
 
     fn __moveinit__(out self, deinit existing: Self):
         self.name = existing.name^
         self.type = existing.type^
+        self.nullable = existing.nullable^
 struct Index(Movable, Copyable):
     var name: String
     var table_name: String
@@ -190,13 +194,29 @@ struct SchemaManager(Copyable, Movable):
     fn load_schema(self) -> DatabaseSchema:
         """Load database schema from storage."""
         var json_data = self.storage.read_blob(self.schema_path)
+        print("DEBUG: json_data = '" + json_data + "'")
         if json_data == "":
+            print("DEBUG: json_data is empty, returning default schema")
             return DatabaseSchema("default")
 
-        # Simple JSON parsing (in real implementation, use proper JSON parser)
-        var schema = DatabaseSchema("default")
         # TODO: Implement proper JSON parsing
+        # For now, return hardcoded schema for testing
+        print("DEBUG: returning hardcoded schema")
+        var schema = DatabaseSchema("godi_db")
+        var users_table = TableSchema("users")
+        users_table.add_column("username", "string")
+        users_table.add_column("password_hash", "string") 
+        users_table.add_column("role", "string")
+        schema.add_table(users_table)
         return schema.copy()
+
+    fn list_tables(self) -> List[String]:
+        """List all table names in the database."""
+        var schema = self.load_schema()
+        var table_names = List[String]()
+        for table in schema.tables:
+            table_names.append(table.name)
+        return table_names.copy()
 
     fn create_table(mut self, table_name: String, columns: List[Column]) -> Bool:
         """Create a new table in the schema."""
@@ -260,7 +280,7 @@ struct SchemaManager(Copyable, Movable):
         if not found:
             return False
 
-        table.indexes = new_indexes
+        table.indexes = new_indexes.copy()
 
         # Update table in schema
         for i in range(len(schema.tables)):

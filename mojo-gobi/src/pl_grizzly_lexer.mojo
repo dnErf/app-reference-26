@@ -5,15 +5,148 @@ This module provides lexical analysis for the PL-GRIZZLY programming language,
 an enhanced SQL dialect with functional programming features.
 """
 
-from collections import List
+from collections import List, Dict
 
-# Token types for PL-GRIZZLY (using string constants)
+# Optimized keyword dictionary for O(1) lookup
+fn get_keywords() -> Dict[String, String]:
+    """Get the keyword dictionary for fast lookup."""
+    var keywords = Dict[String, String]()
+    keywords["select"] = SELECT
+    keywords["SELECT"] = SELECT
+    keywords["from"] = FROM
+    keywords["FROM"] = FROM
+    keywords["where"] = WHERE
+    keywords["WHERE"] = WHERE
+    keywords["create"] = CREATE
+    keywords["CREATE"] = CREATE
+    keywords["drop"] = DROP
+    keywords["DROP"] = DROP
+    keywords["index"] = INDEX
+    keywords["INDEX"] = INDEX
+    keywords["materialized"] = MATERIALIZED
+    keywords["MATERIALIZED"] = MATERIALIZED
+    keywords["view"] = VIEW
+    keywords["VIEW"] = VIEW
+    keywords["refresh"] = REFRESH
+    keywords["REFRESH"] = REFRESH
+    keywords["import"] = IMPORT
+    keywords["IMPORT"] = IMPORT
+    keywords["update"] = UPDATE
+    keywords["UPDATE"] = UPDATE
+    keywords["delete"] = DELETE
+    keywords["DELETE"] = DELETE
+    keywords["login"] = LOGIN
+    keywords["LOGIN"] = LOGIN
+    keywords["logout"] = LOGOUT
+    keywords["LOGOUT"] = LOGOUT
+    keywords["begin"] = BEGIN
+    keywords["BEGIN"] = BEGIN
+    keywords["commit"] = COMMIT
+    keywords["COMMIT"] = COMMIT
+    keywords["rollback"] = ROLLBACK
+    keywords["ROLLBACK"] = ROLLBACK
+    keywords["macro"] = MACRO
+    keywords["MACRO"] = MACRO
+    keywords["join"] = JOIN
+    keywords["JOIN"] = JOIN
+    keywords["on"] = ON
+    keywords["ON"] = ON
+    keywords["attach"] = ATTACH
+    keywords["ATTACH"] = ATTACH
+    keywords["detach"] = DETACH
+    keywords["DETACH"] = DETACH
+    keywords["all"] = ALL
+    keywords["ALL"] = ALL
+    keywords["list"] = LIST
+    keywords["LIST"] = LIST
+    keywords["attached"] = ATTACHED
+    keywords["ATTACHED"] = ATTACHED
+    keywords["as"] = AS
+    keywords["AS"] = AS
+    keywords["cache"] = CACHE
+    keywords["CACHE"] = CACHE
+    keywords["clear"] = CLEAR
+    keywords["CLEAR"] = CLEAR
+    keywords["distinct"] = DISTINCT
+    keywords["DISTINCT"] = DISTINCT
+    keywords["group"] = GROUP
+    keywords["GROUP"] = GROUP
+    keywords["order"] = ORDER
+    keywords["ORDER"] = ORDER
+    keywords["by"] = BY
+    keywords["BY"] = BY
+    keywords["sum"] = SUM
+    keywords["SUM"] = SUM
+    keywords["count"] = COUNT
+    keywords["COUNT"] = COUNT
+    keywords["avg"] = AVG
+    keywords["AVG"] = AVG
+    keywords["min"] = MIN
+    keywords["MIN"] = MIN
+    keywords["max"] = MAX
+    keywords["MAX"] = MAX
+    keywords["function"] = FUNCTION
+    keywords["FUNCTION"] = FUNCTION
+    keywords["type"] = TYPE
+    keywords["TYPE"] = TYPE
+    keywords["struct"] = STRUCT
+    keywords["STRUCT"] = STRUCT
+    keywords["exception"] = EXCEPTION
+    keywords["EXCEPTION"] = EXCEPTION
+    keywords["module"] = MODULE
+    keywords["MODULE"] = MODULE
+    keywords["returns"] = RETURNS
+    keywords["RETURNS"] = RETURNS
+    keywords["throws"] = THROWS
+    keywords["THROWS"] = THROWS
+    keywords["if"] = IF
+    keywords["IF"] = IF
+    keywords["else"] = ELSE
+    keywords["ELSE"] = ELSE
+    keywords["match"] = MATCH
+    keywords["MATCH"] = MATCH
+    keywords["for"] = FOR
+    keywords["FOR"] = FOR
+    keywords["while"] = WHILE
+    keywords["WHILE"] = WHILE
+    keywords["case"] = CASE
+    keywords["CASE"] = CASE
+    keywords["in"] = IN
+    keywords["IN"] = IN
+    keywords["try"] = TRY
+    keywords["TRY"] = TRY
+    keywords["catch"] = CATCH
+    keywords["CATCH"] = CATCH
+    keywords["let"] = LET
+    keywords["LET"] = LET
+    keywords["true"] = TRUE
+    keywords["TRUE"] = TRUE
+    keywords["false"] = FALSE
+    keywords["FALSE"] = FALSE
+    keywords["and"] = AND
+    keywords["AND"] = AND
+    keywords["or"] = OR
+    keywords["OR"] = OR
+    keywords["not"] = NOT
+    keywords["NOT"] = NOT
+    keywords["insert"] = INSERT
+    keywords["INSERT"] = INSERT
+    keywords["into"] = INTO
+    keywords["INTO"] = INTO
+    keywords["values"] = VALUES
+    keywords["VALUES"] = VALUES
+    keywords["set"] = SET
+    keywords["SET"] = SET
+    return keywords^
 alias SELECT = "SELECT"
 alias FROM = "FROM"
 alias WHERE = "WHERE"
 alias CREATE = "CREATE"
 alias DROP = "DROP"
 alias INDEX = "INDEX"
+alias MATERIALIZED = "MATERIALIZED"
+alias VIEW = "VIEW"
+alias REFRESH = "REFRESH"
 alias IMPORT = "IMPORT"
 alias UPDATE = "UPDATE"
 alias DELETE = "DELETE"
@@ -33,6 +166,15 @@ alias ATTACHED = "ATTACHED"
 alias AS = "AS"
 alias CACHE = "CACHE"
 alias CLEAR = "CLEAR"
+alias DISTINCT = "DISTINCT"
+alias GROUP = "GROUP"
+alias ORDER = "ORDER"
+alias BY = "BY"
+alias SUM = "SUM"
+alias COUNT = "COUNT"
+alias AVG = "AVG"
+alias MIN = "MIN"
+alias MAX = "MAX"
 alias FUNCTION = "FUNCTION"
 alias TYPE = "TYPE"
 alias STRUCT = "STRUCT"
@@ -86,6 +228,12 @@ alias COMMA = ","
 alias SEMICOLON = ";"
 alias COLON = ":"
 
+# Additional keywords
+alias INSERT = "INSERT"
+alias INTO = "INTO"
+alias VALUES = "VALUES"
+alias SET = "SET"
+
 # Literals and identifiers
 alias IDENTIFIER = "IDENTIFIER"
 alias STRING = "STRING"
@@ -117,6 +265,7 @@ struct PLGrizzlyLexer:
     var current: Int
     var line: Int
     var column: Int
+    var keywords: Dict[String, String]
 
     fn __init__(out self, source: String):
         self.source = source
@@ -125,6 +274,7 @@ struct PLGrizzlyLexer:
         self.current = 0
         self.line = 1
         self.column = 1
+        self.keywords = get_keywords()
 
     fn tokenize(mut self) raises -> List[Token]:
         """Tokenize the source code into a list of tokens."""
@@ -349,108 +499,5 @@ struct PLGrizzlyLexer:
         self.add_token(VARIABLE, value)
 
     fn get_keyword_type(self, text: String) -> String:
-        """Get the token type for keywords."""
-        if text == "select" or text == "SELECT":
-            return SELECT
-        elif text == "from" or text == "FROM":
-            return FROM
-        elif text == "where" or text == "WHERE":
-            return WHERE
-        elif text == "create" or text == "CREATE":
-            return CREATE
-        elif text == "drop" or text == "DROP":
-            return DROP
-        elif text == "index" or text == "INDEX":
-            return INDEX
-        elif text == "import" or text == "IMPORT":
-            return IMPORT
-        elif text == "update" or text == "UPDATE":
-            return UPDATE
-        elif text == "delete" or text == "DELETE":
-            return DELETE
-        elif text == "login" or text == "LOGIN":
-            return LOGIN
-        elif text == "logout" or text == "LOGOUT":
-            return LOGOUT
-        elif text == "begin" or text == "BEGIN":
-            return BEGIN
-        elif text == "commit" or text == "COMMIT":
-            return COMMIT
-        elif text == "rollback" or text == "ROLLBACK":
-            return ROLLBACK
-        elif text == "macro" or text == "MACRO":
-            return MACRO
-        elif text == "join" or text == "JOIN":
-            return JOIN
-        elif text == "on" or text == "ON":
-            return ON
-        elif text == "attach" or text == "ATTACH":
-            return ATTACH
-        elif text == "detach" or text == "DETACH":
-            return DETACH
-        elif text == "all" or text == "ALL":
-            return ALL
-        elif text == "list" or text == "LIST":
-            return LIST
-        elif text == "attached" or text == "ATTACHED":
-            return ATTACHED
-        elif text == "as" or text == "AS":
-            return AS
-        elif text == "cache" or text == "CACHE":
-            return CACHE
-        elif text == "clear" or text == "CLEAR":
-            return CLEAR
-        elif text == "function" or text == "FUNCTION":
-            return FUNCTION
-        elif text == "type" or text == "TYPE":
-            return TYPE
-        elif text == "struct" or text == "STRUCT":
-            return STRUCT
-        elif text == "exception" or text == "EXCEPTION":
-            return EXCEPTION
-        elif text == "module" or text == "MODULE":
-            return MODULE
-        elif text == "as" or text == "AS":
-            return AS
-        elif text == "returns" or text == "RETURNS":
-            return RETURNS
-        elif text == "throws" or text == "THROWS":
-            return THROWS
-        elif text == "if" or text == "IF":
-            return IF
-        elif text == "else" or text == "ELSE":
-            return ELSE
-        elif text == "match" or text == "MATCH":
-            return MATCH
-        elif text == "for" or text == "FOR":
-            return FOR
-        elif text == "while" or text == "WHILE":
-            return WHILE
-        elif text == "case" or text == "CASE":
-            return CASE
-        elif text == "in" or text == "IN":
-            return IN
-        elif text == "try" or text == "TRY":
-            return TRY
-        elif text == "catch" or text == "CATCH":
-            return CATCH
-        elif text == "let" or text == "LET":
-            return LET
-        elif text == "import" or text == "IMPORT":
-            return IMPORT
-        elif text == "update" or text == "UPDATE":
-            return UPDATE
-        elif text == "delete" or text == "DELETE":
-            return DELETE
-        elif text == "true" or text == "TRUE":
-            return TRUE
-        elif text == "false" or text == "FALSE":
-            return FALSE
-        elif text == "and" or text == "AND":
-            return AND
-        elif text == "or" or text == "OR":
-            return OR
-        elif text == "not" or text == "NOT":
-            return NOT
-        else:
-            return IDENTIFIER
+        """Get the token type for keywords using O(1) dictionary lookup."""
+        return self.keywords.get(text, IDENTIFIER)

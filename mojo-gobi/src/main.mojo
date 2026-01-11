@@ -23,8 +23,8 @@ from schema_manager import SchemaManager, DatabaseSchema, TableSchema, Column
 from orc_storage import ORCStorage, test_pyarrow_orc
 from transformation_staging import TransformationStaging
 from pl_grizzly_lexer import PLGrizzlyLexer, Token
-from pl_grizzly_parser import PLGrizzlyParser, Expr
-from pl_grizzly_interpreter import PLGrizzlyInterpreter
+from pl_grizzly_parser import PLGrizzlyParser, ASTNode
+from pl_grizzly_interpreter import PLGrizzlyInterpreter, PLValue
 
 # Import required Python modules
 fn initialize_python_modules() raises:
@@ -56,7 +56,10 @@ fn main() raises:
             return
         initialize_database(String(args[2]), rich_console)
     elif command == "repl":
-        start_repl(rich_console)
+        var db_path = "."
+        if len(args) >= 3:
+            db_path = String(args[2])
+        start_repl(rich_console, db_path)
     elif command == "pack":
         if len(args) < 3:
             rich_console.print("[red]Error: pack requires a folder path[/red]")
@@ -119,21 +122,27 @@ fn initialize_database(folder: String, rich_console: PythonObject) raises:
         admin_row.append("admin")
         admin_row.append("admin")  # plain password for now
         admin_row.append("admin")
-        user_data.append(admin_row)
+        user_data.append(admin_row.copy())
         _ = orc_storage.write_table("users", user_data)
         rich_console.print("[green]Default admin user created (username: admin, password: admin)[/green]")
     else:
         rich_console.print("[red]Failed to initialize database[/red]")
 
-fn start_repl(rich_console: PythonObject) raises:
+fn start_repl(rich_console: PythonObject, db_path: String = ".") raises:
     """Start the interactive REPL."""
     rich_console.print("[blue]Starting Godi REPL...[/blue]")
     rich_console.print("[dim]Type 'help' for commands, 'quit' to exit[/dim]")
+    rich_console.print("[dim]Using database: " + db_path + "[/dim]")
 
-    # Initialize database connection (use current directory as default)
-    var current_db = "."
+    # Initialize database connection
+    var current_db = db_path
     var storage = BlobStorage(current_db)
     var schema_manager = SchemaManager(storage)
+    
+    # Debug: Check if schema file exists
+    var schema_content = storage.read_blob("schema/database.json")
+    rich_console.print("[dim]Schema content length: " + String(len(schema_content)) + "[/dim]")
+    
     var bloom_cols = List[String]()
     bloom_cols.append("id")
     bloom_cols.append("category")
@@ -159,7 +168,11 @@ fn start_repl(rich_console: PythonObject) raises:
             rich_console.print("  use <db>      - Switch to database")
             rich_console.print("  create table <name> (<col1> <type1>, <col2> <type2>, ...) - Create table")
             rich_console.print("  insert into <table> values (<val1>, <val2>, ...) - Insert data")
-            rich_console.print("  select * from <table> - Query table")
+            rich_console.print("  show tables   - Show all tables in database")
+            rich_console.print("  show databases - Show all attached databases")
+            rich_console.print("  show schema   - Show database schema information")
+            rich_console.print("  describe <table> - Describe table structure")
+            rich_console.print("  analyze <table> - Analyze table statistics")
             rich_console.print("  create model <name> <sql> - Create transformation model")
             rich_console.print("  create env <name> [parent] [type] - Create environment")
             rich_console.print("  run pipeline <env> - Execute pipeline in environment")
@@ -178,6 +191,8 @@ fn start_repl(rich_console: PythonObject) raises:
             rich_console.print("  disable profiling - Disable PL-GRIZZLY profiling")
             rich_console.print("  show profile - Show profiling statistics")
             rich_console.print("  clear profile - Clear profiling statistics")
+            rich_console.print("  show query profile - Show query execution profiling")
+            rich_console.print("  clear query profile - Clear query profiling statistics")
             rich_console.print("  jit status - Show JIT compilation status")
         elif cmd == "status":
             rich_console.print("[green]Database status: Operational[/green]")
@@ -277,7 +292,124 @@ fn start_repl(rich_console: PythonObject) raises:
                         row_str += "'" + row[i] + "'"
                     row_str += ")"
                     rich_console.print("  " + row_str)
-        elif cmd.startswith("create model "):
+        elif cmd == "show tables":
+            # Show all tables
+            var env = interpreter.global_env
+            var result = interpreter.evaluate("(SHOW TABLES)", env)
+            if result.is_error():
+                rich_console.print("[red]Error: " + result.__str__() + "[/red]")
+            else:
+                var tables = result.get_list()
+                if len(tables) == 0:
+                    rich_console.print("[yellow]No tables found[/yellow]")
+                else:
+                    rich_console.print("[green]Tables:[/green]")
+                    for table in tables:
+                        if table.is_struct():
+                            var table_info = table.get_struct()
+                            var name = table_info.get("name", PLValue("string", "unknown")).value
+                            var columns = table_info.get("columns", PLValue("number", "0")).value
+                            var indexes = table_info.get("indexes", PLValue("number", "0")).value
+                            rich_console.print("  " + name + " (" + columns + " columns, " + indexes + " indexes)")
+        elif cmd == "show databases":
+            # Show all databases
+            var env = interpreter.global_env
+            var result = interpreter.evaluate("(SHOW DATABASES)", env)
+            if result.is_error():
+                rich_console.print("[red]Error: " + result.__str__() + "[/red]")
+            else:
+                var databases = result.get_list()
+                rich_console.print("[green]Databases:[/green]")
+                for db in databases:
+                    if db.is_struct():
+                        var db_info = db.get_struct()
+                        var name = db_info.get("name", PLValue("string", "unknown")).value
+                        var path = db_info.get("path", PLValue("string", "unknown")).value
+                        rich_console.print("  " + name + " (" + path + ")")
+        elif cmd == "show schema":
+            # Show schema information
+            var env = interpreter.global_env
+            var result = interpreter.evaluate("(SHOW SCHEMA)", env)
+            if result.is_error():
+                rich_console.print("[red]Error: " + result.__str__() + "[/red]")
+            else:
+                var schema_info = result.get_struct()
+                var db_name = schema_info.get("database_name", PLValue("string", "unknown")).value
+                var version = schema_info.get("version", PLValue("string", "unknown")).value
+                var table_count = schema_info.get("table_count", PLValue("number", "0")).value
+                rich_console.print("[green]Database Schema:[/green]")
+                rich_console.print("  Name: " + db_name)
+                rich_console.print("  Version: " + version)
+                rich_console.print("  Tables: " + table_count)
+        elif cmd.startswith("describe "):
+            # Describe table
+            var table_name = String(cmd[9:].strip())
+            if table_name == "":
+                rich_console.print("[red]Usage: describe <table_name>[/red]")
+            else:
+                var env = interpreter.global_env
+                var result = interpreter.evaluate("(DESCRIBE " + table_name + ")", env)
+                if result.is_error():
+                    rich_console.print("[red]Error: " + result.__str__() + "[/red]")
+                else:
+                    var table_info = result.get_struct()
+                    var name = table_info.get("name", PLValue("string", "unknown")).value
+                    rich_console.print("[green]Table: " + name + "[/green]")
+                    
+                    # Show columns
+                    var columns = table_info.get("columns", PLValue.list(List[PLValue]())).get_list()
+                    if len(columns) > 0:
+                        rich_console.print("  Columns:")
+                        for col in columns:
+                            if col.is_struct():
+                                var col_info = col.get_struct()
+                                var col_name = col_info.get("name", PLValue("string", "unknown")).value
+                                var col_type = col_info.get("type", PLValue("string", "unknown")).value
+                                var nullable = col_info.get("nullable", PLValue("bool", "true")).value
+                                rich_console.print("    " + col_name + " " + col_type + " " + ("NULL" if nullable == "true" else "NOT NULL"))
+                    
+                    # Show indexes
+                    var indexes = table_info.get("indexes", PLValue.list(List[PLValue]())).get_list()
+                    if len(indexes) > 0:
+                        rich_console.print("  Indexes:")
+                        for idx in indexes:
+                            if idx.is_struct():
+                                var idx_info = idx.get_struct()
+                                var idx_name = idx_info.get("name", PLValue("string", "unknown")).value
+                                var idx_type = idx_info.get("type", PLValue("string", "unknown")).value
+                                var idx_columns = idx_info.get("columns", PLValue("string", "unknown")).value
+                                rich_console.print("    " + idx_name + " (" + idx_type + ") on " + idx_columns)
+        elif cmd.startswith("analyze "):
+            # Analyze table
+            var table_name = String(cmd[8:].strip())
+            if table_name == "":
+                rich_console.print("[red]Usage: analyze <table_name>[/red]")
+            else:
+                var env = interpreter.global_env
+                var result = interpreter.evaluate("(ANALYZE " + table_name + ")", env)
+                if result.is_error():
+                    rich_console.print("[red]Error: " + result.__str__() + "[/red]")
+                else:
+                    var stats = result.get_struct()
+                    var table_name_stat = stats.get("table_name", PLValue("string", "unknown")).value
+                    var row_count = stats.get("row_count", PLValue("number", "0")).value
+                    var col_count = stats.get("column_count", PLValue("number", "0")).value
+                    rich_console.print("[green]Table Analysis: " + table_name_stat + "[/green]")
+                    rich_console.print("  Rows: " + row_count)
+                    rich_console.print("  Columns: " + col_count)
+                    
+                    # Show column statistics
+                    var col_stats = stats.get("column_statistics", PLValue.list(List[PLValue]())).get_list()
+                    if len(col_stats) > 0:
+                        rich_console.print("  Column Statistics:")
+                        for col_stat in col_stats:
+                            if col_stat.is_struct():
+                                var col_info = col_stat.get_struct()
+                                var col_name = col_info.get("name", PLValue("string", "unknown")).value
+                                var col_type = col_info.get("type", PLValue("string", "unknown")).value
+                                var non_null = col_info.get("non_null_count", PLValue("number", "0")).value
+                                var null_count = col_info.get("null_count", PLValue("number", "0")).value
+                                rich_console.print("    " + col_name + " (" + col_type + "): " + non_null + " non-null, " + null_count + " null")
             # Parse: create model <name> <sql>
             var parts = cmd[13:].split(" ", 1)  # Split on first space only
             if len(parts) >= 2:
@@ -429,7 +561,7 @@ fn start_repl(rich_console: PythonObject) raises:
                 var parser = PLGrizzlyParser(tokens)
                 var expression = parser.parse()
                 rich_console.print("[green]Parsed successfully[/green]")
-                rich_console.print("AST: " + expression)
+                rich_console.print("AST: " + expression.node_type + " (" + expression.value + ")")
             except:
                 rich_console.print("[red]Parsing failed[/red]")
         elif cmd.startswith("interpret "):
@@ -462,12 +594,6 @@ fn start_repl(rich_console: PythonObject) raises:
         elif cmd == "clear profile":
             interpreter.clear_profile_stats()
             rich_console.print("[green]Profiling statistics cleared[/green]")
-        elif cmd == "jit status":
-            rich_console.print("[green]JIT compilation status:[/green]")
-            # Show compiled functions
-            var jit_stats = interpreter.get_jit_stats()
-            rich_console.print("  JIT compiled functions: " + String(len(jit_stats)))
-            rich_console.print("  Functions are compiled after 10+ executions")
         else:
             rich_console.print("[red]Unknown command: " + cmd + "[/red]")
 
@@ -592,6 +718,8 @@ fn unpack_database(file_path: String, rich_console: PythonObject) raises:
             rich_console.print("[dim]  Extracted: " + file_path_rel + "[/dim]")
 
         rich_console.print("[green]Database unpacked successfully to: " + target_folder + "[/green]")
+    except:
+        rich_console.print("[red]Error: Failed to unpack database[/red]")
 
 fn backup_database(file_path: String, rich_console: PythonObject) raises:
     """Backup database to a file."""
@@ -601,7 +729,11 @@ fn backup_database(file_path: String, rich_console: PythonObject) raises:
         var tarfile = Python.import_module("tarfile")
         var os = Python.import_module("os")
         var tar = tarfile.open(file_path, "w:gz")
-        for root, dirs, files in os.walk(current_db):
+        var walk_result = os.walk(current_db)
+        for item in walk_result:
+            var root = item[0]
+            var dirs = item[1]
+            var files = item[2]
             for file in files:
                 tar.add(os.path.join(root, file))
         tar.close()
@@ -621,6 +753,3 @@ fn restore_database(file_path: String, rich_console: PythonObject) raises:
         rich_console.print("[green]Restore completed successfully![/green]")
     except:
         rich_console.print("[red]Restore failed[/red]")
-
-    except:
-        rich_console.print("[red]Error: Failed to unpack database[/red]")
