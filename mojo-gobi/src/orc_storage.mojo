@@ -10,6 +10,8 @@ from python import Python, PythonObject
 from collections import List
 from blob_storage import BlobStorage
 from merkle_tree import MerkleBPlusTree, SHA256Hash
+from index_storage import IndexStorage
+from schema_manager import SchemaManager, Index
 
 struct ORCStorage:
     var storage: BlobStorage
@@ -19,6 +21,8 @@ struct ORCStorage:
     var row_index_stride: Int
     var compression_block_size: Int
     var bloom_filter_columns: List[String]
+    var index_storage: IndexStorage
+    var schema_manager: SchemaManager
 
     fn __init__(out self, storage: BlobStorage, compression: String = "none", use_dictionary_encoding: Bool = True, row_index_stride: Int = 10000, compression_block_size: Int = 65536, bloom_filter_columns: List[String] = List[String]()):
         self.storage = storage.copy()
@@ -28,6 +32,8 @@ struct ORCStorage:
         self.row_index_stride = row_index_stride
         self.compression_block_size = compression_block_size
         self.bloom_filter_columns = bloom_filter_columns.copy()
+        self.index_storage = IndexStorage(storage.copy())
+        self.schema_manager = SchemaManager(storage.copy())
 
     fn __copyinit__(out self, other: Self):
         self.storage = other.storage.copy()
@@ -37,6 +43,8 @@ struct ORCStorage:
         self.row_index_stride = other.row_index_stride
         self.compression_block_size = other.compression_block_size
         self.bloom_filter_columns = other.bloom_filter_columns.copy()
+        self.index_storage = other.index_storage.copy()
+        self.schema_manager = other.schema_manager.copy()
 
     fn __moveinit__(out self, deinit existing: Self):
         self.storage = existing.storage^
@@ -46,6 +54,8 @@ struct ORCStorage:
         self.row_index_stride = existing.row_index_stride
         self.compression_block_size = existing.compression_block_size
         self.bloom_filter_columns = existing.bloom_filter_columns^
+        self.index_storage = existing.index_storage^
+        self.schema_manager = existing.schema_manager^
 
     fn write_table(mut self, table_name: String, data: List[List[String]]) -> Bool:
         """Write table data with integrity verification using PyArrow ORC format."""
@@ -169,6 +179,85 @@ struct ORCStorage:
             print("Error in write_table for", table_name)
             return False
 
+    fn save_table(mut self, table_name: String, data: List[List[String]]) -> Bool:
+        """Save table data (overwrite) with integrity verification using PyArrow ORC format."""
+        try:
+            print("Saving table:", table_name, "with", len(data), "rows")
+
+            if len(data) == 0:
+                # Delete the table files
+                _ = self.storage.delete_blob("tables/" + table_name + ".orc")
+                _ = self.storage.delete_blob("integrity/" + table_name + ".merkle")
+                return True
+
+            # Import PyArrow
+            var pyarrow = Python.import_module("pyarrow")
+            var pyarrow_orc = Python.import_module("pyarrow.orc")
+            _ = Python.import_module("io")
+            _ = Python.import_module("builtins")
+
+            var num_columns = len(data[0])
+
+            print("Number of columns:", num_columns)
+
+            print("Creating PyArrow table...")
+
+            # Create PyArrow arrays for each column
+            var arrays = Python.list()
+            var column_names = Python.list()
+            
+            for col_idx in range(num_columns):
+                var col_name = "col_" + String(col_idx)
+                column_names.append(col_name)
+                var col_data = Python.list()
+                for row_idx in range(len(data)):
+                    var row = data[row_idx].copy()
+                    col_data.append(String(row[col_idx] if len(row) > col_idx else ""))
+                arrays.append(pyarrow.array(col_data))
+            
+            # Add integrity hash column
+            column_names.append("__integrity_hash__")
+            var hash_data = Python.list()
+            for row_idx in range(len(data)):
+                var row_hash = ""
+                for col_idx in range(num_columns):
+                    row_hash += data[row_idx][col_idx] + "|"
+                var hash_obj = self.merkle_tree.hash_string(row_hash)
+                hash_data.append(hash_obj)
+            
+            arrays.append(pyarrow.array(hash_data))
+            
+            # Create PyArrow table
+            var table = pyarrow.Table.from_arrays(arrays, names=column_names)
+            
+            print("Converting to ORC...")
+            
+            # Convert to ORC format
+            var orc_buffer = pyarrow_orc.ORCWriter(table, compression=self.compression)
+            var orc_bytes = orc_buffer.getvalue()
+            
+            print("Encoding ORC data...")
+            
+            # Encode as base64 for storage
+            var base64 = Python.import_module("base64")
+            var encoded_data = base64.b64encode(orc_bytes)
+            var encoded_str = String(encoded_data.decode("ascii"))
+            
+            # Store the encoded ORC data
+            print("Attempting to store encoded ORC data...")
+            var data_success = self.storage.write_blob("tables/" + table_name + ".orc", encoded_str)
+            print("Encoded write result:", data_success)
+
+            # Store Merkle tree state for this table
+            var tree_state = self.merkle_tree.get_root_hash()
+            var tree_success = self.storage.write_blob("integrity/" + table_name + ".merkle", tree_state)
+
+            print("Save success:", data_success and tree_success)
+            return data_success and tree_success
+        except:
+            print("Error in save_table for", table_name)
+            return False
+
     fn read_table(self, table_name: String) -> List[List[String]]:
         """Read table data with integrity verification from PyArrow ORC format."""
         var results = List[List[String]]()
@@ -267,6 +356,69 @@ struct ORCStorage:
         
         # Write new data
         return self.write_table(table_name, data)
+
+    fn create_index(mut self, index_name: String, table_name: String, columns: List[String], index_type: String = "btree", unique: Bool = False) -> Bool:
+        """Create an index on a table."""
+        # First, create index in schema
+        if not self.schema_manager.create_index(index_name, table_name, columns, index_type, unique):
+            return False
+
+        # Load table data
+        var table_data = self.read_table(table_name)
+        if len(table_data) == 0:
+            return True  # Empty table, index created successfully
+
+        # Get column positions
+        var schema = self.schema_manager.load_schema()
+        var table = schema.get_table(table_name)
+        var column_positions = Dict[String, Int]()
+        for i in range(len(table.columns)):
+            column_positions[table.columns[i].name] = i
+
+        # Create index object
+        var index = Index(index_name, table_name, columns, index_type, unique)
+
+        # Build and save index
+        return self.index_storage.create_index(index, table_data, column_positions)
+
+    fn drop_index(mut self, index_name: String, table_name: String) -> Bool:
+        """Drop an index from a table."""
+        # Drop from schema
+        if not self.schema_manager.drop_index(index_name, table_name):
+            return False
+
+        # Drop from storage
+        return self.index_storage.drop_index(index_name)
+
+    fn get_indexes(self, table_name: String) -> List[Index]:
+        """Get all indexes for a table."""
+        return self.schema_manager.get_indexes(table_name)
+
+    fn search_with_index(self, table_name: String, index_name: String, key: String, start_key: String = "", end_key: String = "") -> List[List[String]]:
+        """Search table using an index."""
+        var indexes = self.get_indexes(table_name)
+        var index_type = ""
+        for index in indexes:
+            if index.name == index_name:
+                index_type = index.type
+                break
+
+        if index_type == "":
+            return List[List[String]]()  # Index not found
+
+        # Search index for row IDs
+        var row_ids = self.index_storage.search_index(index_name, index_type, key, start_key, end_key)
+
+        # Load full table data
+        var table_data = self.read_table(table_name)
+        var results = List[List[String]]()
+
+        # Filter rows by matching row IDs
+        for row_id in row_ids:
+            if row_id < len(table_data):
+                results.append(table_data[row_id].copy())
+
+        return results
 
 fn pack_database_zstd(folder: String, rich_console: PythonObject) raises:
     """Pack database folder into a .gobi file using ZSTD ORC compression."""

@@ -67,6 +67,16 @@ fn main() raises:
             rich_console.print("[red]Error: unpack requires a .gobi file path[/red]")
             return
         unpack_database(String(args[2]), rich_console)
+    elif command == "backup":
+        if len(args) < 3:
+            rich_console.print("[red]Error: backup requires a backup file path[/red]")
+            return
+        backup_database(String(args[2]), rich_console)
+    elif command == "restore":
+        if len(args) < 3:
+            rich_console.print("[red]Error: restore requires a backup file path[/red]")
+            return
+        restore_database(String(args[2]), rich_console)
     else:
         rich_console.print("[red]Unknown command: " + command + "[/red]")
         print_usage(rich_console)
@@ -78,6 +88,8 @@ fn print_usage(rich_console: PythonObject) raises:
     rich_console.print("  gobi repl             - Start interactive REPL")
     rich_console.print("  gobi pack <folder>    - Pack folder into .gobi file")
     rich_console.print("  gobi unpack <file>    - Unpack .gobi file to folder")
+    rich_console.print("  gobi backup <file>    - Backup database to file")
+    rich_console.print("  gobi restore <file>   - Restore database from file")
 
 fn initialize_database(folder: String, rich_console: PythonObject) raises:
     """Initialize a new Godi database in the specified folder."""
@@ -88,10 +100,28 @@ fn initialize_database(folder: String, rich_console: PythonObject) raises:
 
     # Create default schema
     var schema = DatabaseSchema("godi_db")
+    
+    # Add users table for authentication
+    var users_table = TableSchema("users")
+    users_table.add_column("username", "string")
+    users_table.add_column("password_hash", "string")
+    users_table.add_column("role", "string")
+    schema.add_table(users_table)
+    
     var success = schema_manager.save_schema(schema)
 
     if success:
         rich_console.print("[green]Database initialized successfully![/green]")
+        # Insert default admin user
+        var orc_storage = ORCStorage(storage)
+        var user_data = List[List[String]]()
+        var admin_row = List[String]()
+        admin_row.append("admin")
+        admin_row.append("admin")  # plain password for now
+        admin_row.append("admin")
+        user_data.append(admin_row)
+        _ = orc_storage.write_table("users", user_data)
+        rich_console.print("[green]Default admin user created (username: admin, password: admin)[/green]")
     else:
         rich_console.print("[red]Failed to initialize database[/red]")
 
@@ -562,6 +592,35 @@ fn unpack_database(file_path: String, rich_console: PythonObject) raises:
             rich_console.print("[dim]  Extracted: " + file_path_rel + "[/dim]")
 
         rich_console.print("[green]Database unpacked successfully to: " + target_folder + "[/green]")
+
+fn backup_database(file_path: String, rich_console: PythonObject) raises:
+    """Backup database to a file."""
+    rich_console.print("[green]Backing up database to: " + file_path + "[/green]")
+    var current_db = "."
+    try:
+        var tarfile = Python.import_module("tarfile")
+        var os = Python.import_module("os")
+        var tar = tarfile.open(file_path, "w:gz")
+        for root, dirs, files in os.walk(current_db):
+            for file in files:
+                tar.add(os.path.join(root, file))
+        tar.close()
+        rich_console.print("[green]Backup completed successfully![/green]")
+    except:
+        rich_console.print("[red]Backup failed[/red]")
+
+fn restore_database(file_path: String, rich_console: PythonObject) raises:
+    """Restore database from a file."""
+    rich_console.print("[green]Restoring database from: " + file_path + "[/green]")
+    var current_db = "."
+    try:
+        var tarfile = Python.import_module("tarfile")
+        var tar = tarfile.open(file_path, "r:gz")
+        tar.extractall(current_db)
+        tar.close()
+        rich_console.print("[green]Restore completed successfully![/green]")
+    except:
+        rich_console.print("[red]Restore failed[/red]")
 
     except:
         rich_console.print("[red]Error: Failed to unpack database[/red]")

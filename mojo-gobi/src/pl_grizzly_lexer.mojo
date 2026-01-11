@@ -12,15 +12,32 @@ alias SELECT = "SELECT"
 alias FROM = "FROM"
 alias WHERE = "WHERE"
 alias CREATE = "CREATE"
+alias DROP = "DROP"
+alias INDEX = "INDEX"
 alias IMPORT = "IMPORT"
 alias UPDATE = "UPDATE"
 alias DELETE = "DELETE"
+alias LOGIN = "LOGIN"
+alias LOGOUT = "LOGOUT"
+alias BEGIN = "BEGIN"
+alias COMMIT = "COMMIT"
+alias ROLLBACK = "ROLLBACK"
+alias MACRO = "MACRO"
+alias JOIN = "JOIN"
+alias ON = "ON"
+alias ATTACH = "ATTACH"
+alias DETACH = "DETACH"
+alias ALL = "ALL"
+alias LIST = "LIST"
+alias ATTACHED = "ATTACHED"
+alias AS = "AS"
+alias CACHE = "CACHE"
+alias CLEAR = "CLEAR"
 alias FUNCTION = "FUNCTION"
 alias TYPE = "TYPE"
 alias STRUCT = "STRUCT"
 alias EXCEPTION = "EXCEPTION"
 alias MODULE = "MODULE"
-alias AS = "as"
 alias DOUBLE_COLON = "::"
 alias RETURNS = "RETURNS"
 alias THROWS = "THROWS"
@@ -341,12 +358,48 @@ struct PLGrizzlyLexer:
             return WHERE
         elif text == "create" or text == "CREATE":
             return CREATE
+        elif text == "drop" or text == "DROP":
+            return DROP
+        elif text == "index" or text == "INDEX":
+            return INDEX
         elif text == "import" or text == "IMPORT":
             return IMPORT
         elif text == "update" or text == "UPDATE":
             return UPDATE
         elif text == "delete" or text == "DELETE":
             return DELETE
+        elif text == "login" or text == "LOGIN":
+            return LOGIN
+        elif text == "logout" or text == "LOGOUT":
+            return LOGOUT
+        elif text == "begin" or text == "BEGIN":
+            return BEGIN
+        elif text == "commit" or text == "COMMIT":
+            return COMMIT
+        elif text == "rollback" or text == "ROLLBACK":
+            return ROLLBACK
+        elif text == "macro" or text == "MACRO":
+            return MACRO
+        elif text == "join" or text == "JOIN":
+            return JOIN
+        elif text == "on" or text == "ON":
+            return ON
+        elif text == "attach" or text == "ATTACH":
+            return ATTACH
+        elif text == "detach" or text == "DETACH":
+            return DETACH
+        elif text == "all" or text == "ALL":
+            return ALL
+        elif text == "list" or text == "LIST":
+            return LIST
+        elif text == "attached" or text == "ATTACHED":
+            return ATTACHED
+        elif text == "as" or text == "AS":
+            return AS
+        elif text == "cache" or text == "CACHE":
+            return CACHE
+        elif text == "clear" or text == "CLEAR":
+            return CLEAR
         elif text == "function" or text == "FUNCTION":
             return FUNCTION
         elif text == "type" or text == "TYPE":

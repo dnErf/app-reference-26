@@ -25,26 +25,84 @@ struct Column(Movable, Copyable):
     fn __moveinit__(out self, deinit existing: Self):
         self.name = existing.name^
         self.type = existing.type^
+struct Index(Movable, Copyable):
+    var name: String
+    var table_name: String
+    var columns: List[String]
+    var type: String  # "btree", "hash", "bitmap"
+    var unique: Bool
 
+    fn __init__(out self, name: String, table_name: String, columns: List[String], type: String = "btree", unique: Bool = False):
+        self.name = name
+        self.table_name = table_name
+        self.columns = columns.copy()
+        self.type = type
+        self.unique = unique
+
+    fn __copyinit__(out self, other: Self):
+        self.name = other.name
+        self.table_name = other.table_name
+        self.columns = other.columns.copy()
+        self.type = other.type
+        self.unique = other.unique
+
+    fn __moveinit__(out self, deinit existing: Self):
+        self.name = existing.name^
+        self.table_name = existing.table_name^
+        self.columns = existing.columns^
+        self.type = existing.type^
+        self.unique = existing.unique
+
+    fn to_json(self) -> String:
+        """Serialize index to JSON string."""
+        var json = "{"
+        json += "\"name\": \"" + self.name + "\","
+        json += "\"table_name\": \"" + self.table_name + "\","
+        json += "\"type\": \"" + self.type + "\","
+        json += "\"unique\": " + (String("true") if self.unique else String("false")) + ","
+        json += "\"columns\": ["
+
+        for i in range(len(self.columns)):
+            if i > 0:
+                json += ","
+            json += "\"" + self.columns[i] + "\""
+
+        json += "]}"
+        return json
 struct TableSchema(Movable, Copyable):
     var name: String
     var columns: List[Column]
+    var indexes: List[Index]
 
     fn __init__(out self, name: String):
         self.name = name
         self.columns = List[Column]()
+        self.indexes = List[Index]()
 
     fn __copyinit__(out self, other: Self):
         self.name = other.name
         self.columns = other.columns.copy()
+        self.indexes = other.indexes.copy()
 
     fn __moveinit__(out self, deinit existing: Self):
         self.name = existing.name^
         self.columns = existing.columns^
+        self.indexes = existing.indexes^
 
     fn add_column(mut self, name: String, type: String):
         """Add a column to the table schema."""
         self.columns.append(Column(name, type))
+
+    fn add_index(mut self, index: Index):
+        """Add an index to the table schema."""
+        self.indexes.append(index.copy())
+
+    fn get_index(self, name: String) -> Index:
+        """Get an index by name."""
+        for index in self.indexes:
+            if index.name == name:
+                return index.copy()
+        return Index("", "", List[String]())
 
     fn to_json(self) -> String:
         """Serialize schema to JSON string."""
@@ -56,6 +114,13 @@ struct TableSchema(Movable, Copyable):
             if i > 0:
                 json += ","
             json += "{\"name\": \"" + self.columns[i].name + "\", \"type\": \"" + self.columns[i].type + "\"}"
+
+        json += "],\"indexes\": ["
+
+        for i in range(len(self.indexes)):
+            if i > 0:
+                json += ","
+            json += self.indexes[i].to_json()
 
         json += "]}"
         return json
@@ -101,13 +166,21 @@ struct DatabaseSchema(Movable, Copyable):
         json += "]}"
         return json
 
-struct SchemaManager:
+struct SchemaManager(Copyable, Movable):
     var storage: BlobStorage
     var schema_path: String
 
     fn __init__(out self, storage: BlobStorage):
         self.storage = storage.copy()
         self.schema_path = "schema/database.json"
+
+    fn __copyinit__(out self, other: Self):
+        self.storage = other.storage.copy()
+        self.schema_path = other.schema_path
+
+    fn __moveinit__(out self, deinit existing: Self):
+        self.storage = existing.storage^
+        self.schema_path = existing.schema_path^
 
     fn save_schema(mut self, schema: DatabaseSchema) -> Bool:
         """Save database schema to storage."""
@@ -135,3 +208,70 @@ struct SchemaManager:
 
         schema.add_table(table)
         return self.save_schema(schema)
+
+    fn create_index(mut self, index_name: String, table_name: String, columns: List[String], index_type: String = "btree", unique: Bool = False) -> Bool:
+        """Create an index on a table."""
+        var schema = self.load_schema()
+        var table = schema.get_table(table_name)
+        if table.name == "":
+            return False
+
+        # Check if columns exist in table
+        for col_name in columns:
+            var found = False
+            for col in table.columns:
+                if col.name == col_name:
+                    found = True
+                    break
+            if not found:
+                return False
+
+        # Check for duplicate index name
+        for existing_index in table.indexes:
+            if existing_index.name == index_name:
+                return False
+
+        var index = Index(index_name, table_name, columns, index_type, unique)
+        table.add_index(index)
+
+        # Update table in schema
+        for i in range(len(schema.tables)):
+            if schema.tables[i].name == table_name:
+                schema.tables[i] = table.copy()
+                break
+
+        return self.save_schema(schema)
+
+    fn drop_index(mut self, index_name: String, table_name: String) -> Bool:
+        """Drop an index from a table."""
+        var schema = self.load_schema()
+        var table = schema.get_table(table_name)
+        if table.name == "":
+            return False
+
+        var new_indexes = List[Index]()
+        var found = False
+        for index in table.indexes:
+            if index.name != index_name:
+                new_indexes.append(index.copy())
+            else:
+                found = True
+
+        if not found:
+            return False
+
+        table.indexes = new_indexes
+
+        # Update table in schema
+        for i in range(len(schema.tables)):
+            if schema.tables[i].name == table_name:
+                schema.tables[i] = table.copy()
+                break
+
+        return self.save_schema(schema)
+
+    fn get_indexes(self, table_name: String) -> List[Index]:
+        """Get all indexes for a table."""
+        var schema = self.load_schema()
+        var table = schema.get_table(table_name)
+        return table.indexes.copy()

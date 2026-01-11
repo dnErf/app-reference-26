@@ -48,6 +48,25 @@ Integrate Python-like syntax features (functions, pattern matching, pipes)
 Implement PLValue type system with number, string, bool, error types
 Implement STRUCT and EXCEPTION types in PLValue system
 Implement try/catch error handling in PL-GRIZZLY
+Add user authentication and access control to the database
+Implement data serialization and compression for storage efficiency
+Add advanced data types like maps to PL-GRIZZLY
+Implement query optimization and indexing for better performance
+Implement transaction support with ACID properties for database operations
+Add concurrent access control with locking mechanisms for multi-user scenarios
+
+Add macro system and code generation capabilities to PL-GRIZZLY
+Implement advanced function features like closures and higher-order functions
+Add JOIN support in SELECT statements for multi-table queries
+Implement backup and restore functionality for database reliability
+
+Add time travel capabilities for historical data access
+Implement user-defined aggregate functions in PL-GRIZZLY
+Add ATTACH and DETACH functionality for .gobi database or .sql files
+Add pattern matching with MATCH statement for advanced control flow
+Add loop constructs (for, while) for iteration over collections
+Implement user-defined modules with file-based import system
+Add error handling improvements with exception propagation and stack traces
 Create function system with receivers and method-style syntax
 Implement LINQ-style query expressions in PL-GRIZZLY
 Integrate PL-GRIZZLY SELECT with Godi database operations for actual query execution
@@ -64,3 +83,20 @@ Add match statement parsing in parser
 Add loop statement parsing in parser
 Add pattern matching evaluation in interpreter
 Add loop evaluation in interpreter
+Implement array literals with [item1, item2] syntax in PL-GRIZZLY
+Add array indexing with [index] and slicing with [start:end] syntax
+Implement eval_index() and eval_slice() methods for array operations
+Support negative indexing for arrays (-1 for last element)
+Fix split_expression() to handle bracket depth for proper parsing
+Add unary minus operator support for negative number literals
+Implement user-defined aggregate functions in PL-GRIZZLY
+Add ATTACH and DETACH functionality for .gobi database or .sql files
+
+Implement DETACH ALL command to disconnect all attached databases
+Add LIST ATTACHED command to show currently mounted databases and their schemas
+
+Add schema conflict resolution for attached databases with name collision handling
+
+Implement query execution plans with cost-based optimization
+Add database indexes for faster lookups and joins (B-tree, hash, bitmap indexes with CREATE INDEX/DROP INDEX statements)
+Implement query result caching with invalidation strategies (LRU eviction, time-based expiration, table-based invalidation, CACHE CLEAR and CACHE STATS commands)

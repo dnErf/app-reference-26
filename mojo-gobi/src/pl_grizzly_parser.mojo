@@ -1,8 +1,5 @@
 from collections import List
-from pl_grizzly_lexer import Token, PLGrizzlyLexer
-
-from collections import List
-from pl_grizzly_lexer import Token, PLGrizzlyLexer
+from pl_grizzly_lexer import Token, PLGrizzlyLexer, LBRACKET, RBRACKET, LBRACE, RBRACE, LPAREN, RPAREN, COMMA, DOT, COLON, SEMICOLON, NUMBER, STRING, IDENTIFIER, TRUE, FALSE, AS, ALL, LIST, ATTACHED, CACHE, CLEAR
 
 # AST Node Definition (simplified as string representation)
 alias Expr = String
@@ -34,13 +31,24 @@ struct PLGrizzlyParser:
         """Parse the tokens into a statement or expression."""
         if self.match("SELECT"):
             return self.select_statement()
+        elif self.match("LET"):
+            return self.let_statement()
         elif self.match("CREATE"):
             if self.match("FUNCTION"):
                 return self.function_statement()
+            elif self.match("MACRO"):
+                return self.macro_statement()
             elif self.match("MODULE"):
                 return self.module_statement()
+            elif self.match("INDEX"):
+                return self.create_index_statement()
             else:
-                return "(error: expected FUNCTION or MODULE after CREATE)"
+                return "(error: expected FUNCTION, MACRO, MODULE or INDEX after CREATE)"
+        elif self.match("DROP"):
+            if self.match("INDEX"):
+                return self.drop_index_statement()
+            else:
+                return "(error: expected INDEX after DROP)"
         elif self.match("TRY"):
             return self.try_statement()
         elif self.match("TYPE"):
@@ -53,6 +61,28 @@ struct PLGrizzlyParser:
             return self.delete_statement()
         elif self.match("IMPORT"):
             return self.import_statement()
+        elif self.match("LOGIN"):
+            return self.login_statement()
+        elif self.match("LOGOUT"):
+            return self.logout_statement()
+        elif self.match("BEGIN"):
+            return self.begin_statement()
+        elif self.match("COMMIT"):
+            return self.commit_statement()
+        elif self.match("ROLLBACK"):
+            return self.rollback_statement()
+        elif self.match("ATTACH"):
+            return self.attach_statement()
+        elif self.match("DETACH"):
+            return self.detach_statement()
+        elif self.match("LIST"):
+            if self.match("ATTACHED"):
+                return self.list_attached_statement()
+            return "error: expect ATTACHED after LIST"
+        elif self.match("CACHE"):
+            return self.cache_statement()
+        elif self.match("CLEAR"):
+            return self.clear_statement()
         elif self.match("MATCH"):
             return self.match_statement()
         elif self.match("FOR"):
@@ -66,6 +96,8 @@ struct PLGrizzlyParser:
         """Parse a statement."""
         if self.match("SELECT"):
             return self.select_statement()
+        elif self.match("LET"):
+            return self.let_statement()
         elif self.match("CREATE"):
             if self.match("FUNCTION"):
                 return self.function_statement()
@@ -77,24 +109,58 @@ struct PLGrizzlyParser:
     fn select_statement(mut self) -> String:
         """Parse a SELECT statement."""
         var select_list = List[String]()
+        
+        # Parse select list
         if self.match("*"):
             select_list.append("*")
         else:
-            return "(error: expected * or column list)"
+            select_list.append(self.expression())
+            while self.match(","):
+                select_list.append(self.expression())
         
         if not self.match("FROM"):
-            return "(error: expected FROM)"
+            return "error: expect FROM"
         
         var from_clause = self.expression()
+        
+        var join_clause = ""
+        if self.match("JOIN"):
+            var join_table = self.expression()
+            if not self.match("ON"):
+                return "error: expect ON after JOIN"
+            var on_condition = self.expression()
+            join_clause = " JOIN " + join_table + " ON " + on_condition
+        
         var where_clause = ""
         if self.match("WHERE"):
             where_clause = self.expression()
         
-        var result = "(SELECT from: " + from_clause
+        var select_str = "(SELECT "
+        for i in range(len(select_list)):
+            if i > 0:
+                select_str += ", "
+            select_str += select_list[i]
+        select_str += " FROM " + from_clause + join_clause
         if where_clause != "":
-            result += " where: " + where_clause
-        result += ")"
-        return result
+            select_str += " WHERE " + where_clause
+        select_str += ")"
+        
+        return select_str
+
+    fn let_statement(mut self) -> String:
+        """Parse a LET statement for variable assignment."""
+        var var_name = ""
+        if self.match("IDENTIFIER"):
+            var_name = self.previous().value
+        else:
+            return "(error: expected variable name after LET)"
+        
+        if not self.match("="):
+            return "(error: expected = after variable name)"
+        
+        var value = self.expression()
+        
+        return "(LET " + var_name + " " + value + ")"
 
     fn function_statement(mut self) -> String:
         """Parse a FUNCTION statement with optional receiver."""
@@ -158,7 +224,45 @@ struct PLGrizzlyParser:
             result += " [" + receiver + "]"
         result += "(" + params_str + ") { " + body + " })"
         return result
-
+    fn macro_statement(mut self) -> String:
+        """Parse a MACRO statement."""
+        var _name = ""
+        if self.match("IDENTIFIER"):
+            _name = self.previous().value
+        else:
+            return "(error: expected macro name)"
+        
+        if not self.match("("):
+            return "(error: expected ( after macro name)"
+        
+        var parameters = List[String]()
+        if not self.check(")"):
+            if self.match("IDENTIFIER"):
+                parameters.append(self.previous().value)
+            while self.match(","):
+                if self.match("IDENTIFIER"):
+                    parameters.append(self.previous().value)
+                else:
+                    return "(error: expected parameter name)"
+        
+        if not self.match(")"):
+            return "(error: expected ) after parameters)"
+        
+        if not self.match("{"):
+            return "(error: expected { after parameters)"
+        
+        var body = self.expression()
+        
+        if not self.match("}"):
+            return "(error: expected } after body)"
+        
+        var params_str = ""
+        for i in range(len(parameters)):
+            if i > 0:
+                params_str += ", "
+            params_str += parameters[i]
+        
+        return "(MACRO " + _name + "(" + params_str + ") { " + body + " })"
     fn module_statement(mut self) -> String:
         """Parse a CREATE MODULE statement."""
         var _name = ""
@@ -233,6 +337,98 @@ struct PLGrizzlyParser:
         """Parse an IMPORT statement."""
         var module_name = self.consume("IDENTIFIER", "Expect module name").value
         return "(IMPORT " + module_name + ")"
+
+    fn login_statement(mut self) -> String:
+        """Parse a LOGIN statement."""
+        var username = self.consume("IDENTIFIER", "Expect username").value
+        var password = self.consume("IDENTIFIER", "Expect password").value
+        return "(LOGIN " + username + " " + password + ")"
+
+    fn logout_statement(mut self) -> String:
+        """Parse a LOGOUT statement."""
+        return "(LOGOUT)"
+
+    fn begin_statement(mut self) -> String:
+        """Parse a BEGIN statement."""
+        return "(BEGIN)"
+
+    fn commit_statement(mut self) -> String:
+        """Parse a COMMIT statement."""
+        return "(COMMIT)"
+
+    fn rollback_statement(mut self) -> String:
+        """Parse a ROLLBACK statement."""
+        return "(ROLLBACK)"
+
+    fn attach_statement(mut self) -> String:
+        """Parse an ATTACH statement."""
+        if not self.match(STRING):
+            return "error: expect database path"
+        var path = self.previous().value
+        if not self.match(AS):
+            return "error: expect AS after path"
+        if not self.match(IDENTIFIER):
+            return "error: expect alias"
+        var alias = self.previous().value
+        return "(ATTACH '" + path + "' AS " + alias + ")"
+
+    fn detach_statement(mut self) -> String:
+        """Parse a DETACH statement."""
+        if self.match(ALL):
+            return "(DETACH ALL)"
+        if not self.match(IDENTIFIER):
+            return "error: expect alias or ALL"
+        var alias = self.previous().value
+        return "(DETACH " + alias + ")"
+
+    fn list_attached_statement(mut self) -> String:
+        """Parse a LIST ATTACHED statement."""
+        return "(LIST ATTACHED)"
+
+    fn cache_statement(mut self) -> String:
+        """Parse a CACHE statement."""
+        if self.match("CLEAR"):
+            return "(CACHE CLEAR)"
+        elif self.match("STATS"):
+            return "(CACHE STATS)"
+        else:
+            return "error: expect CLEAR or STATS after CACHE"
+
+    fn clear_statement(mut self) -> String:
+        """Parse a CLEAR statement."""
+        if self.match("CACHE"):
+            return "(CLEAR CACHE)"
+        else:
+            return "error: expect CACHE after CLEAR"
+
+    fn create_index_statement(mut self) -> String:
+        """Parse a CREATE INDEX statement."""
+        var index_name = self.consume("IDENTIFIER", "Expect index name").value
+        _ = self.consume("ON", "Expect ON after index name")
+        var table_name = self.consume("IDENTIFIER", "Expect table name").value
+        _ = self.consume("(", "Expect ( after table name")
+        var columns = List[String]()
+        while not self.check(")"):
+            var col_name = self.consume("IDENTIFIER", "Expect column name").value
+            columns.append(col_name)
+            if not self.match(","):
+                break
+        _ = self.consume(")", "Expect ) after columns")
+        
+        # Optional USING clause for index type
+        var index_type = "btree"
+        if self.match("USING"):
+            index_type = self.consume("IDENTIFIER", "Expect index type").value
+        
+        var columns_str = ", ".join(columns)
+        return "(CREATE INDEX " + index_name + " ON " + table_name + " (" + columns_str + ") USING " + index_type + ")"
+
+    fn drop_index_statement(mut self) -> String:
+        """Parse a DROP INDEX statement."""
+        var index_name = self.consume("IDENTIFIER", "Expect index name").value
+        _ = self.consume("ON", "Expect ON after index name")
+        var table_name = self.consume("IDENTIFIER", "Expect table name").value
+        return "(DROP INDEX " + index_name + " ON " + table_name + ")"
 
     fn type_statement(mut self) -> String:
         """Parse a TYPE statement."""
@@ -404,17 +600,17 @@ struct PLGrizzlyParser:
 
     fn parse_struct(mut self) -> Expr:
         var fields = List[Expr]()
-        if not self.check("RBRACE"):
+        if not self.check(RBRACE):
             var key = self.expression()
-            _ = self.consume(":", "Expect ':' after field name.")
+            _ = self.consume(COLON, "Expect ':' after field name.")
             var value = self.expression()
             fields.append(key + ": " + value)
-            while self.match(","):
+            while self.match(COMMA):
                 key = self.expression()
-                _ = self.consume(":", "Expect ':' after field name.")
+                _ = self.consume(COLON, "Expect ':' after field name.")
                 value = self.expression()
                 fields.append(key + ": " + value)
-        _ = self.consume("RBRACE", "Expect '}' after struct fields.")
+        _ = self.consume(RBRACE, "Expect '}' after struct fields.")
         var struct_str = "{"
         for i in range(len(fields)):
             if i > 0:
@@ -429,7 +625,7 @@ struct PLGrizzlyParser:
             elements.append(self.expression())
             while self.match(","):
                 elements.append(self.expression())
-        _ = self.consume("RBRACKET", "Expect ] after list elements.")
+        _ = self.consume(RBRACKET, "Expect ] after list elements.")
         var list_str = "["
         for i in range(len(elements)):
             if i > 0:
@@ -439,52 +635,74 @@ struct PLGrizzlyParser:
         return list_str
 
     fn primary(mut self) -> Expr:
-        if self.match("NUMBER"):
-            return self.previous().value
-        elif self.match("STRING"):
-            return self.previous().value
-        elif self.match("TRUE"):
-            return "true"
-        elif self.match("FALSE"):
-            return "false"
-        elif self.match("IDENTIFIER"):
+        var expr: Expr
+        if self.match(NUMBER):
+            expr = self.previous().value
+        elif self.match(STRING):
+            expr = self.previous().value
+        elif self.match(TRUE):
+            expr = "true"
+        elif self.match(FALSE):
+            expr = "false"
+        elif self.match(IDENTIFIER):
             var id = self.previous().value
-            if self.match("DOT"):
+            if self.match(DOT):
                 # Method call: obj.method(args)
-                if not self.match("IDENTIFIER"):
+                if not self.match(IDENTIFIER):
                     return "error: expect method name after ."
                 var method = self.previous().value
-                if not self.match("LPAREN"):
+                if not self.match(LPAREN):
                     return "error: expect ( after method name"
                 var args = List[Expr]()
-                if not self.check("RPAREN"):
+                if not self.check(RPAREN):
                     args.append(self.expression())
-                    while self.match(","):
+                    while self.match(COMMA):
                         args.append(self.expression())
-                if not self.match("RPAREN"):
+                if not self.match(RPAREN):
                     return "error: expect ) after arguments"
                 var call_str = "(call " + method + " " + id
                 for arg in args:
                     call_str += " " + arg
                 call_str += ")"
-                return call_str
+                expr = call_str
             else:
-                return id
+                expr = id
         elif self.match("VARIABLE"):
-            return "{ " + self.previous().value + " }"
-        elif self.match("LBRACE"):
-            return self.parse_struct()
-        elif self.match("LBRACKET"):
-            return self.parse_list()
+            expr = "{ " + self.previous().value + " }"
+        elif self.match(LBRACE):
+            expr = self.parse_struct()
+        elif self.match(LBRACKET):
+            expr = self.parse_list()
         elif self.match("EXCEPTION"):
             var message = self.expression()
-            return "EXCEPTION " + message
-        elif self.match("("):
-            var expr = self.expression()
-            _ = self.consume(")", "Expect ')' after expression.")
-            return expr
+            expr = "EXCEPTION " + message
+        elif self.match(LPAREN):
+            expr = self.expression()
+            _ = self.consume(RPAREN, "Expect ')' after expression.")
+            return self.postfix(expr)
         else:
             return "error"
+        
+        return self.postfix(expr)
+
+    fn postfix(mut self, expr: Expr) -> Expr:
+        """Handle postfix operators like indexing [expr] and slicing [start:end]."""
+        var result = expr
+        while True:
+            if self.match(LBRACKET):
+                var index_expr = self.expression()
+                if self.match(COLON):
+                    # Slice: expr[start:end]
+                    var end_expr = self.expression()
+                    _ = self.consume(RBRACKET, "Expect ] after slice.")
+                    result = "(slice " + result + " " + index_expr + " " + end_expr + ")"
+                else:
+                    # Index: expr[index]
+                    _ = self.consume(RBRACKET, "Expect ] after index.")
+                    result = "(index " + result + " " + index_expr + ")"
+            else:
+                break
+        return result
 
     # Helper methods
     fn match(mut self, type: String) -> Bool:
@@ -516,4 +734,6 @@ struct PLGrizzlyParser:
         if self.check(type):
             return self.advance()
         # Error handling - for now, return a dummy token
+        # Error handling - for now, return a dummy token
         return Token("", "", 0, 0)
+}
