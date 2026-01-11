@@ -43,6 +43,12 @@ struct PLGrizzlyParser:
             return self.try_statement()
         elif self.match("INSERT"):
             return self.insert_statement()
+        elif self.match("UPDATE"):
+            return self.update_statement()
+        elif self.match("DELETE"):
+            return self.delete_statement()
+        elif self.match("IMPORT"):
+            return self.import_statement()
         else:
             return self.expression()
 
@@ -151,6 +157,29 @@ struct PLGrizzlyParser:
                 values_str += ", "
             values_str += values[i]
         return "(INSERT INTO " + table_name + " VALUES (" + values_str + "))"
+
+    fn update_statement(mut self) -> String:
+        """Parse an UPDATE statement."""
+        var table_name = self.consume("IDENTIFIER", "Expect table name").value
+        if not self.match("SET"):
+            return "error: expect SET"
+        var col = self.consume("IDENTIFIER", "Expect column name").value
+        if not self.match("="):
+            return "error: expect ="
+        var val = self.expression()
+        return "(UPDATE " + table_name + " SET " + col + " = " + val + ")"
+
+    fn delete_statement(mut self) -> String:
+        """Parse a DELETE statement."""
+        if not self.match("FROM"):
+            return "error: expect FROM"
+        var table_name = self.consume("IDENTIFIER", "Expect table name").value
+        return "(DELETE FROM " + table_name + ")"
+
+    fn import_statement(mut self) -> String:
+        """Parse an IMPORT statement."""
+        var module_name = self.consume("IDENTIFIER", "Expect module name").value
+        return "(IMPORT " + module_name + ")"
 
     fn expression(mut self) -> Expr:
         """Parse an expression."""

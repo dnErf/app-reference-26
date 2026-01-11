@@ -255,6 +255,36 @@ struct ORCStorage:
 
         return results.copy()
 
+    fn save_table(mut self, table_name: String, data: List[PLValue]) -> Bool:
+        """Save table data by overwriting existing data."""
+        # Convert PLValue list of structs to List[List[String]]
+        var string_data = List[List[String]]()
+        if len(data) > 0 and data[0].is_struct():
+            var struct_data = data[0].get_struct()
+            var columns = List[String]()
+            for key in struct_data.keys():
+                columns.append(key)
+            
+            for row in data:
+                var row_strings = List[String]()
+                for col in columns:
+                    if row.is_struct() and col in row.get_struct():
+                        row_strings.append(row.get_struct()[col].__str__())
+                    else:
+                        row_strings.append("")
+                string_data.append(row_strings)
+        
+        # For now, since write_table appends, we need to clear first. But since it's ORC, perhaps delete and write new.
+        # For simplicity, assume we delete the blob first.
+        _ = self.storage.delete_blob("tables/" + table_name + ".orc")
+        _ = self.storage.delete_blob("integrity/" + table_name + ".merkle")
+        
+        # Reset Merkle tree
+        self.merkle_tree = MerkleBPlusTree()
+        
+        # Write new data
+        return self.write_table(table_name, string_data)
+
 fn pack_database_zstd(folder: String, rich_console: PythonObject) raises:
     """Pack database folder into a .gobi file using ZSTD ORC compression."""
     rich_console.print("[green]Packing database from: " + folder + " using ZSTD ORC compression[/green]")

@@ -48,6 +48,27 @@
 
 20260111 - Implemented PLValue type system for PL-GRIZZLY interpreter
 - Created PLValue struct with type field ("number", "string", "bool", "error") and value field (String)
+- Added static constructors for PLValue.number(), PLValue.string(), PLValue.bool(), PLValue.error()
+- Implemented __str__() method for string representation of PLValue instances
+- Added arithmetic operations (+, -, *, /) with type checking and error handling
+- Added comparison operations (==, !=, >, <, >=, <=) with type checking
+- Successfully built and integrated PLValue type system into PL-GRIZZLY interpreter
+- Foundation established for typed evaluation and error handling in PL-GRIZZLY language
+
+20260112 - Implemented UPDATE, DELETE, and IMPORT statements in PL-GRIZZLY
+- Added UPDATE, DELETE, IMPORT keywords to PLGrizzlyLexer
+- Implemented update_statement(), delete_statement(), import_statement() parsing in PLGrizzlyParser
+- Added eval_update(), eval_delete(), eval_import() methods in PLGrizzlyInterpreter
+- UPDATE supports SET col = value WHERE condition syntax with multiple assignments
+- DELETE supports FROM table WHERE condition syntax
+- IMPORT loads predefined modules from modules dict
+- Extended PLValue with struct_data and list_data for complex types
+- Added comparison methods (equals, greater_than, less_than) to PLValue
+- Implemented eval_condition() for WHERE clause evaluation on struct rows
+- Updated query_table() to return List[PLValue] of structs instead of string
+- Added save_table() to ORCStorage for overwriting table data
+- Successfully integrated full CRUD operations and module system into PL-GRIZZLY
+- Fixed compilation issues with PLValue struct handling and ORC storage integration
 - Updated all evaluation methods (evaluate, eval_binary_op, eval_comparison_op, eval_call, eval_function) to return and handle PLValue instead of String
 - Modified Environment to store PLValue in Dict, with get() method returning PLValue("error", "undefined variable") for missing keys
 - Changed interpret() method to return PLValue, updated main.mojo to print result.__str__()

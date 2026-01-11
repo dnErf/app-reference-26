@@ -16,14 +16,73 @@ from orc_storage import ORCStorage
 struct PLValue(Copyable, Movable, ImplicitlyCopyable):
     var type: String
     var value: String
+    var struct_data: Optional[Dict[String, PLValue]]
+    var list_data: Optional[List[PLValue]]
 
     fn __init__(out self, type: String = "string", value: String = ""):
         self.type = type
         self.value = value
+        self.struct_data = None
+        self.list_data = None
 
     fn __copyinit__(out self, other: PLValue):
         self.type = other.type
         self.value = other.value
+        if other.struct_data:
+            self.struct_data = other.struct_data.value().copy()
+        else:
+            self.struct_data = None
+        if other.list_data:
+            self.list_data = other.list_data.value().copy()
+        else:
+            self.list_data = None
+
+    @staticmethod
+    fn struct(data: Dict[String, PLValue]) -> PLValue:
+        var result = PLValue("struct", "")
+        result.struct_data = data
+        return result
+
+    @staticmethod
+    fn list(data: List[PLValue]) -> PLValue:
+        var result = PLValue("list", "")
+        result.list_data = data
+        return result
+
+    @staticmethod
+    fn number(value: Int) -> PLValue:
+        return PLValue("number", String(value))
+
+    @staticmethod
+    fn string(value: String) -> PLValue:
+        return PLValue("string", value)
+
+    @staticmethod
+    fn bool(value: Bool) -> PLValue:
+        return PLValue("bool", "true" if value else "false")
+
+    @staticmethod
+    fn error(message: String) -> PLValue:
+        return PLValue("error", message)
+
+    fn is_struct(self) -> Bool:
+        return self.type == "struct" and self.struct_data
+
+    fn is_list(self) -> Bool:
+        return self.type == "list" and self.list_data
+
+    fn is_error(self) -> Bool:
+        return self.type == "error"
+
+    fn get_struct(self) -> Dict[String, PLValue]:
+        if self.struct_data:
+            return self.struct_data.value()
+        return Dict[String, PLValue]()
+
+    fn get_list(self) -> List[PLValue]:
+        if self.list_data:
+            return self.list_data.value()
+        return List[PLValue]()
 
     fn __str__(self) -> String:
         if self.type == "string":
@@ -32,8 +91,47 @@ struct PLValue(Copyable, Movable, ImplicitlyCopyable):
             return self.value
         elif self.type == "bool":
             return self.value
+        elif self.type == "struct":
+            if self.struct_data:
+                var s = "{"
+                var first = True
+                for key in self.struct_data.value().keys():
+                    if not first:
+                        s += ", "
+                    s += key + ": " + self.struct_data.value()[key].__str__()
+                    first = False
+                s += "}"
+                return s
+            return "{}"
+        elif self.type == "list":
+            if self.list_data:
+                var s = "["
+                var first = True
+                for item in self.list_data.value():
+                    if not first:
+                        s += ", "
+                    s += item.__str__()
+                    first = False
+                s += "]"
+                return s
+            return "[]"
         else:
             return self.type + ":" + self.value
+
+    fn equals(self, other: PLValue) -> Bool:
+        if self.type != other.type:
+            return False
+        return self.value == other.value
+
+    fn greater_than(self, other: PLValue) -> Bool:
+        if self.type == "number" and other.type == "number":
+            return Int(self.value) > Int(other.value)
+        return False
+
+    fn less_than(self, other: PLValue) -> Bool:
+        if self.type == "number" and other.type == "number":
+            return Int(self.value) < Int(other.value)
+        return False
 
 # Helper functions for operations
 fn add_op(a: Int, b: Int) -> Int:
@@ -133,38 +231,37 @@ struct PLGrizzlyInterpreter:
     var orc_storage: ORCStorage
     var profiler: ProfilingManager
     var global_env: Environment
+    var modules: Dict[String, String]
 
     fn __init__(out self, storage: BlobStorage):
         self.schema_manager = SchemaManager(storage)
         self.orc_storage = ORCStorage(storage)
         self.profiler = ProfilingManager()
         self.global_env = Environment()
+        self.modules = Dict[String, String]()
+        self.modules["math"] = "FUNCTION add(a, b) => (+ a b) FUNCTION mul(a, b) => (* a b)"
 
     fn query_table(self, table_name: String) -> PLValue:
         """Query table data and return as list of structs."""
         var schema = self.schema_manager.load_schema()
         var table_schema = schema.get_table(table_name)
         if table_schema.name == "":
-            return PLValue("error", "table not found: " + table_name)
+            return PLValue.error("table not found: " + table_name)
         
         var data = self.orc_storage.read_table(table_name)
         if len(data) == 0:
-            return PLValue("list", "[]")
+            return PLValue.list(List[PLValue]())
         
-        var result = "["
+        var rows = List[PLValue]()
         for i in range(len(data)):
-            if i > 0:
-                result += ", "
-            result += "{"
+            var struct_dict = Dict[String, PLValue]()
             for j in range(len(table_schema.columns)):
-                if j > 0:
-                    result += ", "
                 var col_name = table_schema.columns[j].name
                 var col_value = data[i][j] if j < len(data[i]) else ""
-                result += col_name + ": \"" + col_value + "\""
-            result += "}"
-        result += "]"
-        return PLValue("list", result)
+                # Assume string for now, but could parse to number
+                struct_dict[col_name] = PLValue.string(col_value)
+            rows.append(PLValue.struct(struct_dict))
+        return PLValue.list(rows)
 
     fn enable_profiling(mut self):
         """Enable execution profiling."""
@@ -280,6 +377,12 @@ struct PLGrizzlyInterpreter:
             return self.eval_try(expr, env)
         elif expr.startswith("(INSERT "):
             return self.eval_insert(expr, env)
+        elif expr.startswith("(UPDATE "):
+            return self.eval_update(expr, env)
+        elif expr.startswith("(DELETE "):
+            return self.eval_delete(expr, env)
+        elif expr.startswith("(IMPORT "):
+            return self.eval_import(expr)
         elif expr == "true":
             return PLValue("bool", "true")
         elif expr == "false":
@@ -540,6 +643,134 @@ struct PLGrizzlyInterpreter:
             return PLValue("string", "inserted into " + table_name)
         else:
             return PLValue("error", "insert failed")
+
+    fn eval_update(mut self, expr: String, env: Environment) raises -> PLValue:
+        # Parse (UPDATE table_name SET col1 = val1, col2 = val2 WHERE condition)
+        var parts = expr.split("SET ")
+        if len(parts) != 2:
+            return PLValue.error("Invalid UPDATE syntax")
+        var table_part = parts[0][8:-1].strip()  # Remove (UPDATE and space
+        var set_where = parts[1][:-1].strip()  # Remove )
+        
+        var where_parts = set_where.split(" WHERE ")
+        var set_clause = where_parts[0].strip()
+        var where_clause = where_parts[1].strip() if len(where_parts) > 1 else ""
+        
+        # Parse SET clauses: col1 = val1, col2 = val2
+        var set_assignments = List[Tuple[String, String]]()
+        for assignment in set_clause.split(","):
+            var eq_parts = assignment.strip().split(" = ")
+            if len(eq_parts) == 2:
+                set_assignments.append((eq_parts[0].strip(), eq_parts[1].strip()))
+        
+        # Query the table
+        var query_result = self.query_table(table_part, env)
+        if query_result.is_error():
+            return query_result
+        
+        # Apply WHERE filter if present
+        var filtered_rows = List[PLValue]()
+        if where_clause:
+            for row in query_result.get_list():
+                if self.eval_condition(where_clause, row, env):
+                    filtered_rows.append(row)
+        else:
+            filtered_rows = query_result.get_list()
+        
+        # Apply updates
+        var updated_rows = List[PLValue]()
+        for row in filtered_rows:
+            var updated_row = row  # Copy
+            for assignment in set_assignments:
+                var col_name = assignment[0]
+                var val_expr = assignment[1]
+                var new_val = self.evaluate(val_expr, env)
+                # Update the struct field
+                if updated_row.is_struct():
+                    var struct_val = updated_row.get_struct()
+                    struct_val[col_name] = new_val
+                    updated_row = PLValue.struct(struct_val)
+            updated_rows.append(updated_row)
+        
+        # Save back to ORC
+        self.orc_storage.save_table(table_part, updated_rows)
+        
+        return PLValue.number(len(updated_rows))  # Return number of updated rows
+
+    fn eval_delete(mut self, expr: String, env: Environment) raises -> PLValue:
+        # Parse (DELETE FROM table_name WHERE condition)
+        var from_pos = expr.find(" FROM ")
+        var where_pos = expr.find(" WHERE ")
+        if from_pos == -1:
+            return PLValue.error("Invalid DELETE syntax")
+        var table_name = expr[from_pos + 7:where_pos if where_pos != -1 else expr.__len__() - 1].strip()
+        var where_clause = expr[where_pos + 7:expr.__len__() - 1].strip() if where_pos != -1 else ""
+        
+        # Query the table
+        var query_result = self.query_table(table_name, env)
+        if query_result.is_error():
+            return query_result
+        
+        # Apply WHERE filter if present
+        var remaining_rows = List[PLValue]()
+        var deleted_count = 0
+        if where_clause:
+            for row in query_result.get_list():
+                if not self.eval_condition(where_clause, row, env):
+                    remaining_rows.append(row)
+                else:
+                    deleted_count += 1
+        else:
+            # If no WHERE, delete all
+            deleted_count = len(query_result.get_list())
+            remaining_rows = List[PLValue]()
+        
+        # Save back to ORC
+        self.orc_storage.save_table(table_name, remaining_rows)
+        
+        return PLValue.number(deleted_count)  # Return number of deleted rows
+
+    fn eval_import(mut self, expr: String) raises -> PLValue:
+        # Parse (IMPORT module_name)
+        var module_name = expr[8:expr.__len__() - 1].strip()
+        
+        # Check if module exists in self.modules
+        if module_name in self.modules:
+            # For now, just mark as imported
+            return PLValue.string("imported " + module_name)
+        else:
+            return PLValue.error("module '" + module_name + "' not found")
+
+    fn eval_condition(self, condition: String, row: PLValue, env: Environment) raises -> Bool:
+        # Simple condition evaluation for WHERE clauses
+        # For now, support column == value, column > value, etc.
+        # Assume condition like "id == 1" or "name == 'john'"
+        var parts = condition.split(" ")
+        if len(parts) == 3:
+            var left = parts[0].strip()
+            var op = parts[1].strip()
+            var right_str = parts[2].strip()
+            
+            # Get value from row
+            if row.is_struct():
+                var struct_val = row.get_struct()
+                if left in struct_val:
+                    var left_val = struct_val[left]
+                    var right_val = self.evaluate(right_str, env)
+                    
+                    if op == "==":
+                        return left_val.equals(right_val)
+                    elif op == "!=":
+                        return not left_val.equals(right_val)
+                    elif op == ">":
+                        return left_val.greater_than(right_val)
+                    elif op == "<":
+                        return left_val.less_than(right_val)
+                    elif op == ">=":
+                        return left_val.greater_than(right_val) or left_val.equals(right_val)
+                    elif op == "<=":
+                        return left_val.less_than(right_val) or left_val.equals(right_val)
+        return False
 
     fn eval_function(mut self, content: String, env: Environment) raises -> PLValue:
         # Parse name(params) => body

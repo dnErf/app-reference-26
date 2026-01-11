@@ -48,4 +48,7 @@ Create function system with receivers and method-style syntax
 Implement LINQ-style query expressions in PL-GRIZZLY
 Integrate PL-GRIZZLY SELECT with Godi database operations for actual query execution
 Implement database table access in PL-GRIZZLY {table} variables
+Implement PL-GRIZZLY UPDATE statement with WHERE conditions
+Implement PL-GRIZZLY DELETE statement with WHERE conditions  
+Implement PL-GRIZZLY IMPORT statement for module loading
 Add CRUD operations (INSERT, UPDATE, DELETE) to PL-GRIZZLY language

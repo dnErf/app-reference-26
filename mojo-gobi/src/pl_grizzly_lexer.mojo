@@ -341,6 +341,12 @@ struct PLGrizzlyLexer:
             return CATCH
         elif text == "let" or text == "LET":
             return LET
+        elif text == "import" or text == "IMPORT":
+            return IMPORT
+        elif text == "update" or text == "UPDATE":
+            return UPDATE
+        elif text == "delete" or text == "DELETE":
+            return DELETE
         elif text == "true" or text == "TRUE":
             return TRUE
         elif text == "false" or text == "FALSE":
