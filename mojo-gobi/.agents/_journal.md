@@ -273,3 +273,36 @@
 - Build succeeds with pandas-free ORC storage and ZSTD compression for database packaging
 - ORC storage now uses direct PyArrow APIs for better performance and reduced dependencies
 - Learned: PyArrow ORC can work without pandas, providing more efficient columnar operations
+
+20260111 - Enhanced PL-GRIZZLY with SQL-inspired operators and type declarations
+- Added support for both ! and not operators for logical negation to improve familiarity
+- Implemented SQL-style casting operators as and :: for type conversions
+- Added type struct declarations for better data structure organization
+- Updated pl_grizzly_lexer.mojo: added BANG, AS, DOUBLE_COLON tokens, modified scan_token() and get_keyword_type()
+- Updated pl_grizzly_parser.mojo: added cast() function for as/:: parsing, type_statement() for struct declarations, modified unary_op() for ! support
+- Updated pl_grizzly_interpreter.mojo: added eval_cast() for casting evaluation, ensured both ! and not work in eval_logical_not()
+- Fixed compilation errors: added missing token aliases, implemented parser functions with proper precedence, resolved Token constructor issues with line/column parameters
+- Updated _pl_grizzly_examples.md with examples for new operators and type declarations
+- Successfully built main executable with all new features
+- Learned: Mojo requires careful handling of optional parameters in constructors, operator precedence needs explicit parsing functions, documentation should be updated alongside implementation to avoid forgetting features
+
+20260111 - Implemented receivers for PL-GRIZZLY functions to enable method-style syntax
+- Added ~f shortcut for function keyword in lexer
+- Modified function_statement() to parse optional [receiver_var: ReceiverType] syntax
+- Updated eval_function() to handle receiver parsing and store in function value
+- Modified eval_call() to bind receiver as first argument when calling methods
+- Added dot notation support in primary() for obj.method(args) calls
+- Fixed StringSlice to String conversion issues throughout parser and interpreter
+- Successfully integrated receivers for object-oriented style programming in PL-GRIZZLY
+- Learned: Receivers enable method chaining and dot notation, enhancing language expressiveness
+
+20260111 - Added pattern matching and control structures to PL-GRIZZLY
+- Added MATCH, FOR, WHILE, CASE, IN keywords to lexer
+- Implemented match_statement(), for_statement(), while_statement() parsing in parser
+- Added eval_match(), eval_for(), eval_while() evaluation in interpreter
+- MATCH supports case pattern => body syntax for simple pattern matching
+- FOR supports var IN collection { body } for iteration over lists
+- WHILE supports condition { body } for loops
+- Updated _done.md with completed features, cleared _do.md, moved _plan.md tasks to _do.md
+- Suggested new feature sets: user auth/access control + serialization/compression, advanced types + query optimization
+- Learned: Control structures add imperative programming capabilities, pattern matching enables functional style branching

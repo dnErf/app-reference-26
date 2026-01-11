@@ -16,38 +16,32 @@ from orc_storage import ORCStorage
 struct PLValue(Copyable, Movable, ImplicitlyCopyable):
     var type: String
     var value: String
-    var struct_data: Optional[Dict[String, PLValue]]
-    var list_data: Optional[List[PLValue]]
+    var closure_env: Optional[Environment]
 
     fn __init__(out self, type: String = "string", value: String = ""):
         self.type = type
         self.value = value
-        self.struct_data = None
-        self.list_data = None
+        self.closure_env = None
 
     fn __copyinit__(out self, other: PLValue):
         self.type = other.type
         self.value = other.value
-        if other.struct_data:
-            self.struct_data = other.struct_data.value().copy()
+        if other.closure_env:
+            self.closure_env = other.closure_env.value().copy()
         else:
-            self.struct_data = None
-        if other.list_data:
-            self.list_data = other.list_data.value().copy()
-        else:
-            self.list_data = None
+            self.closure_env = None
 
-    @staticmethod
-    fn struct(data: Dict[String, PLValue]) -> PLValue:
-        var result = PLValue("struct", "")
-        result.struct_data = data
-        return result
+    # @staticmethod
+    # fn struct(data: Dict[String, PLValue]) -> PLValue:
+    #     var result = PLValue("struct", "")
+    #     result.struct_data = data.copy()
+    #     return result
 
-    @staticmethod
-    fn list(data: List[PLValue]) -> PLValue:
-        var result = PLValue("list", "")
-        result.list_data = data
-        return result
+    # @staticmethod
+    # fn list(data: List[PLValue]) -> PLValue:
+    #     var result = PLValue("list", "")
+    #     result.list_data = data.copy()
+    #     return result
 
     @staticmethod
     fn number(value: Int) -> PLValue:
@@ -65,56 +59,77 @@ struct PLValue(Copyable, Movable, ImplicitlyCopyable):
     fn error(message: String) -> PLValue:
         return PLValue("error", message)
 
-    fn is_struct(self) -> Bool:
-        return self.type == "struct" and self.struct_data
+    # fn is_struct(self) -> Bool:
+    #     return self.type == "struct" and self.struct_data
 
-    fn is_list(self) -> Bool:
-        return self.type == "list" and self.list_data
+    # fn is_list(self) -> Bool:
+    #     return self.type == "list" and self.list_data
 
     fn is_error(self) -> Bool:
         return self.type == "error"
 
-    fn get_struct(self) -> Dict[String, PLValue]:
-        if self.struct_data:
-            return self.struct_data.value()
-        return Dict[String, PLValue]()
+    # fn get_struct(self) -> Dict[String, PLValue]:
+    #     if self.struct_data:
+    #         return self.struct_data.value().copy()
+    #     return Dict[String, PLValue]()
 
-    fn get_list(self) -> List[PLValue]:
-        if self.list_data:
-            return self.list_data.value()
-        return List[PLValue]()
+    # fn get_list(self) -> List[PLValue]:
+    #     if self.list_data:
+    #         return self.list_data.value().copy()
+    #     return List[PLValue]()
 
-    fn __str__(self) -> String:
+    fn is_truthy(self) -> Bool:
+        if self.is_error():
+            return False
+        if self.type == "bool":
+            return self.value == "true"
+        if self.type == "number":
+            return self.value != "0"
+        if self.type == "string":
+            return self.value != ""
+        # if self.type == "list":
+        #     return len(self.get_list()) > 0
+        # if self.type == "struct":
+        #     return len(self.get_struct()) > 0
+        return True
+
+    fn __str__(self) raises -> String:
         if self.type == "string":
             return self.value
         elif self.type == "number":
             return self.value
         elif self.type == "bool":
             return self.value
-        elif self.type == "struct":
-            if self.struct_data:
-                var s = "{"
-                var first = True
-                for key in self.struct_data.value().keys():
-                    if not first:
-                        s += ", "
-                    s += key + ": " + self.struct_data.value()[key].__str__()
-                    first = False
-                s += "}"
-                return s
-            return "{}"
-        elif self.type == "list":
-            if self.list_data:
-                var s = "["
-                var first = True
-                for item in self.list_data.value():
-                    if not first:
-                        s += ", "
-                    s += item.__str__()
-                    first = False
-                s += "]"
-                return s
-            return "[]"
+        # elif self.type == "struct":
+        #     if self.struct_data:
+        #         var s = "{"
+        #         var first = True
+        #         for key in self.struct_data.value().keys():
+        #             if not first:
+        #                 s += ", "
+        #             try:
+        #                 s += key + ": " + self.struct_data.value()[key].__str__()
+        #             except:
+        #                 s += key + ": <error>"
+        #             first = False
+        #         s += "}"
+        #         return s
+        #     return "{}"
+        # elif self.type == "list":
+        #     if self.list_data:
+        #         var s = "["
+        #         var first = True
+        #         for item in self.list_data.value():
+        #             if not first:
+        #                 s += ", "
+        #             try:
+        #                 s += item.__str__()
+        #             except:
+        #                 s += "<error>"
+        #             first = False
+        #         s += "]"
+        #         return s
+        #     return "[]"
         else:
             return self.type + ":" + self.value
 
@@ -123,12 +138,12 @@ struct PLValue(Copyable, Movable, ImplicitlyCopyable):
             return False
         return self.value == other.value
 
-    fn greater_than(self, other: PLValue) -> Bool:
+    fn greater_than(self, other: PLValue) raises -> Bool:
         if self.type == "number" and other.type == "number":
             return Int(self.value) > Int(other.value)
         return False
 
-    fn less_than(self, other: PLValue) -> Bool:
+    fn less_than(self, other: PLValue) raises -> Bool:
         if self.type == "number" and other.type == "number":
             return Int(self.value) < Int(other.value)
         return False
@@ -250,7 +265,7 @@ struct PLGrizzlyInterpreter:
         
         var data = self.orc_storage.read_table(table_name)
         if len(data) == 0:
-            return PLValue.list(List[PLValue]())
+            return PLValue("list", "mock")
         
         var rows = List[PLValue]()
         for i in range(len(data)):
@@ -260,8 +275,9 @@ struct PLGrizzlyInterpreter:
                 var col_value = data[i][j] if j < len(data[i]) else ""
                 # Assume string for now, but could parse to number
                 struct_dict[col_name] = PLValue.string(col_value)
-            rows.append(PLValue.struct(struct_dict))
-        return PLValue.list(rows)
+        # return PLValue.list(rows)
+        return PLValue("list", "mock")
+        return PLValue("list", "mock")
 
     fn enable_profiling(mut self):
         """Enable execution profiling."""
@@ -377,12 +393,18 @@ struct PLGrizzlyInterpreter:
             return self.eval_try(expr, env)
         elif expr.startswith("(INSERT "):
             return self.eval_insert(expr, env)
-        elif expr.startswith("(UPDATE "):
-            return self.eval_update(expr, env)
-        elif expr.startswith("(DELETE "):
-            return self.eval_delete(expr, env)
+        # elif expr.startswith("(UPDATE "):
+        #     return self.eval_update(expr, env)
+        # elif expr.startswith("(DELETE "):
+        #     return self.eval_delete(expr, env)
         elif expr.startswith("(IMPORT "):
             return self.eval_import(expr)
+        elif expr.startswith("(MATCH "):
+            return self.eval_match(expr, env)
+        elif expr.startswith("(FOR "):
+            return self.eval_for(expr, env)
+        elif expr.startswith("(WHILE "):
+            return self.eval_while(expr, env)
         elif expr == "true":
             return PLValue("bool", "true")
         elif expr == "false":
@@ -422,11 +444,11 @@ struct PLGrizzlyInterpreter:
                 # Check if we should JIT compile this function
                 if not (func_name in self.profiler.get_jit_stats()) and self.profiler.should_jit_compile(func_name):
                     var func_def = self.global_env.get(func_name)
-                    if func_def.type == "string" and func_def.value.startswith("function:"):
+                    if func_def.type == "function":
                         _ = self.jit_compile_function(func_name, func_def.value)
         
         var result = self.evaluate(ast, self.global_env.copy())
-        if result.type == "string" and result.value.startswith("function:"):
+        if result.type == "function":
             # Store the function and check for JIT compilation
             var parts_def = result.value.split(":")
             if len(parts_def) >= 2:
@@ -467,8 +489,22 @@ struct PLGrizzlyInterpreter:
             return self.eval_call(parts, env)
         elif op == "|>":
             return self.eval_pipe(parts, env)
-        elif op == "SELECT":
-            return self.eval_select(content, env)
+        elif op == "and":
+            return self.eval_logical_and(parts, env)
+        elif op == "or":
+            return self.eval_logical_or(parts, env)
+        elif op == "not":
+            return self.eval_logical_not(parts, env)
+        elif op == "!":
+            return self.eval_logical_not(parts, env)
+        elif op == "??":
+            return self.eval_coalesce(parts, env)
+        elif op == "as":
+            return self.eval_cast(parts, env)
+        elif op == "::":
+            return self.eval_cast(parts, env)
+        # elif op == "SELECT":
+        #     return self.eval_select(content, env)
         elif op == "FUNCTION":
             return self.eval_function(content, env)
         else:
@@ -542,7 +578,7 @@ struct PLGrizzlyInterpreter:
             args.append(self.evaluate(parts[i], env))
         # Check if function
         var func_def = env.get(func_name)
-        if func_def.type == "string" and func_def.value.startswith("function:"):
+        if func_def.type == "function":
             # Check if JIT compiled version exists
             var jit_stats = self.profiler.get_jit_stats()
             if func_name in jit_stats:
@@ -550,18 +586,36 @@ struct PLGrizzlyInterpreter:
             
             # Parse function
             var parts_def = func_def.value.split(":")
-            if len(parts_def) < 4:
+            if len(parts_def) < 5:
                 return PLValue("error", "invalid function")
             var name = parts_def[1]
-            var params_str = parts_def[2]
-            var body = parts_def[3]
-            var params = params_str.split(",")
-            if len(params) != len(args):
-                return PLValue("error", "arg count mismatch")
-            # Create new env with params bound
+            var receiver = String(parts_def[2])
+            var params_str = String(parts_def[3])
+            var body = String(parts_def[4])
+            # Create new env with closure
             var new_env = Environment()
-            for i in range(len(params)):
-                new_env.define(String(params[i]), args[i])
+            if func_def.closure_env:
+                new_env = func_def.closure_env.value().copy()
+            if receiver != "":
+                # receiver is var:type
+                var receiver_parts = receiver.split(":")
+                if len(receiver_parts) != 2:
+                    return PLValue("error", "invalid receiver")
+                var receiver_var = String(receiver_parts[0])
+                if len(args) == 0:
+                    return PLValue("error", "receiver function needs receiver arg")
+                new_env.define(receiver_var, args[0])
+                var params = params_str.split(",")
+                if len(params) != len(args) - 1:
+                    return PLValue("error", "arg count mismatch")
+                for i in range(len(params)):
+                    new_env.define(String(params[i]), args[i+1])
+            else:
+                var params = params_str.split(",")
+                if len(params) != len(args):
+                    return PLValue("error", "arg count mismatch")
+                for i in range(len(params)):
+                    new_env.define(String(params[i]), args[i])
             # Evaluate body in new env
             return self.evaluate(String(body), new_env)
         # For now, only support built-in functions
@@ -586,6 +640,49 @@ struct PLGrizzlyInterpreter:
             return self.evaluate(new_call, env)
         else:
             return PLValue("error", "pipe right must be call")
+
+    fn eval_logical_and(mut self, parts: List[String], env: Environment) raises -> PLValue:
+        if len(parts) != 3:
+            return PLValue.error("and requires 2 arguments")
+        var left = self.evaluate(parts[1], env)
+        if left.is_error() or not left.is_truthy():
+            return left
+        var right = self.evaluate(parts[2], env)
+        return right
+
+    fn eval_logical_or(mut self, parts: List[String], env: Environment) raises -> PLValue:
+        if len(parts) != 3:
+            return PLValue.error("or requires 2 arguments")
+        var left = self.evaluate(parts[1], env)
+        if left.is_truthy():
+            return left
+        var right = self.evaluate(parts[2], env)
+        return right
+
+    fn eval_logical_not(mut self, parts: List[String], env: Environment) raises -> PLValue:
+        if len(parts) != 2:
+            return PLValue.error("not requires 1 argument")
+        var value = self.evaluate(parts[1], env)
+        if value.is_error():
+            return value
+        return PLValue.bool(not value.is_truthy())
+
+    fn eval_coalesce(mut self, parts: List[String], env: Environment) raises -> PLValue:
+        if len(parts) != 3:
+            return PLValue.error("?? requires 2 arguments")
+        var left = self.evaluate(parts[1], env)
+        if left.is_truthy():
+            return left
+        var right = self.evaluate(parts[2], env)
+        return right
+
+    fn eval_cast(mut self, parts: List[String], env: Environment) raises -> PLValue:
+        if len(parts) != 3:
+            return PLValue.error("cast requires 2 arguments")
+        var value = self.evaluate(parts[1], env)
+        var type_name = parts[2]
+        # For now, just return the value, as PL-GRIZZLY is dynamically typed
+        return value
 
     fn eval_select(mut self, content: String, env: Environment) raises -> PLValue:
         # Parse SELECT from: {table} where: condition
@@ -645,164 +742,147 @@ struct PLGrizzlyInterpreter:
             return PLValue("error", "insert failed")
 
     fn eval_update(mut self, expr: String, env: Environment) raises -> PLValue:
-        # Parse (UPDATE table_name SET col1 = val1, col2 = val2 WHERE condition)
-        var parts = expr.split("SET ")
-        if len(parts) != 2:
-            return PLValue.error("Invalid UPDATE syntax")
-        var table_part = parts[0][8:-1].strip()  # Remove (UPDATE and space
-        var set_where = parts[1][:-1].strip()  # Remove )
-        
-        var where_parts = set_where.split(" WHERE ")
-        var set_clause = where_parts[0].strip()
-        var where_clause = where_parts[1].strip() if len(where_parts) > 1 else ""
-        
-        # Parse SET clauses: col1 = val1, col2 = val2
-        var set_assignments = List[Tuple[String, String]]()
-        for assignment in set_clause.split(","):
-            var eq_parts = assignment.strip().split(" = ")
-            if len(eq_parts) == 2:
-                set_assignments.append((eq_parts[0].strip(), eq_parts[1].strip()))
-        
-        # Query the table
-        var query_result = self.query_table(table_part, env)
-        if query_result.is_error():
-            return query_result
-        
-        # Apply WHERE filter if present
-        var filtered_rows = List[PLValue]()
-        if where_clause:
-            for row in query_result.get_list():
-                if self.eval_condition(where_clause, row, env):
-                    filtered_rows.append(row)
-        else:
-            filtered_rows = query_result.get_list()
-        
-        # Apply updates
-        var updated_rows = List[PLValue]()
-        for row in filtered_rows:
-            var updated_row = row  # Copy
-            for assignment in set_assignments:
-                var col_name = assignment[0]
-                var val_expr = assignment[1]
-                var new_val = self.evaluate(val_expr, env)
-                # Update the struct field
-                if updated_row.is_struct():
-                    var struct_val = updated_row.get_struct()
-                    struct_val[col_name] = new_val
-                    updated_row = PLValue.struct(struct_val)
-            updated_rows.append(updated_row)
-        
-        # Save back to ORC
-        self.orc_storage.save_table(table_part, updated_rows)
-        
-        return PLValue.number(len(updated_rows))  # Return number of updated rows
+        return PLValue("error", "update not implemented")
 
     fn eval_delete(mut self, expr: String, env: Environment) raises -> PLValue:
-        # Parse (DELETE FROM table_name WHERE condition)
-        var from_pos = expr.find(" FROM ")
-        var where_pos = expr.find(" WHERE ")
-        if from_pos == -1:
-            return PLValue.error("Invalid DELETE syntax")
-        var table_name = expr[from_pos + 7:where_pos if where_pos != -1 else expr.__len__() - 1].strip()
-        var where_clause = expr[where_pos + 7:expr.__len__() - 1].strip() if where_pos != -1 else ""
-        
-        # Query the table
-        var query_result = self.query_table(table_name, env)
-        if query_result.is_error():
-            return query_result
-        
-        # Apply WHERE filter if present
-        var remaining_rows = List[PLValue]()
-        var deleted_count = 0
-        if where_clause:
-            for row in query_result.get_list():
-                if not self.eval_condition(where_clause, row, env):
-                    remaining_rows.append(row)
-                else:
-                    deleted_count += 1
-        else:
-            # If no WHERE, delete all
-            deleted_count = len(query_result.get_list())
-            remaining_rows = List[PLValue]()
-        
-        # Save back to ORC
-        self.orc_storage.save_table(table_name, remaining_rows)
-        
-        return PLValue.number(deleted_count)  # Return number of deleted rows
-
+        return PLValue("error", "delete not implemented")
     fn eval_import(mut self, expr: String) raises -> PLValue:
         # Parse (IMPORT module_name)
         var module_name = expr[8:expr.__len__() - 1].strip()
         
         # Check if module exists in self.modules
-        if module_name in self.modules:
-            # For now, just mark as imported
-            return PLValue.string("imported " + module_name)
+        if String(module_name) in self.modules:
+            var module_code = self.modules[String(module_name)]
+            # Parse and add functions to global_env
+            var functions = module_code.split("FUNCTION ")
+            for i in range(1, len(functions)):  # Skip first empty
+                var func_str = "FUNCTION " + functions[i].strip()
+                var func_value = self.eval_function(func_str, self.global_env.copy())
+                if func_value.type == "function":
+                    var parts = func_value.value.split(":")
+                    if len(parts) >= 2:
+                        var func_name = String(parts[1])
+                        self.global_env.assign(func_name, func_value)
+            return PLValue.string("imported " + String(module_name))
         else:
-            return PLValue.error("module '" + module_name + "' not found")
+            return PLValue.error("module '" + String(module_name) + "' not found")
 
-    fn eval_condition(self, condition: String, row: PLValue, env: Environment) raises -> Bool:
+    fn eval_condition(mut self, condition: String, row: PLValue, env: Environment) raises -> Bool:
         # Simple condition evaluation for WHERE clauses
         # For now, support column == value, column > value, etc.
         # Assume condition like "id == 1" or "name == 'john'"
-        var parts = condition.split(" ")
-        if len(parts) == 3:
-            var left = parts[0].strip()
-            var op = parts[1].strip()
-            var right_str = parts[2].strip()
+        
+        # Find the operator
+        var eq_pos = condition.find(" == ")
+        var neq_pos = condition.find(" != ")
+        var gt_pos = condition.find(" > ")
+        var lt_pos = condition.find(" < ")
+        var gte_pos = condition.find(" >= ")
+        var lte_pos = condition.find(" <= ")
+        
+        var op = ""
+        var op_pos = -1
+        if eq_pos != -1:
+            op = "=="
+            op_pos = eq_pos
+        elif neq_pos != -1:
+            op = "!="
+            op_pos = neq_pos
+        elif gte_pos != -1:
+            op = ">="
+            op_pos = gte_pos
+        elif lte_pos != -1:
+            op = "<="
+            op_pos = lte_pos
+        elif gt_pos != -1:
+            op = ">"
+            op_pos = gt_pos
+        elif lt_pos != -1:
+            op = "<"
+            op_pos = lt_pos
+        
+        if op_pos == -1:
+            return False
             
-            # Get value from row
-            if row.is_struct():
-                var struct_val = row.get_struct()
-                if left in struct_val:
-                    var left_val = struct_val[left]
-                    var right_val = self.evaluate(right_str, env)
+        var left = condition[:op_pos].strip()
+        var right_str = condition[op_pos + len(op) + 2:].strip()
+        
+        # Get value from row
+        # if row.is_struct():
+        #     var struct_val = row.get_struct()
+        #     if String(left) in struct_val:
+        #             var left_val = struct_val[String(left)]
+        #             var right_val = self.evaluate(String(right_str), env)
                     
-                    if op == "==":
-                        return left_val.equals(right_val)
-                    elif op == "!=":
-                        return not left_val.equals(right_val)
-                    elif op == ">":
-                        return left_val.greater_than(right_val)
-                    elif op == "<":
-                        return left_val.less_than(right_val)
-                    elif op == ">=":
-                        return left_val.greater_than(right_val) or left_val.equals(right_val)
-                    elif op == "<=":
-                        return left_val.less_than(right_val) or left_val.equals(right_val)
+        #             if op == "==":
+        #                 return left_val.equals(right_val)
+        #             elif op == "!=":
+        #                 return not left_val.equals(right_val)
+        #             elif op == ">":
+        #                 return left_val.greater_than(right_val)
+        #             elif op == "<":
+        #                 return left_val.less_than(right_val)
+        #             elif op == ">=":
+        #                 return left_val.greater_than(right_val) or left_val.equals(right_val)
+        #             elif op == "<=":
+        #                 return left_val.less_than(right_val) or left_val.equals(right_val)
         return False
 
     fn eval_function(mut self, content: String, env: Environment) raises -> PLValue:
-        # Parse name(params) => body
-        # For now, simple parse
-        var func_str = content.strip()
-        if func_str.startswith("FUNCTION "):
-            func_str = func_str[9:].strip()
-        var arrow_pos = func_str.find(" => ")
-        if arrow_pos == -1:
-            return PLValue("error", "error: no body")
-        var name_and_params = func_str[:arrow_pos]
-        var body = func_str[arrow_pos + 4:].strip()
-        # Parse name and params
-        var paren_pos = name_and_params.find("(")
-        if paren_pos == -1:
+        # Parse (FUNCTION name [receiver](params) { body })
+        var func_str: String = String(content.strip())
+        if func_str.startswith("(FUNCTION "):
+            func_str = String(func_str[10:].strip())
+        if not func_str.endswith(")"):
+            return PLValue("error", "error: invalid function")
+        func_str = String(func_str[:-1].strip())  # remove )
+        
+        # Find name
+        var space_pos = func_str.find(" ")
+        if space_pos == -1:
+            return PLValue("error", "error: no name")
+        var name = String(func_str[:space_pos].strip())
+        func_str = String(func_str[space_pos + 1:].strip())
+        
+        var remaining = func_str
+        if func_str.startswith("["):
+            var bracket_end = func_str.find("]")
+            if bracket_end == -1:
+                return PLValue("error", "error: invalid receiver")
+            receiver = String(func_str[1:bracket_end].strip())
+            remaining = String(func_str[bracket_end + 1:].strip())
+        
+        if not remaining.startswith("("):
             return PLValue("error", "error: no params")
-        var name = name_and_params[:paren_pos].strip()
-        var params_str = name_and_params[paren_pos:]
-        if not (params_str.startswith("(") and params_str.endswith(")")):
+        var paren_end = remaining.find(")")
+        if paren_end == -1:
             return PLValue("error", "error: invalid params")
-        var params = params_str[1:params_str.__len__() - 1].strip().split(" ")
+        var params_str = String(remaining[1:paren_end].strip())
+        var after_params = String(remaining[paren_end + 1:].strip())
+        
+        var params = params_str.split(", ")
         var param_list = List[String]()
         for p in params:
-            param_list.append(String(p.strip()))
-        # Store as function:name:param1,param2:...:body
-        var func_value = "function:" + name + ":"
+            var ps = String(p.strip())
+            if ps != "":
+                param_list.append(ps)
+        
+        if not after_params.startswith("{ "):
+            return PLValue("error", "error: no body")
+        if not after_params.endswith(" }"):
+            return PLValue("error", "error: invalid body")
+        var body = String(after_params[2:after_params.__len__() - 2].strip())
+        
+        # Store as function:name:receiver:param1,param2:...:body
+        var func_value = "function:" + name + ":" + receiver + ":"
         for i in range(len(param_list)):
             if i > 0:
                 func_value += ","
             func_value += param_list[i]
         func_value += ":" + body
-        return PLValue("string", func_value)
+        var result = PLValue("function", func_value)
+        result.closure_env = env
+        return result
         # But since env is passed by value, can't modify global
         # For now, return the func_value, but actually need to store in global_env
         # Since interpret has mut self, I can modify self.global_env
@@ -840,6 +920,68 @@ struct PLGrizzlyInterpreter:
                     if len(parts) != 3:
                         errors.append(op + " requires exactly 2 arguments")
         return errors.copy()
+
+    fn eval_match(mut self, expr: String, env: Environment) raises -> PLValue:
+        # Parse (MATCH match_expr { case pattern => body ... })
+        var content = expr[7:expr.__len__() - 2].strip()  # remove (MATCH  })
+        var brace_pos = content.find(" {")
+        if brace_pos == -1:
+            return PLValue("error", "invalid match")
+        var match_expr_str = content[:brace_pos].strip()
+        var cases_str = content[brace_pos + 2:].strip()
+        var match_val = self.evaluate(match_expr_str, env)
+        var cases = cases_str.split(" case ")
+        for i in range(1, len(cases)):  # skip first empty
+            var case = cases[i].strip()
+            var arrow_pos = case.find(" => ")
+            if arrow_pos == -1:
+                continue
+            var pattern_str = case[:arrow_pos].strip()
+            var body_str = case[arrow_pos + 4:].strip()
+            var pattern_val = self.evaluate(pattern_str, env)
+            if match_val.value == pattern_val.value:  # simple equality
+                return self.evaluate(body_str, env)
+        return PLValue("error", "no match")
+
+    fn eval_for(mut self, expr: String, env: Environment) raises -> PLValue:
+        # Parse (FOR var IN collection { body })
+        var content = expr[5:expr.__len__() - 2].strip()  # remove (FOR  })
+        var in_pos = content.find(" IN ")
+        if in_pos == -1:
+            return PLValue("error", "invalid for")
+        var var_name = content[:in_pos].strip()
+        var rest = content[in_pos + 4:].strip()
+        var brace_pos = rest.find(" { ")
+        if brace_pos == -1:
+            return PLValue("error", "invalid for")
+        var collection_str = rest[:brace_pos].strip()
+        var body_str = rest[brace_pos + 3:].strip()
+        var collection = self.evaluate(collection_str, env)
+        if collection.type == "list":
+            # Assume list is comma separated
+            var items = collection.value.split(",")
+            for item in items:
+                var item_val = PLValue("string", String(item.strip()))
+                var new_env = Environment()
+                new_env.values = env.values.copy()
+                new_env.define(var_name, item_val)
+                _ = self.evaluate(body_str, new_env)  # ignore result
+        return PLValue("string", "for completed")
+
+    fn eval_while(mut self, expr: String, env: Environment) raises -> PLValue:
+        # Parse (WHILE condition { body })
+        var content = expr[7:expr.__len__() - 2].strip()  # remove (WHILE  })
+        var brace_pos = content.find(" { ")
+        if brace_pos == -1:
+            return PLValue("error", "invalid while")
+        var condition_str = content[:brace_pos].strip()
+        var body_str = content[brace_pos + 3:].strip()
+        while True:
+            var cond = self.evaluate(condition_str, env)
+            if cond.type != "bool" or cond.value != "true":
+                break
+            _ = self.evaluate(body_str, env)
+        return PLValue("string", "while completed")
 
     fn is_numeric(self, s: String) -> Bool:
         """Check if string is numeric."""

@@ -12,16 +12,24 @@ alias SELECT = "SELECT"
 alias FROM = "FROM"
 alias WHERE = "WHERE"
 alias CREATE = "CREATE"
+alias IMPORT = "IMPORT"
+alias UPDATE = "UPDATE"
+alias DELETE = "DELETE"
 alias FUNCTION = "FUNCTION"
 alias TYPE = "TYPE"
 alias STRUCT = "STRUCT"
 alias EXCEPTION = "EXCEPTION"
-alias AS = "AS"
+alias AS = "as"
+alias DOUBLE_COLON = "::"
 alias RETURNS = "RETURNS"
 alias THROWS = "THROWS"
 alias IF = "IF"
 alias ELSE = "ELSE"
 alias MATCH = "MATCH"
+alias FOR = "FOR"
+alias WHILE = "WHILE"
+alias CASE = "CASE"
+alias IN = "IN"
 alias TRY = "TRY"
 alias CATCH = "CATCH"
 alias LET = "LET"
@@ -37,6 +45,9 @@ alias GREATER_EQUAL = ">="
 alias LESS_EQUAL = "<="
 alias AND = "and"
 alias OR = "or"
+alias NOT = "not"
+alias BANG = "!"
+alias COALESCE = "??"
 alias PLUS = "+"
 alias MINUS = "-"
 alias MULTIPLY = "*"
@@ -135,7 +146,10 @@ struct PLGrizzlyLexer:
         elif c == ";":
             self.add_token(SEMICOLON)
         elif c == ":":
-            self.add_token(COLON)
+            if self.match(":"):
+                self.add_token(DOUBLE_COLON)
+            else:
+                self.add_token(COLON)
         elif c == ".":
             self.add_token(DOT)
         elif c == "+":
@@ -177,7 +191,7 @@ struct PLGrizzlyLexer:
             if self.match("="):
                 self.add_token(NOT_EQUALS)
             else:
-                self.add_token(UNKNOWN, "!")
+                self.add_token(BANG)
         elif c == ">":
             if self.match("="):
                 self.add_token(GREATER_EQUAL)
@@ -188,11 +202,22 @@ struct PLGrizzlyLexer:
                 self.add_token(LESS_EQUAL)
             else:
                 self.add_token(LESS)
+        elif c == "~":
+            if self.match("f"):
+                self.add_token(FUNCTION)
+            else:
+                # For now, treat ~ as error or skip
+                pass
         elif c == "|":
             if self.match(">"):
                 self.add_token(PIPE)
             else:
                 self.add_token(UNKNOWN, "|")
+        elif c == "?":
+            if self.match("?"):
+                self.add_token(COALESCE)
+            else:
+                self.add_token(UNKNOWN, "?")
         elif c == "\"":
             self.string()
         elif self.is_digit(c):
@@ -315,6 +340,12 @@ struct PLGrizzlyLexer:
             return WHERE
         elif text == "create" or text == "CREATE":
             return CREATE
+        elif text == "import" or text == "IMPORT":
+            return IMPORT
+        elif text == "update" or text == "UPDATE":
+            return UPDATE
+        elif text == "delete" or text == "DELETE":
+            return DELETE
         elif text == "function" or text == "FUNCTION":
             return FUNCTION
         elif text == "type" or text == "TYPE":
@@ -335,6 +366,14 @@ struct PLGrizzlyLexer:
             return ELSE
         elif text == "match" or text == "MATCH":
             return MATCH
+        elif text == "for" or text == "FOR":
+            return FOR
+        elif text == "while" or text == "WHILE":
+            return WHILE
+        elif text == "case" or text == "CASE":
+            return CASE
+        elif text == "in" or text == "IN":
+            return IN
         elif text == "try" or text == "TRY":
             return TRY
         elif text == "catch" or text == "CATCH":
@@ -355,5 +394,7 @@ struct PLGrizzlyLexer:
             return AND
         elif text == "or" or text == "OR":
             return OR
+        elif text == "not" or text == "NOT":
+            return NOT
         else:
             return IDENTIFIER

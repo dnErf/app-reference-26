@@ -8,6 +8,10 @@ Implement lakehouse schema management for tables and metadata
 Develop pack/unpack functionality for .gobi file format
 Implement embedded database operations with CRUD functionality
 Implement data integrity verification using SHA-256 Merkle tree hashing with compaction support
+Add coalescing operator (??) for nullish coalescing
+Add logical operators and/or/not with ! as alias for not
+Add casting operators as and :: for type casting
+Add type struct declarations inspired by SQL CREATE TYPE
 Restore complex data structures in transformation staging (Dict for models/environments, List for dependencies)
 Implement proper serialization/deserialization with JSON for persistence
 Add blob storage integration for saving transformation metadata
@@ -52,3 +56,11 @@ Implement PL-GRIZZLY UPDATE statement with WHERE conditions
 Implement PL-GRIZZLY DELETE statement with WHERE conditions  
 Implement PL-GRIZZLY IMPORT statement for module loading
 Add CRUD operations (INSERT, UPDATE, DELETE) to PL-GRIZZLY language
+Implement PL-GRIZZLY modules and import system with predefined modules (math)
+Add closure support for PL-GRIZZLY functions with environment capture
+Add higher-order functions support by allowing functions as PLValue types
+Add MATCH keyword and loop keywords (for, while) to lexer
+Add match statement parsing in parser
+Add loop statement parsing in parser
+Add pattern matching evaluation in interpreter
+Add loop evaluation in interpreter
