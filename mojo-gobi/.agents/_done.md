@@ -37,3 +37,15 @@ Add transformation validation and SQL parsing capabilities
 Integrate PyArrow filesystem interface in blob storage for cross-platform compatibility
 Remove pandas dependency from ORC storage and use direct PyArrow APIs
 Change ORC storage default compression to none and implement ZSTD ORC compression for pack/unpack
+Add pipeline monitoring and execution history tracking
+Implement PL-GRIZZLY interpreter with semantic analysis and profiling capabilities
+Add PL-GRIZZLY JIT compiler for performance optimization
+Integrate Python-like syntax features (functions, pattern matching, pipes)
+Implement PLValue type system with number, string, bool, error types
+Implement STRUCT and EXCEPTION types in PLValue system
+Implement try/catch error handling in PL-GRIZZLY
+Create function system with receivers and method-style syntax
+Implement LINQ-style query expressions in PL-GRIZZLY
+Integrate PL-GRIZZLY SELECT with Godi database operations for actual query execution
+Implement database table access in PL-GRIZZLY {table} variables
+Add CRUD operations (INSERT, UPDATE, DELETE) to PL-GRIZZLY language

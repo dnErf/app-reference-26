@@ -408,7 +408,7 @@ fn start_repl(rich_console: PythonObject) raises:
             try:
                 var result = interpreter.interpret(code)
                 rich_console.print("[green]Interpretation result:[/green]")
-                rich_console.print(String(result))
+                rich_console.print(result.__str__())
             except:
                 rich_console.print("[red]Interpretation failed[/red]")
         elif cmd == "enable profiling":

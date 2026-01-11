@@ -13,7 +13,27 @@ from blob_storage import BlobStorage
 from orc_storage import ORCStorage
 
 # Value types for PL-GRIZZLY
-alias PLValue = String
+struct PLValue(Copyable, Movable, ImplicitlyCopyable):
+    var type: String
+    var value: String
+
+    fn __init__(out self, type: String = "string", value: String = ""):
+        self.type = type
+        self.value = value
+
+    fn __copyinit__(out self, other: PLValue):
+        self.type = other.type
+        self.value = other.value
+
+    fn __str__(self) -> String:
+        if self.type == "string":
+            return self.value
+        elif self.type == "number":
+            return self.value
+        elif self.type == "bool":
+            return self.value
+        else:
+            return self.type + ":" + self.value
 
 # Helper functions for operations
 fn add_op(a: Int, b: Int) -> Int:
@@ -102,7 +122,7 @@ struct Environment(Copyable, Movable, ImplicitlyCopyable):
         if name in self.values:
             return self.values[name]
         # Error: undefined variable
-        return "undefined"
+        return PLValue("error", "undefined variable: " + name)
 
     fn assign(mut self, name: String, value: PLValue):
         self.values[name] = value
@@ -119,6 +139,32 @@ struct PLGrizzlyInterpreter:
         self.orc_storage = ORCStorage(storage)
         self.profiler = ProfilingManager()
         self.global_env = Environment()
+
+    fn query_table(self, table_name: String) -> PLValue:
+        """Query table data and return as list of structs."""
+        var schema = self.schema_manager.load_schema()
+        var table_schema = schema.get_table(table_name)
+        if table_schema.name == "":
+            return PLValue("error", "table not found: " + table_name)
+        
+        var data = self.orc_storage.read_table(table_name)
+        if len(data) == 0:
+            return PLValue("list", "[]")
+        
+        var result = "["
+        for i in range(len(data)):
+            if i > 0:
+                result += ", "
+            result += "{"
+            for j in range(len(table_schema.columns)):
+                if j > 0:
+                    result += ", "
+                var col_name = table_schema.columns[j].name
+                var col_value = data[i][j] if j < len(data[i]) else ""
+                result += col_name + ": \"" + col_value + "\""
+            result += "}"
+        result += "]"
+        return PLValue("list", result)
 
     fn enable_profiling(mut self):
         """Enable execution profiling."""
@@ -186,55 +232,74 @@ struct PLGrizzlyInterpreter:
                     return "(" + parts[1] + " / " + parts[2] + ")"
         return expr
 
-    fn execute_jit_function(self, func_name: String, args: List[String]) raises -> PLValue:
+    fn execute_jit_function(self, func_name: String, args: List[PLValue]) raises -> PLValue:
         """Execute a JIT compiled function."""
         var jit_stats = self.profiler.get_jit_stats()
         if func_name not in jit_stats:
-            return "jit_error: function not compiled"
+            return PLValue("error", "jit_error: function not compiled")
         
         # For now, simulate JIT execution by evaluating optimized code
         var jit_code = ""
         try:
             jit_code = jit_stats[func_name]
         except:
-            return "jit_error: function not compiled"
+            return PLValue("error", "jit_error: function not compiled")
         print("Executing JIT code:", jit_code)
         
         # Simple simulation: just return a mock result
-        return "jit_result: " + func_name + " executed with " + String(len(args)) + " args"
+        return PLValue("string", "jit_result: " + func_name + " executed with " + String(len(args)) + " args")
 
-    fn evaluate(self, expr: String, env: Environment) raises -> PLValue:
+    fn evaluate(mut self, expr: String, env: Environment) raises -> PLValue:
         """Evaluate an expression in the given environment."""
         if expr == "":
-            return "empty"
+            return PLValue("string", "empty")
         
         # Parse the string AST
         if expr.startswith("(") and expr.endswith(")"):
             return self.evaluate_list(String(expr[1:expr.__len__() - 1].strip()), env)
         elif expr.startswith("{ ") and expr.endswith(" }"):
-            # Variable reference
+            # Variable or table reference
             var var_name = String(expr[2:expr.__len__() - 2].strip())
-            return env.get(var_name)
+            # Check if it's a table
+            var schema = self.schema_manager.load_schema()
+            var table_schema = schema.get_table(var_name)
+            if table_schema.name != "":
+                return self.query_table(var_name)
+            else:
+                return env.get(var_name)
+        elif expr.startswith("{") and not expr.startswith("{ "):
+            # Struct literal
+            return PLValue("struct", expr)
+        elif expr.startswith("["):
+            # List literal
+            return PLValue("list", expr)
+        elif expr.startswith("EXCEPTION "):
+            # Exception literal
+            return PLValue("exception", expr[10:])
+        elif expr.startswith("(TRY "):
+            return self.eval_try(expr, env)
+        elif expr.startswith("(INSERT "):
+            return self.eval_insert(expr, env)
         elif expr == "true":
-            return "true"
+            return PLValue("bool", "true")
         elif expr == "false":
-            return "false"
+            return PLValue("bool", "false")
         elif expr.isdigit():
-            return expr
+            return PLValue("number", expr)
         else:
             # Try as number first
             try:
                 _ = Int(expr)
-                return expr
+                return PLValue("number", expr)
             except:
                 # Identifier or string
                 if expr.startswith("\"") and expr.endswith("\""):
-                    return expr[1:expr.__len__() - 1]
+                    return PLValue("string", expr[1:expr.__len__() - 1])
                 else:
                     # Identifier
                     return env.get(expr)
 
-    fn interpret(mut self, source: String) raises -> String:
+    fn interpret(mut self, source: String) raises -> PLValue:
         """Interpret PL-GRIZZLY source code with JIT capabilities."""
         
         var ast = source  # PL-GRIZZLY code is already AST-like
@@ -243,7 +308,7 @@ struct PLGrizzlyInterpreter:
             var error_str = "semantic errors: "
             for error in errors:
                 error_str += error + "; "
-            return error_str
+            return PLValue("error", error_str)
         
         # Check if this is a function call for profiling
         if ast.startswith("(call ") and self.profiler.profiling_enabled:
@@ -254,25 +319,25 @@ struct PLGrizzlyInterpreter:
                 # Check if we should JIT compile this function
                 if not (func_name in self.profiler.get_jit_stats()) and self.profiler.should_jit_compile(func_name):
                     var func_def = self.global_env.get(func_name)
-                    if func_def.startswith("function:"):
-                        _ = self.jit_compile_function(func_name, func_def)
+                    if func_def.type == "string" and func_def.value.startswith("function:"):
+                        _ = self.jit_compile_function(func_name, func_def.value)
         
-        var result = self.evaluate(ast, self.global_env)
-        if result.startswith("function:"):
+        var result = self.evaluate(ast, self.global_env.copy())
+        if result.type == "string" and result.value.startswith("function:"):
             # Store the function and check for JIT compilation
-            var parts_def = result.split(":")
+            var parts_def = result.value.split(":")
             if len(parts_def) >= 2:
                 var name = String(parts_def[1])
                 self.global_env.define(name, result)
                 # JIT compilation happens during function calls, not definition
-                return "function " + name + " defined"
+                return PLValue("string", "function " + name + " defined")
         return result
 
-    fn evaluate_list(self, content: String, env: Environment) raises -> PLValue:
+    fn evaluate_list(mut self, content: String, env: Environment) raises -> PLValue:
         """Evaluate a list expression like '+ 1 2'."""
         var parts = self.split_expression(String(content))
         if len(parts) == 0:
-            return "empty"
+            return PLValue("error", "empty")
         
         var op = parts[0]
         if op == "+":
@@ -304,7 +369,7 @@ struct PLGrizzlyInterpreter:
         elif op == "FUNCTION":
             return self.eval_function(content, env)
         else:
-            return "unknown op: " + op
+            return PLValue("error", "unknown op: " + op)
 
     fn split_expression(self, content: String) -> List[String]:
         """Split expression content into parts, handling nested parens."""
@@ -331,59 +396,65 @@ struct PLGrizzlyInterpreter:
         
         return parts.copy()
 
-    fn eval_binary_op(self, parts: List[String], env: Environment, op_fn: fn(Int, Int) -> Int) raises -> PLValue:
+    fn eval_binary_op(mut self, parts: List[String], env: Environment, op: fn(Int, Int) -> Int) raises -> PLValue:
         if len(parts) < 3:
-            return "error: not enough args"
+            return PLValue("error", "not enough args")
         var left = self.evaluate(parts[1], env)
         var right = self.evaluate(parts[2], env)
+        # Check types
+        if left.type != "number" or right.type != "number":
+            return PLValue("error", "type mismatch")
         # Parse as Int
         try:
-            var left_val = Int(left)
-            var right_val = Int(right)
-            return String(op_fn(left_val, right_val))
+            var left_val = Int(left.value)
+            var right_val = Int(right.value)
+            return PLValue("number", String(op(left_val, right_val)))
         except:
-            return "error: type mismatch"
+            return PLValue("error", "invalid number")
 
-    fn eval_comparison_op(self, parts: List[String], env: Environment, op_fn: fn(Int, Int) -> Bool) raises -> PLValue:
+    fn eval_comparison_op(mut self, parts: List[String], env: Environment, op: fn(Int, Int) -> Bool) raises -> PLValue:
         if len(parts) < 3:
-            return "error: not enough args"
+            return PLValue("error", "not enough args")
         var left = self.evaluate(parts[1], env)
         var right = self.evaluate(parts[2], env)
+        # Check types
+        if left.type != "number" or right.type != "number":
+            return PLValue("error", "type mismatch")
         # Parse as Int
         try:
-            var left_val = Int(left)
-            var right_val = Int(right)
-            var result = op_fn(left_val, right_val)
-            return "true" if result else "false"
+            var left_val = Int(left.value)
+            var right_val = Int(right.value)
+            var result = op(left_val, right_val)
+            return PLValue("bool", "true" if result else "false")
         except:
-            return "error: type mismatch"
+            return PLValue("error", "invalid number")
 
-    fn eval_call(self, parts: List[String], env: Environment) raises -> PLValue:
+    fn eval_call(mut self, parts: List[String], env: Environment) raises -> PLValue:
         if len(parts) < 2:
-            return "error: call needs function"
+            return PLValue("error", "call needs function")
         var func_name = parts[1]
         
-        var args = List[String]()
+        var args = List[PLValue]()
         for i in range(2, len(parts)):
             args.append(self.evaluate(parts[i], env))
         # Check if function
         var func_def = env.get(func_name)
-        if func_def.startswith("function:"):
+        if func_def.type == "string" and func_def.value.startswith("function:"):
             # Check if JIT compiled version exists
             var jit_stats = self.profiler.get_jit_stats()
             if func_name in jit_stats:
                 return self.execute_jit_function(func_name, args)
             
             # Parse function
-            var parts_def = func_def.split(":")
+            var parts_def = func_def.value.split(":")
             if len(parts_def) < 4:
-                return "error: invalid function"
+                return PLValue("error", "invalid function")
             var name = parts_def[1]
             var params_str = parts_def[2]
             var body = parts_def[3]
             var params = params_str.split(",")
             if len(params) != len(args):
-                return "error: arg count mismatch"
+                return PLValue("error", "arg count mismatch")
             # Create new env with params bound
             var new_env = Environment()
             for i in range(len(params)):
@@ -394,31 +465,83 @@ struct PLGrizzlyInterpreter:
         if func_name == "print":
             # Print args
             for arg in args:
-                print(arg)
-            return "printed"
+                print(arg.__str__())
+            return PLValue("string", "printed")
         else:
-            return "unknown function: " + func_name
+            return PLValue("error", "unknown function: " + func_name)
 
-    fn eval_pipe(self, parts: List[String], env: Environment) raises -> PLValue:
+    fn eval_pipe(mut self, parts: List[String], env: Environment) raises -> PLValue:
         if len(parts) < 3:
-            return "error: pipe needs left and right"
+            return PLValue("error", "pipe needs left and right")
         var left = self.evaluate(parts[1], env)
         # For pipe, the right should be a call, pass left as first arg
         var right_expr = parts[2]
         # Modify right_expr to include left as first arg
         if right_expr.startswith("(call "):
             var call_content = right_expr[6:right_expr.__len__() - 1]
-            var new_call = "(call " + call_content.split(" ")[0] + " " + left + " " + " ".join(call_content.split(" ")[1:])
+            var new_call = "(call " + call_content.split(" ")[0] + " " + left.__str__() + " " + " ".join(call_content.split(" ")[1:])
             return self.evaluate(new_call, env)
         else:
-            return "error: pipe right must be call"
+            return PLValue("error", "pipe right must be call")
 
-    fn eval_select(self, content: String, env: Environment) raises -> PLValue:
+    fn eval_select(mut self, content: String, env: Environment) raises -> PLValue:
         # Parse SELECT from: {table} where: condition
-        # For now, return mock result
-        return "SELECT result from " + content
+        var where_pos = content.find(" where: ")
+        if where_pos != -1:
+            var from_part = content[6:where_pos]  # remove "from: "
+            var where_part = content[where_pos + 8:]
+            var table_data = self.evaluate(from_part, env)
+            if table_data.type == "list":
+                # TODO: Apply where condition to filter the list
+                return table_data
+            else:
+                return PLValue("error", "from clause must be table")
+        else:
+            var from_part = content[6:]  # remove "from: "
+            var table_data = self.evaluate(from_part, env)
+            return table_data
 
-    fn eval_function(self, content: String, env: Environment) raises -> PLValue:
+    fn eval_try(mut self, content: String, env: Environment) raises -> PLValue:
+        # Parse (TRY body CATCH handler)
+        var try_part = content[5:]  # remove (TRY 
+        var catch_pos = try_part.find(" CATCH ")
+        if catch_pos == -1:
+            return PLValue("error", "invalid try syntax")
+        var try_body = try_part[:catch_pos]
+        var catch_body = try_part[catch_pos + 7:]  # remove CATCH 
+        catch_body = catch_body[:-1]  # remove )
+        
+        # Evaluate try body
+        var result = self.evaluate(try_body, env)
+        if result.type == "error":
+            # Execute catch body
+            return self.evaluate(catch_body, env)
+        else:
+            return result
+
+    fn eval_insert(mut self, content: String, env: Environment) raises -> PLValue:
+        # Parse (INSERT INTO table VALUES (val1, val2))
+        var into_pos = content.find(" INTO ")
+        var values_pos = content.find(" VALUES (")
+        if into_pos == -1 or values_pos == -1:
+            return PLValue("error", "invalid INSERT syntax")
+        var table_name = content[into_pos + 7:values_pos]
+        var values_str = content[values_pos + 9:content.__len__() - 2]  # remove ))
+        var values = values_str.split(", ")
+        var row = List[String]()
+        for val in values:
+            # Evaluate each value
+            var val_result = self.evaluate(String(val.strip()), env)
+            row.append(val_result.__str__())  # For now, use string representation
+        var data = List[List[String]]()
+        data.append(row.copy())
+        var success = self.orc_storage.write_table(table_name, data)
+        if success:
+            return PLValue("string", "inserted into " + table_name)
+        else:
+            return PLValue("error", "insert failed")
+
+    fn eval_function(mut self, content: String, env: Environment) raises -> PLValue:
         # Parse name(params) => body
         # For now, simple parse
         var func_str = content.strip()
@@ -426,17 +549,17 @@ struct PLGrizzlyInterpreter:
             func_str = func_str[9:].strip()
         var arrow_pos = func_str.find(" => ")
         if arrow_pos == -1:
-            return "error: no body"
+            return PLValue("error", "error: no body")
         var name_and_params = func_str[:arrow_pos]
         var body = func_str[arrow_pos + 4:].strip()
         # Parse name and params
         var paren_pos = name_and_params.find("(")
         if paren_pos == -1:
-            return "error: no params"
+            return PLValue("error", "error: no params")
         var name = name_and_params[:paren_pos].strip()
         var params_str = name_and_params[paren_pos:]
         if not (params_str.startswith("(") and params_str.endswith(")")):
-            return "error: invalid params"
+            return PLValue("error", "error: invalid params")
         var params = params_str[1:params_str.__len__() - 1].strip().split(" ")
         var param_list = List[String]()
         for p in params:
@@ -448,7 +571,7 @@ struct PLGrizzlyInterpreter:
                 func_value += ","
             func_value += param_list[i]
         func_value += ":" + body
-        return func_value
+        return PLValue("string", func_value)
         # But since env is passed by value, can't modify global
         # For now, return the func_value, but actually need to store in global_env
         # Since interpret has mut self, I can modify self.global_env
@@ -468,7 +591,7 @@ struct PLGrizzlyInterpreter:
         # Let's try. 
 
         # For now, return func_value, and in interpret, if result starts with "function:", store it.
-        return func_value
+        return PLValue("string", func_value)
 
     fn analyze(self, ast: String) -> List[String]:
         """Analyze AST for semantic errors."""

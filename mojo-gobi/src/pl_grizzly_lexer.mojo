@@ -14,6 +14,8 @@ alias WHERE = "WHERE"
 alias CREATE = "CREATE"
 alias FUNCTION = "FUNCTION"
 alias TYPE = "TYPE"
+alias STRUCT = "STRUCT"
+alias EXCEPTION = "EXCEPTION"
 alias AS = "AS"
 alias RETURNS = "RETURNS"
 alias THROWS = "THROWS"
@@ -126,6 +128,8 @@ struct PLGrizzlyLexer:
             self.add_token(LBRACKET)
         elif c == "]":
             self.add_token(RBRACKET)
+        elif c == ".":
+            self.add_token(DOT)
         elif c == ",":
             self.add_token(COMMA)
         elif c == ";":
@@ -315,6 +319,10 @@ struct PLGrizzlyLexer:
             return FUNCTION
         elif text == "type" or text == "TYPE":
             return TYPE
+        elif text == "struct" or text == "STRUCT":
+            return STRUCT
+        elif text == "exception" or text == "EXCEPTION":
+            return EXCEPTION
         elif text == "as" or text == "AS":
             return AS
         elif text == "returns" or text == "RETURNS":

@@ -39,6 +39,10 @@ struct PLGrizzlyParser:
                 return self.function_statement()
             else:
                 return "(error: expected FUNCTION after CREATE)"
+        elif self.match("TRY"):
+            return self.try_statement()
+        elif self.match("INSERT"):
+            return self.insert_statement()
         else:
             return self.expression()
 
@@ -110,6 +114,43 @@ struct PLGrizzlyParser:
             params_str += parameters[i]
         
         return "(FUNCTION " + name + "(" + params_str + ") => " + body + ")"
+
+    fn try_statement(mut self) -> String:
+        """Parse a TRY CATCH statement."""
+        self.consume("LBRACE", "Expect { after TRY")
+        var try_body = self.expression()
+        self.consume("RBRACE", "Expect } after try body")
+        
+        self.consume("CATCH", "Expect CATCH after try block")
+        self.consume("LBRACE", "Expect { after CATCH")
+        var catch_body = self.expression()
+        self.consume("RBRACE", "Expect } after catch body")
+        
+        return "(TRY " + try_body + " CATCH " + catch_body + ")"
+
+    fn insert_statement(mut self) -> String:
+        """Parse an INSERT statement."""
+        self.consume("INTO", "Expect INTO after INSERT")
+        if not self.match("IDENTIFIER"):
+            return "error: expect table name"
+        var table_name = self.previous().value
+        if not self.match("VALUES"):
+            return "error: expect VALUES"
+        if not self.match("LPAREN"):
+            return "error: expect ( after VALUES"
+        var values = List[Expr]()
+        if not self.check("RPAREN"):
+            values.append(self.expression())
+            while self.match(","):
+                values.append(self.expression())
+        if not self.match("RPAREN"):
+            return "error: expect ) after values"
+        var values_str = ""
+        for i in range(len(values)):
+            if i > 0:
+                values_str += ", "
+            values_str += values[i]
+        return "(INSERT INTO " + table_name + " VALUES (" + values_str + "))"
 
     fn expression(mut self) -> Expr:
         """Parse an expression."""
@@ -185,6 +226,42 @@ struct PLGrizzlyParser:
             args_str += arguments[i]
         return "(call " + callee + " " + args_str + ")"
 
+    fn parse_struct(mut self) -> Expr:
+        var fields = List[Expr]()
+        if not self.check("RBRACE"):
+            var key = self.expression()
+            self.consume(":", "Expect ':' after field name.")
+            var value = self.expression()
+            fields.append(key + ": " + value)
+            while self.match(","):
+                key = self.expression()
+                self.consume(":", "Expect ':' after field name.")
+                value = self.expression()
+                fields.append(key + ": " + value)
+        self.consume("RBRACE", "Expect '}' after struct fields.")
+        var struct_str = "{"
+        for i in range(len(fields)):
+            if i > 0:
+                struct_str += ", "
+            struct_str += fields[i]
+        struct_str += "}"
+        return struct_str
+
+    fn parse_list(mut self) -> Expr:
+        var elements = List[Expr]()
+        if not self.check("RBRACKET"):
+            elements.append(self.expression())
+            while self.match(","):
+                elements.append(self.expression())
+        self.consume("RBRACKET", "Expect ] after list elements.")
+        var list_str = "["
+        for i in range(len(elements)):
+            if i > 0:
+                list_str += ", "
+            list_str += elements[i]
+        list_str += "]"
+        return list_str
+
     fn primary(mut self) -> Expr:
         if self.match("NUMBER"):
             return self.previous().value
@@ -195,9 +272,37 @@ struct PLGrizzlyParser:
         elif self.match("FALSE"):
             return "false"
         elif self.match("IDENTIFIER"):
-            return self.previous().value
+            var id = self.previous().value
+            if self.match("DOT"):
+                # Method call: obj.method(args)
+                if not self.match("IDENTIFIER"):
+                    return "error: expect method name after ."
+                var method = self.previous().value
+                if not self.match("LPAREN"):
+                    return "error: expect ( after method name"
+                var args = List[Expr]()
+                if not self.check("RPAREN"):
+                    args.append(self.expression())
+                    while self.match(","):
+                        args.append(self.expression())
+                if not self.match("RPAREN"):
+                    return "error: expect ) after arguments"
+                var call_str = "(call " + method + " " + id
+                for arg in args:
+                    call_str += " " + arg
+                call_str += ")"
+                return call_str
+            else:
+                return id
         elif self.match("VARIABLE"):
             return "{ " + self.previous().value + " }"
+        elif self.match("LBRACE"):
+            return self.parse_struct()
+        elif self.match("LBRACKET"):
+            return self.parse_list()
+        elif self.match("EXCEPTION"):
+            var message = self.expression()
+            return "EXCEPTION " + message
         elif self.match("("):
             var expr = self.expression()
             self.consume(")", "Expect ')' after expression.")

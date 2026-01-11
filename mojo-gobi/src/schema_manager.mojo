@@ -84,7 +84,7 @@ struct DatabaseSchema(Movable, Copyable):
         """Get a table by name."""
         for table in self.tables:
             if table.name == name:
-                return table
+                return table.copy()
         return TableSchema("")
 
     fn to_json(self) -> String:

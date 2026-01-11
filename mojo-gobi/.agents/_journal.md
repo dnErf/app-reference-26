@@ -1,3 +1,62 @@
+20260111 - Added CRUD operations (INSERT) to PL-GRIZZLY language
+- Implemented INSERT INTO table VALUES (val1, val2) parsing in PLGrizzlyParser
+- Added eval_insert() method in PLGrizzlyInterpreter to execute INSERT by writing to ORC storage
+- Values are evaluated as PL-GRIZZLY expressions before insertion
+- Successfully integrated INSERT operations into PL-GRIZZLY for database manipulation
+- Fixed compilation issues with mut methods and environment copying
+
+20260111 - Integrated PL-GRIZZLY SELECT with Godi database operations
+- Modified PLGrizzlyInterpreter.evaluate() to query database tables via {table} syntax
+- Added query_table() method to read table data from ORC storage and format as list of structs
+- Updated eval_select() to parse SELECT statements and execute actual table queries
+- Fixed TableSchema copy issue in SchemaManager.get_table()
+- Successfully integrated database access into PL-GRIZZLY interpreter
+- PL-GRIZZLY can now query real database tables using SELECT from: {table}
+
+20260111 - Implemented database table access in PL-GRIZZLY {table} variables
+- Added list literal parsing with [item1, item2] syntax
+- LINQ-style queries supported through pipe operations and functional calls
+- SELECT statement parsing already implemented for database queries
+- List type added to PLValue system for collection operations
+- Successfully built LINQ-style expressions using pipes: {data} |> filter(condition) |> select(projection)
+- Foundation established for query expressions in PL-GRIZZLY language
+
+20260111 - Implemented method-style syntax in PL-GRIZZLY parser
+- Added DOT token to PLGrizzlyLexer for . operator
+- Implemented method call parsing in PLGrizzlyParser primary() for obj.method(args) syntax
+- Method calls transformed to functional (call method obj args) form
+- Successfully built and integrated method-style syntax into PL-GRIZZLY language
+- Enables object-oriented style programming while maintaining functional core
+
+20260111 - Implemented try/catch error handling in PL-GRIZZLY interpreter
+- Added TRY and CATCH keyword recognition (already present in lexer)
+- Implemented try_statement() parsing in PLGrizzlyParser for TRY { body } CATCH { handler } syntax
+- Added eval_try() method in PLGrizzlyInterpreter to evaluate try blocks and catch errors
+- Error handling: if try body returns PLValue with type "error", executes catch body instead
+- Successfully built and integrated try/catch error handling into PL-GRIZZLY language
+- Foundation established for robust error handling in PL-GRIZZLY programs
+
+20260111 - Implemented STRUCT and EXCEPTION types in PL-GRIZZLY interpreter
+- Added STRUCT parsing in PLGrizzlyParser with parse_struct() method to handle {field: value, ...} syntax
+- Added EXCEPTION parsing with EXCEPTION expression syntax
+- Updated PLGrizzlyInterpreter.evaluate() to recognize struct literals and exception literals, returning PLValue("struct", ...) and PLValue("exception", ...)
+- STRUCT values stored as string representation "{field: value, ...}" for now
+- EXCEPTION values store the message string
+- Maintained compatibility with existing type system and evaluation chain
+- Successfully built and integrated STRUCT/EXCEPTION types into PL-GRIZZLY language
+- Foundation established for advanced data structures and error handling features
+
+20260111 - Implemented PLValue type system for PL-GRIZZLY interpreter
+- Created PLValue struct with type field ("number", "string", "bool", "error") and value field (String)
+- Updated all evaluation methods (evaluate, eval_binary_op, eval_comparison_op, eval_call, eval_function) to return and handle PLValue instead of String
+- Modified Environment to store PLValue in Dict, with get() method returning PLValue("error", "undefined variable") for missing keys
+- Changed interpret() method to return PLValue, updated main.mojo to print result.__str__()
+- Fixed all compilation errors by wrapping String returns in PLValue constructors and using __str__() for printing
+- Maintained compatibility with existing profiling and JIT systems
+- Successfully built and ran PL-GRIZZLY interpreter with typed value system
+- Foundation established for STRUCT and EXCEPTION type implementations
+- Type system enables proper error handling and advanced language features
+
 20260110 - Extended PL-GRIZZLY parser with statement parsing for SELECT and CREATE FUNCTION
 - Added statement parsing to PL-GRIZZLY parser with support for SELECT and CREATE FUNCTION statements
 - Implemented SELECT statement parsing with FROM clause, WHERE clause, and variable interpolation {table}
