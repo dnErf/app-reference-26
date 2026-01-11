@@ -37,8 +37,10 @@ struct PLGrizzlyParser:
         elif self.match("CREATE"):
             if self.match("FUNCTION"):
                 return self.function_statement()
+            elif self.match("MODULE"):
+                return self.module_statement()
             else:
-                return "(error: expected FUNCTION after CREATE)"
+                return "(error: expected FUNCTION or MODULE after CREATE)"
         elif self.match("TRY"):
             return self.try_statement()
         elif self.match("TYPE"):
@@ -67,8 +69,10 @@ struct PLGrizzlyParser:
         elif self.match("CREATE"):
             if self.match("FUNCTION"):
                 return self.function_statement()
+            elif self.match("MODULE"):
+                return self.module_statement()
         # Default to expression statement or error
-        return None  # For now
+        return ""  # For now
 
     fn select_statement(mut self) -> String:
         """Parse a SELECT statement."""
@@ -94,30 +98,30 @@ struct PLGrizzlyParser:
 
     fn function_statement(mut self) -> String:
         """Parse a FUNCTION statement with optional receiver."""
-        var name = ""
+        var _name = ""
         if self.match("IDENTIFIER"):
-            name = self.previous().value
+            _name = self.previous().value
         else:
             return "(error: expected function name)"
         
         var receiver = ""
         if self.match("["):
             # Parse receiver: var : type ]
-            var receiver_var = ""
+            var _receiver_var = ""
             if self.match("IDENTIFIER"):
-                receiver_var = self.previous().value
+                _receiver_var = self.previous().value
             else:
                 return "(error: expected receiver variable)"
             if not self.match(":"):
                 return "(error: expected : after receiver var)"
-            var receiver_type = ""
+            var _receiver_type = ""
             if self.match("IDENTIFIER"):
-                receiver_type = self.previous().value
+                _receiver_type = self.previous().value
             else:
                 return "(error: expected receiver type)"
             if not self.match("]"):
                 return "(error: expected ] after receiver)"
-            receiver = receiver_var + ":" + receiver_type
+            receiver = _receiver_var + ":" + _receiver_type
         
         if not self.match("("):
             return "(error: expected ( after function name)"
@@ -149,28 +153,43 @@ struct PLGrizzlyParser:
                 params_str += ", "
             params_str += parameters[i]
         
-        var result = "(FUNCTION " + name
+        var result = "(FUNCTION " + _name
         if receiver != "":
             result += " [" + receiver + "]"
         result += "(" + params_str + ") { " + body + " })"
         return result
 
+    fn module_statement(mut self) -> String:
+        """Parse a CREATE MODULE statement."""
+        var _name = ""
+        if self.match("IDENTIFIER"):
+            _name = self.previous().value
+        else:
+            return "(error: expected module name)"
+        
+        if not self.match("as"):
+            return "(error: expected AS after module name)"
+        
+        var code = self.expression()
+        
+        return "(MODULE " + _name + " " + code + ")"
+
     fn try_statement(mut self) -> String:
         """Parse a TRY CATCH statement."""
-        self.consume("LBRACE", "Expect { after TRY")
+        _ = self.consume("LBRACE", "Expect { after TRY")
         var try_body = self.expression()
-        self.consume("RBRACE", "Expect } after try body")
+        _ = self.consume("RBRACE", "Expect } after try body")
         
-        self.consume("CATCH", "Expect CATCH after try block")
-        self.consume("LBRACE", "Expect { after CATCH")
+        _ = self.consume("CATCH", "Expect CATCH after try block")
+        _ = self.consume("LBRACE", "Expect { after CATCH")
         var catch_body = self.expression()
-        self.consume("RBRACE", "Expect } after catch body")
+        _ = self.consume("RBRACE", "Expect } after catch body")
         
         return "(TRY " + try_body + " CATCH " + catch_body + ")"
 
     fn insert_statement(mut self) -> String:
         """Parse an INSERT statement."""
-        self.consume("INTO", "Expect INTO after INSERT")
+        _ = self.consume("INTO", "Expect INTO after INSERT")
         if not self.match("IDENTIFIER"):
             return "error: expect table name"
         var table_name = self.previous().value
@@ -224,12 +243,12 @@ struct PLGrizzlyParser:
                     var fields = List[String]()
                     while not self.check(")"):
                         var field_name = self.consume("IDENTIFIER", "Expect field name").value
-                        self.consume(":", "Expect : after field name")
+                        _ = self.consume(":", "Expect : after field name")
                         var field_type = self.consume("IDENTIFIER", "Expect field type").value
                         fields.append(field_name + ": " + field_type)
                         if not self.match(","):
                             break
-                    self.consume(")", "Expect ) after fields")
+                    _ = self.consume(")", "Expect ) after fields")
                     var fields_str = ", ".join(fields)
                     return "(TYPE STRUCT AS " + name + " (" + fields_str + "))"
                 else:
@@ -329,7 +348,7 @@ struct PLGrizzlyParser:
             arguments.append(self.expression())
             while self.match(","):
                 arguments.append(self.expression())
-        self.consume(")", "Expect ')' after arguments.")
+        _ = self.consume(")", "Expect ')' after arguments.")
         var args_str = ""
         for i in range(len(arguments)):
             if i > 0:
@@ -387,15 +406,15 @@ struct PLGrizzlyParser:
         var fields = List[Expr]()
         if not self.check("RBRACE"):
             var key = self.expression()
-            self.consume(":", "Expect ':' after field name.")
+            _ = self.consume(":", "Expect ':' after field name.")
             var value = self.expression()
             fields.append(key + ": " + value)
             while self.match(","):
                 key = self.expression()
-                self.consume(":", "Expect ':' after field name.")
+                _ = self.consume(":", "Expect ':' after field name.")
                 value = self.expression()
                 fields.append(key + ": " + value)
-        self.consume("RBRACE", "Expect '}' after struct fields.")
+        _ = self.consume("RBRACE", "Expect '}' after struct fields.")
         var struct_str = "{"
         for i in range(len(fields)):
             if i > 0:
@@ -410,7 +429,7 @@ struct PLGrizzlyParser:
             elements.append(self.expression())
             while self.match(","):
                 elements.append(self.expression())
-        self.consume("RBRACKET", "Expect ] after list elements.")
+        _ = self.consume("RBRACKET", "Expect ] after list elements.")
         var list_str = "["
         for i in range(len(elements)):
             if i > 0:
@@ -462,7 +481,7 @@ struct PLGrizzlyParser:
             return "EXCEPTION " + message
         elif self.match("("):
             var expr = self.expression()
-            self.consume(")", "Expect ')' after expression.")
+            _ = self.consume(")", "Expect ')' after expression.")
             return expr
         else:
             return "error"
@@ -470,7 +489,7 @@ struct PLGrizzlyParser:
     # Helper methods
     fn match(mut self, type: String) -> Bool:
         if self.check(type):
-            self.advance()
+            _ = self.advance()
             return True
         return False
 

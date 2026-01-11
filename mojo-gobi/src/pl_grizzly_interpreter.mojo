@@ -267,7 +267,7 @@ struct PLGrizzlyInterpreter:
         if len(data) == 0:
             return PLValue("list", "mock")
         
-        var rows = List[PLValue]()
+        var _rows = List[PLValue]()
         for i in range(len(data)):
             var struct_dict = Dict[String, PLValue]()
             for j in range(len(table_schema.columns)):
@@ -275,8 +275,6 @@ struct PLGrizzlyInterpreter:
                 var col_value = data[i][j] if j < len(data[i]) else ""
                 # Assume string for now, but could parse to number
                 struct_dict[col_name] = PLValue.string(col_value)
-        # return PLValue.list(rows)
-        return PLValue("list", "mock")
         return PLValue("list", "mock")
 
     fn enable_profiling(mut self):
@@ -352,12 +350,12 @@ struct PLGrizzlyInterpreter:
             return PLValue("error", "jit_error: function not compiled")
         
         # For now, simulate JIT execution by evaluating optimized code
-        var jit_code = ""
+        var _jit_code = ""
         try:
-            jit_code = jit_stats[func_name]
+            _jit_code = jit_stats[func_name]
         except:
             return PLValue("error", "jit_error: function not compiled")
-        print("Executing JIT code:", jit_code)
+        print("Executing JIT code:", _jit_code)
         
         # Simple simulation: just return a mock result
         return PLValue("string", "jit_result: " + func_name + " executed with " + String(len(args)) + " args")
@@ -405,6 +403,8 @@ struct PLGrizzlyInterpreter:
             return self.eval_for(expr, env)
         elif expr.startswith("(WHILE "):
             return self.eval_while(expr, env)
+        elif expr.startswith("(MODULE "):
+            return self.eval_module(expr, env)
         elif expr == "true":
             return PLValue("bool", "true")
         elif expr == "false":
@@ -516,19 +516,19 @@ struct PLGrizzlyInterpreter:
         var current = ""
         var paren_depth = 0
         
-        for c in content:
-            if c == " " and paren_depth == 0:
+        for c in content.codepoints():
+            if Int(c) == 32 and paren_depth == 0:
                 if current != "":
                     parts.append(current)
                     current = ""
-            elif c == "(":
+            elif Int(c) == 40:
                 paren_depth += 1
-                current += c
-            elif c == ")":
+                current += chr(Int(c))
+            elif Int(c) == 41:
                 paren_depth -= 1
-                current += c
+                current += chr(Int(c))
             else:
-                current += c
+                current += chr(Int(c))
         
         if current != "":
             parts.append(current)
@@ -588,7 +588,7 @@ struct PLGrizzlyInterpreter:
             var parts_def = func_def.value.split(":")
             if len(parts_def) < 5:
                 return PLValue("error", "invalid function")
-            var name = parts_def[1]
+            var _name = parts_def[1]
             var receiver = String(parts_def[2])
             var params_str = String(parts_def[3])
             var body = String(parts_def[4])
@@ -680,7 +680,7 @@ struct PLGrizzlyInterpreter:
         if len(parts) != 3:
             return PLValue.error("cast requires 2 arguments")
         var value = self.evaluate(parts[1], env)
-        var type_name = parts[2]
+        var _type_name = parts[2]
         # For now, just return the value, as PL-GRIZZLY is dynamically typed
         return value
 
@@ -689,7 +689,7 @@ struct PLGrizzlyInterpreter:
         var where_pos = content.find(" where: ")
         if where_pos != -1:
             var from_part = content[6:where_pos]  # remove "from: "
-            var where_part = content[where_pos + 8:]
+            var _where_part = content[where_pos + 8:]
             var table_data = self.evaluate(from_part, env)
             if table_data.type == "list":
                 # TODO: Apply where condition to filter the list
@@ -767,6 +767,19 @@ struct PLGrizzlyInterpreter:
         else:
             return PLValue.error("module '" + String(module_name) + "' not found")
 
+    fn eval_module(mut self, expr: String, env: Environment) raises -> PLValue:
+        # Parse (MODULE name code)
+        var parts = expr[8:expr.__len__() - 1].split(" ", 2)
+        if len(parts) < 2:
+            return PLValue.error("invalid module syntax")
+        var module_name = String(parts[0])
+        var module_code = String(parts[1])
+        
+        # Store the module code
+        self.modules[module_name] = module_code
+        
+        return PLValue.string("module '" + module_name + "' created")
+
     fn eval_condition(mut self, condition: String, row: PLValue, env: Environment) raises -> Bool:
         # Simple condition evaluation for WHERE clauses
         # For now, support column == value, column > value, etc.
@@ -804,8 +817,8 @@ struct PLGrizzlyInterpreter:
         if op_pos == -1:
             return False
             
-        var left = condition[:op_pos].strip()
-        var right_str = condition[op_pos + len(op) + 2:].strip()
+        var _left = condition[:op_pos].strip()
+        var _right_str = condition[op_pos + len(op) + 2:].strip()
         
         # Get value from row
         # if row.is_struct():
@@ -844,6 +857,7 @@ struct PLGrizzlyInterpreter:
         var name = String(func_str[:space_pos].strip())
         func_str = String(func_str[space_pos + 1:].strip())
         
+        var receiver: String = ""
         var remaining = func_str
         if func_str.startswith("["):
             var bracket_end = func_str.find("]")
@@ -883,26 +897,6 @@ struct PLGrizzlyInterpreter:
         var result = PLValue("function", func_value)
         result.closure_env = env
         return result
-        # But since env is passed by value, can't modify global
-        # For now, return the func_value, but actually need to store in global_env
-        # Since interpret has mut self, I can modify self.global_env
-        # But since evaluate is not mut, I can't.
-        # Problem.
-        # To fix, make evaluate mut self again, but earlier it had aliasing issue.
-        # Perhaps make the env &mut Environment or something.
-        # For now, since it's simple, let's assume functions are global, and store in global_env.
-        # But since evaluate takes env by value, to modify, I need to pass by reference.
-        # Let's change back to mut self for evaluate, and see if the aliasing is fixed by not modifying self in evaluate.
-        # Since evaluate doesn't modify self, only calls other methods that don't modify self.
-        # The eval_ methods don't modify self.
-        # So, the aliasing was because evaluate is mut self, but since it doesn't modify self, perhaps the compiler is wrong.
-        # Let me try making evaluate mut self again.
-        # Earlier I removed mut to fix aliasing.
-        # But if I make it mut self, and don't modify self, perhaps it works.
-        # Let's try. 
-
-        # For now, return func_value, and in interpret, if result starts with "function:", store it.
-        return PLValue("string", func_value)
 
     fn analyze(self, ast: String) -> List[String]:
         """Analyze AST for semantic errors."""
@@ -923,22 +917,43 @@ struct PLGrizzlyInterpreter:
 
     fn eval_match(mut self, expr: String, env: Environment) raises -> PLValue:
         # Parse (MATCH match_expr { case pattern => body ... })
-        var content = expr[7:expr.__len__() - 2].strip()  # remove (MATCH  })
-        var brace_pos = content.find(" {")
+        var _content: String = ""
+        var _brace_pos: Int = 0
+        var _match_expr_str: String = ""
+        var _cases_str: String = ""
+        var _match_val: PLValue = PLValue("null", "")
+        var _cases: List[String] = List[String]()
+        var _case_str: String = ""
+        var _arrow_pos: Int = 0
+        var _pattern_str: String = ""
+        var _body_str: String = ""
+        var _pattern_val: PLValue = PLValue("null", "")
+        var _i: Int = 0
+        
+        content = String(expr[7:expr.__len__() - 2].strip())  # remove (MATCH  })
+        brace_pos = content.find(" {")
         if brace_pos == -1:
             return PLValue("error", "invalid match")
-        var match_expr_str = content[:brace_pos].strip()
-        var cases_str = content[brace_pos + 2:].strip()
-        var match_val = self.evaluate(match_expr_str, env)
-        var cases = cases_str.split(" case ")
+        match_expr_str = String(content[:brace_pos].strip())
+        cases_str = String(content[brace_pos + 2:].strip())
+        match_val = self.evaluate(String(match_expr_str), env)
+        var cases_split = cases_str.split(" case ")
+        cases = List[String]()
+        for cs in cases_split:
+            cases.append(String(cs))
+        _case_str = ""
+        _arrow_pos = 0
+        _pattern_str = ""
+        _body_str = ""
+        _pattern_val = PLValue("null", "")
         for i in range(1, len(cases)):  # skip first empty
-            var case = cases[i].strip()
-            var arrow_pos = case.find(" => ")
+            case_str = String(cases[i].strip())
+            arrow_pos = case_str.find(" => ")
             if arrow_pos == -1:
                 continue
-            var pattern_str = case[:arrow_pos].strip()
-            var body_str = case[arrow_pos + 4:].strip()
-            var pattern_val = self.evaluate(pattern_str, env)
+            pattern_str = String(case_str[:arrow_pos].strip())
+            body_str = String(case_str[arrow_pos + 4:].strip())
+            pattern_val = self.evaluate(pattern_str, env)
             if match_val.value == pattern_val.value:  # simple equality
                 return self.evaluate(body_str, env)
         return PLValue("error", "no match")
@@ -949,14 +964,14 @@ struct PLGrizzlyInterpreter:
         var in_pos = content.find(" IN ")
         if in_pos == -1:
             return PLValue("error", "invalid for")
-        var var_name = content[:in_pos].strip()
-        var rest = content[in_pos + 4:].strip()
+        var var_name = String(content[:in_pos].strip())
+        var rest = String(content[in_pos + 4:].strip())
         var brace_pos = rest.find(" { ")
         if brace_pos == -1:
             return PLValue("error", "invalid for")
-        var collection_str = rest[:brace_pos].strip()
-        var body_str = rest[brace_pos + 3:].strip()
-        var collection = self.evaluate(collection_str, env)
+        var collection_str = String(rest[:brace_pos].strip())
+        var body_str = String(rest[brace_pos + 3:].strip())
+        var collection = self.evaluate(String(collection_str), env)
         if collection.type == "list":
             # Assume list is comma separated
             var items = collection.value.split(",")
@@ -974,10 +989,10 @@ struct PLGrizzlyInterpreter:
         var brace_pos = content.find(" { ")
         if brace_pos == -1:
             return PLValue("error", "invalid while")
-        var condition_str = content[:brace_pos].strip()
-        var body_str = content[brace_pos + 3:].strip()
+        var condition_str = String(content[:brace_pos].strip())
+        var body_str = String(content[brace_pos + 3:].strip())
         while True:
-            var cond = self.evaluate(condition_str, env)
+            var cond = self.evaluate(String(condition_str), env)
             if cond.type != "bool" or cond.value != "true":
                 break
             _ = self.evaluate(body_str, env)

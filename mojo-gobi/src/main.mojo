@@ -20,7 +20,7 @@ from sys import argv
 from blob_storage import BlobStorage
 from merkle_tree import MerkleBPlusTree
 from schema_manager import SchemaManager, DatabaseSchema, TableSchema, Column
-from orc_storage import ORCStorage, test_pyarrow_orc, pack_database_zstd
+from orc_storage import ORCStorage, test_pyarrow_orc
 from transformation_staging import TransformationStaging
 from pl_grizzly_lexer import PLGrizzlyLexer, Token
 from pl_grizzly_parser import PLGrizzlyParser, Expr
@@ -61,7 +61,7 @@ fn main() raises:
         if len(args) < 3:
             rich_console.print("[red]Error: pack requires a folder path[/red]")
             return
-        pack_database_zstd(String(args[2]), rich_console)
+        pack_database(String(args[2]), rich_console)
     elif command == "unpack":
         if len(args) < 3:
             rich_console.print("[red]Error: unpack requires a .gobi file path[/red]")
@@ -442,8 +442,8 @@ fn start_repl(rich_console: PythonObject) raises:
             rich_console.print("[red]Unknown command: " + cmd + "[/red]")
 
 fn pack_database(folder: String, rich_console: PythonObject) raises:
-    """Pack database folder into a .gobi file."""
-    rich_console.print("[green]Packing database from: " + folder + "[/green]")
+    """Pack database folder into a .gobi file using ORC compression."""
+    rich_console.print("[green]Packing database from: " + folder + " using ORC compression[/green]")
 
     # Check if folder exists
     var os = Python.import_module("os")
@@ -453,12 +453,18 @@ fn pack_database(folder: String, rich_console: PythonObject) raises:
 
     # Create .gobi filename
     var gobi_file = folder + ".gobi"
-    rich_console.print("[dim]Creating archive: " + gobi_file + "[/dim]")
+    rich_console.print("[dim]Creating ORC archive: " + gobi_file + "[/dim]")
 
     try:
-        # Use zipfile for compression
-        var zipfile = Python.import_module("zipfile")
-        var zipf = zipfile.ZipFile(gobi_file, "w", zipfile.ZIP_DEFLATED)
+        # Import PyArrow for ORC compression
+        var pyarrow = Python.import_module("pyarrow")
+        var pyarrow_orc = Python.import_module("pyarrow.orc")
+        var builtins = Python.import_module("builtins")
+
+        # Collect all files and their contents
+        var file_paths = Python.list()
+        var file_contents = Python.list()
+        var file_sizes = Python.list()
 
         # Walk through all files in the folder
         var walk_iter = os.walk(folder)
@@ -470,10 +476,31 @@ fn pack_database(folder: String, rich_console: PythonObject) raises:
             for file in files:
                 var full_path = os.path.join(root, file)
                 var arcname = os.path.relpath(full_path, folder)
-                zipf.write(full_path, arcname)
-                rich_console.print("[dim]  Added: " + String(arcname) + "[/dim]")
+                
+                # Read file content
+                try:
+                    var file_obj = builtins.open(full_path, "rb")
+                    var content = file_obj.read()
+                    file_obj.close()
+                    
+                    file_paths.append(arcname)
+                    file_contents.append(content)
+                    file_sizes.append(len(content))
+                    
+                    rich_console.print("[dim]  Added: " + String(arcname) + " (" + String(len(content)) + " bytes)[/dim]")
+                except:
+                    rich_console.print("[yellow]  Skipped: " + String(arcname) + " (could not read)[/yellow]")
 
-        zipf.close()
+        # Create PyArrow table with file data
+        var table = pyarrow.table([
+            pyarrow.array(file_paths, type=pyarrow.string()),
+            pyarrow.array(file_contents, type=pyarrow.binary()),
+            pyarrow.array(file_sizes, type=pyarrow.int64())
+        ], names=["path", "content", "size"])
+
+        # Write as ORC with ZSTD compression
+        pyarrow_orc.write_table(table, gobi_file, compression="ZSTD")
+        
         rich_console.print("[green]Database packed successfully: " + gobi_file + "[/green]")
 
     except:
@@ -500,7 +527,7 @@ fn unpack_database(file_path: String, rich_console: PythonObject) raises:
 
     try:
         # Import PyArrow for ORC reading
-        var pyarrow = Python.import_module("pyarrow")
+        _ = Python.import_module("pyarrow")
         var pyarrow_orc = Python.import_module("pyarrow.orc")
         var builtins = Python.import_module("builtins")
 

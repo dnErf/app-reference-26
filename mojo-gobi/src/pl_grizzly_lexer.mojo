@@ -19,6 +19,7 @@ alias FUNCTION = "FUNCTION"
 alias TYPE = "TYPE"
 alias STRUCT = "STRUCT"
 alias EXCEPTION = "EXCEPTION"
+alias MODULE = "MODULE"
 alias AS = "as"
 alias DOUBLE_COLON = "::"
 alias RETURNS = "RETURNS"
@@ -354,6 +355,8 @@ struct PLGrizzlyLexer:
             return STRUCT
         elif text == "exception" or text == "EXCEPTION":
             return EXCEPTION
+        elif text == "module" or text == "MODULE":
+            return MODULE
         elif text == "as" or text == "AS":
             return AS
         elif text == "returns" or text == "RETURNS":
