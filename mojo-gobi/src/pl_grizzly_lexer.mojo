@@ -33,8 +33,8 @@ alias GREATER = ">"
 alias LESS = "<"
 alias GREATER_EQUAL = ">="
 alias LESS_EQUAL = "<="
-alias AND = "&&"
-alias OR = "||"
+alias AND = "and"
+alias OR = "or"
 alias PLUS = "+"
 alias MINUS = "-"
 alias MULTIPLY = "*"
@@ -184,16 +184,9 @@ struct PLGrizzlyLexer:
                 self.add_token(LESS_EQUAL)
             else:
                 self.add_token(LESS)
-        elif c == "&":
-            if self.match("&"):
-                self.add_token(AND)
-            else:
-                self.add_token(UNKNOWN, "&")
         elif c == "|":
             if self.match(">"):
                 self.add_token(PIPE)
-            elif self.match("|"):
-                self.add_token(OR)
             else:
                 self.add_token(UNKNOWN, "|")
         elif c == "\"":
@@ -344,5 +337,9 @@ struct PLGrizzlyLexer:
             return TRUE
         elif text == "false" or text == "FALSE":
             return FALSE
+        elif text == "and" or text == "AND":
+            return AND
+        elif text == "or" or text == "OR":
+            return OR
         else:
             return IDENTIFIER

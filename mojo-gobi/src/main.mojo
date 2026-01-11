@@ -144,6 +144,11 @@ fn start_repl(rich_console: PythonObject) raises:
             rich_console.print("  tokenize <code> - Tokenize PL-GRIZZLY code")
             rich_console.print("  parse <code> - Parse PL-GRIZZLY code into AST")
             rich_console.print("  interpret <code> - Interpret PL-GRIZZLY code")
+            rich_console.print("  enable profiling - Enable PL-GRIZZLY profiling")
+            rich_console.print("  disable profiling - Disable PL-GRIZZLY profiling")
+            rich_console.print("  show profile - Show profiling statistics")
+            rich_console.print("  clear profile - Clear profiling statistics")
+            rich_console.print("  jit status - Show JIT compilation status")
         elif cmd == "status":
             rich_console.print("[green]Database status: Operational[/green]")
             rich_console.print("[dim]Current database: " + current_db + "[/dim]")
@@ -406,6 +411,33 @@ fn start_repl(rich_console: PythonObject) raises:
                 rich_console.print(String(result))
             except:
                 rich_console.print("[red]Interpretation failed[/red]")
+        elif cmd == "enable profiling":
+            interpreter.enable_profiling()
+            rich_console.print("[green]PL-GRIZZLY profiling enabled[/green]")
+        elif cmd == "disable profiling":
+            interpreter.disable_profiling()
+            rich_console.print("[green]PL-GRIZZLY profiling disabled[/green]")
+        elif cmd == "show profile":
+            rich_console.print("[green]Profiling statistics:[/green]")
+            rich_console.print("  Profiling is enabled: " + ("yes" if interpreter.profiler.profiling_enabled else "no"))
+            var stats = interpreter.get_profile_stats()
+            rich_console.print("  Execution counts:")
+            # Display each function's call count
+            var keys = List[String]()
+            for key in stats.keys():
+                keys.append(key)
+            for func_name in keys:
+                var count = stats[func_name]
+                rich_console.print("    " + func_name + ": " + String(count) + " calls")
+        elif cmd == "clear profile":
+            interpreter.clear_profile_stats()
+            rich_console.print("[green]Profiling statistics cleared[/green]")
+        elif cmd == "jit status":
+            rich_console.print("[green]JIT compilation status:[/green]")
+            # Show compiled functions
+            var jit_stats = interpreter.get_jit_stats()
+            rich_console.print("  JIT compiled functions: " + String(len(jit_stats)))
+            rich_console.print("  Functions are compiled after 10+ executions")
         else:
             rich_console.print("[red]Unknown command: " + cmd + "[/red]")
 

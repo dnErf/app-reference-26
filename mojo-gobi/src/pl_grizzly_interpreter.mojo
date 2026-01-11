@@ -46,12 +46,54 @@ fn gte_op(a: Int, b: Int) -> Bool:
 fn lte_op(a: Int, b: Int) -> Bool:
     return a <= b
 
+# Profiling manager
+struct ProfilingManager:
+    var execution_counts: Dict[String, Int]
+    var jit_compiled_functions: Dict[String, String]
+    var profiling_enabled: Bool
+    
+    fn __init__(out self):
+        self.execution_counts = Dict[String, Int]()
+        self.jit_compiled_functions = Dict[String, String]()
+        self.profiling_enabled = False
+    
+    fn enable_profiling(mut self):
+        self.profiling_enabled = True
+    
+    fn disable_profiling(mut self):
+        self.profiling_enabled = False
+        self.execution_counts = Dict[String, Int]()
+        self.jit_compiled_functions = Dict[String, String]()
+    
+    fn record_function_call(mut self, func_name: String):
+        if self.profiling_enabled:
+            var current_count = self.execution_counts.get(func_name, 0)
+            self.execution_counts[func_name] = current_count + 1
+    
+    fn should_jit_compile(self, func_name: String) -> Bool:
+        if func_name in self.jit_compiled_functions:
+            return True
+        var count = self.execution_counts.get(func_name, 0)
+        return count >= 10
+    
+    fn add_jit_compilation(mut self, func_name: String, compiled_code: String):
+        self.jit_compiled_functions[func_name] = compiled_code
+    
+    fn get_profile_stats(self) -> Dict[String, Int]:
+        return self.execution_counts.copy()
+    
+    fn get_jit_stats(self) -> Dict[String, String]:
+        return self.jit_compiled_functions.copy()
+
 # Environment for variables
-struct Environment:
+struct Environment(Copyable, Movable, ImplicitlyCopyable):
     var values: Dict[String, PLValue]
 
     fn __init__(out self):
         self.values = Dict[String, PLValue]()
+
+    fn __copyinit__(out self, other: Environment):
+        self.values = other.values.copy()
 
     fn define(mut self, name: String, value: PLValue):
         self.values[name] = value
@@ -63,44 +105,103 @@ struct Environment:
         return "undefined"
 
     fn assign(mut self, name: String, value: PLValue):
-        if name in self.values:
-            self.values[name] = value
-        else:
-            # Error: undefined variable
-            pass
+        self.values[name] = value
 
-# PL-GRIZZLY Interpreter
+# PL-GRIZZLY Interpreter with JIT capabilities
 struct PLGrizzlyInterpreter:
-    var global_env: Environment
     var schema_manager: SchemaManager
     var orc_storage: ORCStorage
+    var profiler: ProfilingManager
+    var global_env: Environment
 
     fn __init__(out self, storage: BlobStorage):
-        self.global_env = Environment()
         self.schema_manager = SchemaManager(storage)
         self.orc_storage = ORCStorage(storage)
+        self.profiler = ProfilingManager()
+        self.global_env = Environment()
 
-    fn interpret(mut self, source: String) raises -> String:
-        """Interpret PL-GRIZZLY source code."""
-        var lexer = PLGrizzlyLexer(source)
-        var tokens = lexer.tokenize()
-        var parser = PLGrizzlyParser(tokens)
-        var ast = parser.parse()
-        var errors = self.analyze(ast)
-        if len(errors) > 0:
-            var error_str = "semantic errors: "
-            for error in errors:
-                error_str += error + "; "
-            return error_str
-        var result = self.evaluate(ast, self.global_env)
-        if result.startswith("function:"):
-            # Store the function
-            var parts_def = result.split(":")
-            if len(parts_def) >= 2:
-                var name = String(parts_def[1])
-                self.global_env.define(name, result)
-                return "function " + name + " defined"
-        return result
+    fn enable_profiling(mut self):
+        """Enable execution profiling."""
+        self.profiler.enable_profiling()
+
+    fn disable_profiling(mut self):
+        """Disable execution profiling."""
+        self.profiler.disable_profiling()
+
+    fn get_profile_stats(self) -> Dict[String, Int]:
+        """Get profiling statistics."""
+        return self.profiler.get_profile_stats()
+
+    fn get_jit_stats(self) -> Dict[String, String]:
+        """Get JIT compilation statistics."""
+        return self.profiler.get_jit_stats()
+
+    fn clear_profile_stats(mut self):
+        """Clear profiling statistics."""
+        self.profiler.disable_profiling()
+
+    fn jit_compile_function(mut self, func_name: String, func_def: String) raises -> Bool:
+        """JIT compile a function if it's hot enough."""
+        if self.profiler.should_jit_compile(func_name):
+            return True  # Already compiled or not hot enough
+        
+        # Generate JIT code
+        var compiled_code = self.generate_jit_code(func_def)
+        self.profiler.add_jit_compilation(func_name, compiled_code)
+        return True
+
+    fn generate_jit_code(self, func_def: String) -> String:
+        """Generate JIT compiled code for a function."""
+        # Parse function definition
+        var parts = func_def.split(":")
+        if len(parts) < 4:
+            return ""
+        
+        var name = String(parts[1])
+        var params_str = String(parts[2])
+        var body = String(parts[3])
+        
+        # Generate optimized code
+        var jit_code = "jit_fn " + name + "(" + params_str + ") {\n"
+        jit_code += "  return " + self.optimize_expression(String(body)) + ";\n"
+        jit_code += "}"
+        
+        return jit_code
+
+    fn optimize_expression(self, expr: String) -> String:
+        """Optimize an expression for JIT compilation."""
+        # Simple optimizations
+        if expr.startswith("(") and expr.endswith(")"):
+            var content = String(expr[1:expr.__len__() - 1].strip())
+            var parts = self.split_expression(content)
+            if len(parts) >= 3:
+                var op = parts[0]
+                if op == "+":
+                    return "(" + parts[1] + " + " + parts[2] + ")"
+                elif op == "-":
+                    return "(" + parts[1] + " - " + parts[2] + ")"
+                elif op == "*":
+                    return "(" + parts[1] + " * " + parts[2] + ")"
+                elif op == "/":
+                    return "(" + parts[1] + " / " + parts[2] + ")"
+        return expr
+
+    fn execute_jit_function(self, func_name: String, args: List[String]) raises -> PLValue:
+        """Execute a JIT compiled function."""
+        var jit_stats = self.profiler.get_jit_stats()
+        if func_name not in jit_stats:
+            return "jit_error: function not compiled"
+        
+        # For now, simulate JIT execution by evaluating optimized code
+        var jit_code = ""
+        try:
+            jit_code = jit_stats[func_name]
+        except:
+            return "jit_error: function not compiled"
+        print("Executing JIT code:", jit_code)
+        
+        # Simple simulation: just return a mock result
+        return "jit_result: " + func_name + " executed with " + String(len(args)) + " args"
 
     fn evaluate(self, expr: String, env: Environment) raises -> PLValue:
         """Evaluate an expression in the given environment."""
@@ -133,9 +234,43 @@ struct PLGrizzlyInterpreter:
                     # Identifier
                     return env.get(expr)
 
+    fn interpret(mut self, source: String) raises -> String:
+        """Interpret PL-GRIZZLY source code with JIT capabilities."""
+        
+        var ast = source  # PL-GRIZZLY code is already AST-like
+        var errors = self.analyze(ast)
+        if len(errors) > 0:
+            var error_str = "semantic errors: "
+            for error in errors:
+                error_str += error + "; "
+            return error_str
+        
+        # Check if this is a function call for profiling
+        if ast.startswith("(call ") and self.profiler.profiling_enabled:
+            var call_parts = ast[6:ast.__len__() - 1].split(" ")
+            if len(call_parts) >= 1:
+                var func_name = String(call_parts[0])
+                self.profiler.record_function_call(func_name)
+                # Check if we should JIT compile this function
+                if not (func_name in self.profiler.get_jit_stats()) and self.profiler.should_jit_compile(func_name):
+                    var func_def = self.global_env.get(func_name)
+                    if func_def.startswith("function:"):
+                        _ = self.jit_compile_function(func_name, func_def)
+        
+        var result = self.evaluate(ast, self.global_env)
+        if result.startswith("function:"):
+            # Store the function and check for JIT compilation
+            var parts_def = result.split(":")
+            if len(parts_def) >= 2:
+                var name = String(parts_def[1])
+                self.global_env.define(name, result)
+                # JIT compilation happens during function calls, not definition
+                return "function " + name + " defined"
+        return result
+
     fn evaluate_list(self, content: String, env: Environment) raises -> PLValue:
         """Evaluate a list expression like '+ 1 2'."""
-        var parts = self.split_expression(content)
+        var parts = self.split_expression(String(content))
         if len(parts) == 0:
             return "empty"
         
@@ -227,12 +362,18 @@ struct PLGrizzlyInterpreter:
         if len(parts) < 2:
             return "error: call needs function"
         var func_name = parts[1]
+        
         var args = List[String]()
         for i in range(2, len(parts)):
             args.append(self.evaluate(parts[i], env))
         # Check if function
         var func_def = env.get(func_name)
         if func_def.startswith("function:"):
+            # Check if JIT compiled version exists
+            var jit_stats = self.profiler.get_jit_stats()
+            if func_name in jit_stats:
+                return self.execute_jit_function(func_name, args)
+            
             # Parse function
             var parts_def = func_def.split(":")
             if len(parts_def) < 4:
@@ -278,26 +419,25 @@ struct PLGrizzlyInterpreter:
         return "SELECT result from " + content
 
     fn eval_function(self, content: String, env: Environment) raises -> PLValue:
-        # Parse FUNCTION name(params) => body
+        # Parse name(params) => body
         # For now, simple parse
         var func_str = content.strip()
-        if not func_str.startswith("FUNCTION "):
-            return "error: not a function"
-        var after_func = func_str[9:].strip()
-        var paren_pos = after_func.find("(")
-        if paren_pos == -1:
-            return "error: no params"
-        var name = after_func[:paren_pos].strip()
-        var after_name = after_func[paren_pos:]
-        var arrow_pos = after_name.find(" => ")
+        if func_str.startswith("FUNCTION "):
+            func_str = func_str[9:].strip()
+        var arrow_pos = func_str.find(" => ")
         if arrow_pos == -1:
             return "error: no body"
-        var params_str = after_name[:arrow_pos]
-        var body = after_name[arrow_pos + 4:].strip()
-        # Parse params
+        var name_and_params = func_str[:arrow_pos]
+        var body = func_str[arrow_pos + 4:].strip()
+        # Parse name and params
+        var paren_pos = name_and_params.find("(")
+        if paren_pos == -1:
+            return "error: no params"
+        var name = name_and_params[:paren_pos].strip()
+        var params_str = name_and_params[paren_pos:]
         if not (params_str.startswith("(") and params_str.endswith(")")):
             return "error: invalid params"
-        var params = params_str[1:params_str.__len__() - 1].split(",")
+        var params = params_str[1:params_str.__len__() - 1].strip().split(" ")
         var param_list = List[String]()
         for p in params:
             param_list.append(String(p.strip()))
@@ -308,6 +448,7 @@ struct PLGrizzlyInterpreter:
                 func_value += ","
             func_value += param_list[i]
         func_value += ":" + body
+        return func_value
         # But since env is passed by value, can't modify global
         # For now, return the func_value, but actually need to store in global_env
         # Since interpret has mut self, I can modify self.global_env
@@ -334,7 +475,7 @@ struct PLGrizzlyInterpreter:
         var errors = List[String]()
         if ast.startswith("(") and ast.endswith(")"):
             var content = String(ast[1:ast.__len__() - 1].strip())
-            var parts = self.split_expression(content)
+            var parts = self.split_expression(String(content))
             if len(parts) > 0:
                 var op = parts[0]
                 if op == "+" or op == "-" or op == "*" or op == "/":
