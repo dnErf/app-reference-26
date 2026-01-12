@@ -11,9 +11,9 @@ from collections import List
 from blob_storage import BlobStorage
 from merkle_tree import MerkleBPlusTree, SHA256Hash
 from index_storage import IndexStorage
-from schema_manager import SchemaManager, Index
+from schema_manager import SchemaManager, DatabaseSchema, Index, Column
 
-struct ORCStorage:
+struct ORCStorage(Movable):
     var storage: BlobStorage
     var merkle_tree: MerkleBPlusTree
     var compression: String
@@ -24,27 +24,20 @@ struct ORCStorage:
     var index_storage: IndexStorage
     var schema_manager: SchemaManager
 
-    fn __init__(out self, storage: BlobStorage, compression: String = "none", use_dictionary_encoding: Bool = True, row_index_stride: Int = 10000, compression_block_size: Int = 65536, bloom_filter_columns: List[String] = List[String]()):
-        self.storage = storage.copy()
+    fn __init__(out self, var storage: BlobStorage, var schema_manager: SchemaManager, var index_storage: IndexStorage, compression: String = "none", use_dictionary_encoding: Bool = True, row_index_stride: Int = 10000, compression_block_size: Int = 65536, var bloom_filter_columns: List[String] = List[String]()):
+        # Use copy() but ensure no recursive copy loops by avoiding __copyinit__
+        self.storage = storage^
         self.merkle_tree = MerkleBPlusTree()
         self.compression = compression
         self.use_dictionary_encoding = use_dictionary_encoding
         self.row_index_stride = row_index_stride
         self.compression_block_size = compression_block_size
-        self.bloom_filter_columns = bloom_filter_columns.copy()
-        self.index_storage = IndexStorage(storage.copy())
-        self.schema_manager = SchemaManager(storage.copy())
+        self.bloom_filter_columns = bloom_filter_columns^
+        self.index_storage = index_storage^
+        self.schema_manager = schema_manager^
 
-    fn __copyinit__(out self, other: Self):
-        self.storage = other.storage.copy()
-        self.merkle_tree = other.merkle_tree.copy()
-        self.compression = other.compression
-        self.use_dictionary_encoding = other.use_dictionary_encoding
-        self.row_index_stride = other.row_index_stride
-        self.compression_block_size = other.compression_block_size
-        self.bloom_filter_columns = other.bloom_filter_columns.copy()
-        self.index_storage = other.index_storage.copy()
-        self.schema_manager = other.schema_manager.copy()
+    # Remove __copyinit__ to avoid compilation loops from complex object copying
+    # ORCStorage instances should be passed by reference, not copied
 
     fn __moveinit__(out self, deinit existing: Self):
         self.storage = existing.storage^
@@ -62,17 +55,19 @@ struct ORCStorage:
         try:
             print("Writing table:", table_name, "with", len(data), "rows")
 
-            # Read existing data first
-            var existing_data = self.read_table(table_name)
-            var all_data = List[List[String]]()
+            # Create table schema if it doesn't exist
+            if len(data) > 0:
+                var schema = self.schema_manager.load_schema()
+                var existing_table = schema.get_table(table_name)
+                if existing_table.name == "":
+                    var columns = List[Column]()
+                    for i in range(len(data[0])):
+                        var col_name = "col_" + String(i)
+                        columns.append(Column(col_name, "string"))
+                    _ = self.schema_manager.create_table(table_name, columns)
 
-            # Add existing data
-            for row in existing_data:
-                all_data.append(row.copy())
-
-            # Add new data
-            for row in data:
-                all_data.append(row.copy())
+            # Use the new data directly (overwrite mode)
+            var all_data = data.copy()
 
             print("Total data rows:", len(all_data))
 
@@ -132,14 +127,17 @@ struct ORCStorage:
                 for col in self.bloom_filter_columns:
                     bloom_filters_py.append(col)
                 
-                # Write ORC data to a temporary file with compression
+                # Write ORC data to a temporary file
                 var temp_filename = table_name + ".orc"
                 print("Writing to temp file:", temp_filename, "with compression:", self.compression)
-                pyarrow_orc.write_table(
-                    arrow_table, 
-                    temp_filename,
-                    compression=self.compression
-                )
+                if self.compression == "none":
+                    pyarrow_orc.write_table(arrow_table, temp_filename)
+                else:
+                    pyarrow_orc.write_table(
+                        arrow_table, 
+                        temp_filename,
+                        compression=self.compression
+                    )
                 print("PyArrow ORC write to file completed with compression")
                 
                 # Read the file back as bytes
@@ -219,9 +217,11 @@ struct ORCStorage:
             column_names.append("__integrity_hash__")
             var hash_data = Python.list()
             for row_idx in range(len(data)):
-                var row_hash = ""
+                var row_hash = table_name + ":"
                 for col_idx in range(num_columns):
-                    row_hash += data[row_idx][col_idx] + "|"
+                    if col_idx > 0:
+                        row_hash += "|"
+                    row_hash += data[row_idx][col_idx]
                 var hash_obj = SHA256Hash.compute(row_hash)
                 hash_data.append(hash_obj)
             
@@ -232,9 +232,13 @@ struct ORCStorage:
             
             print("Converting to ORC...")
             
-            # Convert to ORC format
-            var orc_buffer = pyarrow_orc.ORCWriter(table, compression=self.compression)
-            var orc_bytes = orc_buffer.getvalue()
+            # Convert to ORC format using BytesIO
+            var io = Python.import_module("io")
+            var buffer = io.BytesIO()
+            var writer = pyarrow_orc.ORCWriter(buffer)
+            writer.write(table)
+            writer.close()
+            var orc_bytes = buffer.getvalue()
             
             print("Encoding ORC data...")
             
@@ -346,13 +350,16 @@ struct ORCStorage:
 
     fn create_index(mut self, index_name: String, table_name: String, columns: List[String], index_type: String = "btree", unique: Bool = False) -> Bool:
         """Create an index on a table."""
+        print("DEBUG: Creating index", index_name, "on table", table_name)
         # First, create index in schema
         if not self.schema_manager.create_index(index_name, table_name, columns, index_type, unique):
+            print("DEBUG: Failed to create index in schema")
             return False
 
         # Load table data
         var table_data = self.read_table(table_name)
         if len(table_data) == 0:
+            print("DEBUG: Table is empty")
             return True  # Empty table, index created successfully
 
         # Get column positions
@@ -368,7 +375,7 @@ struct ORCStorage:
         # Build and save index
         return self.index_storage.create_index(index, table_data, column_positions)
 
-    fn drop_index(mut self, index_name: String, table_name: String) -> Bool:
+    fn drop_index(mut self, index_name: String, table_name: String) raises -> Bool:
         """Drop an index from a table."""
         # Drop from schema
         if not self.schema_manager.drop_index(index_name, table_name):
@@ -406,6 +413,14 @@ struct ORCStorage:
                 results.append(table_data[row_id].copy())
 
         return results.copy()
+
+    fn save_schema(mut self, schema: DatabaseSchema) -> Bool:
+        """Save database schema."""
+        return self.schema_manager.save_schema(schema)
+
+    fn create_table(mut self, table_name: String, columns: List[Column]) -> Bool:
+        """Create a table in the schema."""
+        return self.schema_manager.create_table(table_name, columns)
 
 fn pack_database_zstd(folder: String, rich_console: PythonObject) raises:
     """Pack database folder into a .gobi file using ZSTD ORC compression."""

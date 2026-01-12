@@ -1,0 +1,1 @@
+{"name": "default","tables": [{"name": "benchmark_users","columns": [{"name": "id", "type": "INT"},{"name": "name", "type": "STRING"},{"name": "age", "type": "INT"}],"indexes": []},{"name": "benchmark_users","columns": [{"name": "id", "type": "INT"},{"name": "name", "type": "STRING"},{"name": "age", "type": "INT"}],"indexes": []}]}

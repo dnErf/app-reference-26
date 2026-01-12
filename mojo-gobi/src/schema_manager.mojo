@@ -28,7 +28,7 @@ struct Column(Movable, Copyable):
     fn __moveinit__(out self, deinit existing: Self):
         self.name = existing.name^
         self.type = existing.type^
-        self.nullable = existing.nullable^
+        self.nullable = existing.nullable
 struct Index(Movable, Copyable):
     var name: String
     var table_name: String
@@ -57,22 +57,7 @@ struct Index(Movable, Copyable):
         self.type = existing.type^
         self.unique = existing.unique
 
-    fn to_json(self) -> String:
-        """Serialize index to JSON string."""
-        var json = "{"
-        json += "\"name\": \"" + self.name + "\","
-        json += "\"table_name\": \"" + self.table_name + "\","
-        json += "\"type\": \"" + self.type + "\","
-        json += "\"unique\": " + (String("true") if self.unique else String("false")) + ","
-        json += "\"columns\": ["
 
-        for i in range(len(self.columns)):
-            if i > 0:
-                json += ","
-            json += "\"" + self.columns[i] + "\""
-
-        json += "]}"
-        return json
 struct TableSchema(Movable, Copyable):
     var name: String
     var columns: List[Column]
@@ -108,42 +93,27 @@ struct TableSchema(Movable, Copyable):
                 return index.copy()
         return Index("", "", List[String]())
 
-    fn to_json(self) -> String:
-        """Serialize schema to JSON string."""
-        var json = "{"
-        json += "\"name\": \"" + self.name + "\","
-        json += "\"columns\": ["
 
-        for i in range(len(self.columns)):
-            if i > 0:
-                json += ","
-            json += "{\"name\": \"" + self.columns[i].name + "\", \"type\": \"" + self.columns[i].type + "\"}"
-
-        json += "],\"indexes\": ["
-
-        for i in range(len(self.indexes)):
-            if i > 0:
-                json += ","
-            json += self.indexes[i].to_json()
-
-        json += "]}"
-        return json
 
 struct DatabaseSchema(Movable, Copyable):
     var name: String
     var tables: List[TableSchema]
+    var secrets: Dict[String, Dict[String, String]]  # secret_name -> {key -> encrypted_value}
 
     fn __init__(out self, name: String):
         self.name = name
         self.tables = List[TableSchema]()
+        self.secrets = Dict[String, Dict[String, String]]()
 
     fn __copyinit__(out self, other: Self):
         self.name = other.name
         self.tables = other.tables.copy()
+        self.secrets = other.secrets.copy()
 
     fn __moveinit__(out self, deinit existing: Self):
         self.name = existing.name^
         self.tables = existing.tables^
+        self.secrets = existing.secrets^
 
     fn add_table(mut self, table: TableSchema):
         """Add a table to the database schema."""
@@ -156,19 +126,7 @@ struct DatabaseSchema(Movable, Copyable):
                 return table.copy()
         return TableSchema("")
 
-    fn to_json(self) -> String:
-        """Serialize database schema to JSON string."""
-        var json = "{"
-        json += "\"name\": \"" + self.name + "\","
-        json += "\"tables\": ["
 
-        for i in range(len(self.tables)):
-            if i > 0:
-                json += ","
-            json += self.tables[i].to_json()
-
-        json += "]}"
-        return json
 
 struct SchemaManager(Copyable, Movable):
     var storage: BlobStorage
@@ -188,27 +146,115 @@ struct SchemaManager(Copyable, Movable):
 
     fn save_schema(mut self, schema: DatabaseSchema) -> Bool:
         """Save database schema to storage."""
-        var json_data = schema.to_json()
-        return self.storage.write_blob(self.schema_path, json_data)
+        try:
+            var py_dict = Python.dict()
+            py_dict["name"] = schema.name
+            
+            var tables_list = Python.list()
+            for table in schema.tables:
+                var table_dict = Python.dict()
+                table_dict["name"] = table.name
+                
+                var columns_list = Python.list()
+                for col in table.columns:
+                    var col_dict = Python.dict()
+                    col_dict["name"] = col.name
+                    col_dict["type"] = col.type
+                    columns_list.append(col_dict)
+                table_dict["columns"] = columns_list
+                
+                var indexes_list = Python.list()
+                for idx in table.indexes:
+                    var idx_dict = Python.dict()
+                    idx_dict["name"] = idx.name
+                    idx_dict["table_name"] = idx.table_name
+                    idx_dict["type"] = idx.type
+                    idx_dict["unique"] = idx.unique
+                    var cols_list = Python.list()
+                    for col in idx.columns:
+                        cols_list.append(col)
+                    idx_dict["columns"] = cols_list
+                    indexes_list.append(idx_dict)
+                table_dict["indexes"] = indexes_list
+                
+                tables_list.append(table_dict)
+            py_dict["tables"] = tables_list
+            
+            # Save secrets
+            var secrets_dict = Python.dict()
+            for secret_name in schema.secrets:
+                var secret_data = schema.secrets[secret_name].copy()
+                var secret_py_dict = Python.dict()
+                var keys = List[String]()
+                for key in secret_data:
+                    keys.append(key)
+                for key in keys:
+                    var value = secret_data[key]
+                    secret_py_dict[key] = value
+                secrets_dict[secret_name] = secret_py_dict
+            py_dict["secrets"] = secrets_dict
+            
+            var pickle_module = Python.import_module("pickle")
+            var pickled_data = pickle_module.dumps(py_dict)
+            return self.storage.write_blob(self.schema_path, String(pickled_data))
+        except:
+            return False
 
     fn load_schema(self) -> DatabaseSchema:
         """Load database schema from storage."""
-        var json_data = self.storage.read_blob(self.schema_path)
-        print("DEBUG: json_data = '" + json_data + "'")
-        if json_data == "":
-            print("DEBUG: json_data is empty, returning default schema")
+        var data = self.storage.read_blob(self.schema_path)
+        if data == "":
             return DatabaseSchema("default")
 
-        # TODO: Implement proper JSON parsing
-        # For now, return hardcoded schema for testing
-        print("DEBUG: returning hardcoded schema")
-        var schema = DatabaseSchema("godi_db")
-        var users_table = TableSchema("users")
-        users_table.add_column("username", "string")
-        users_table.add_column("password_hash", "string") 
-        users_table.add_column("role", "string")
-        schema.add_table(users_table)
-        return schema.copy()
+        try:
+            var pickle_module = Python.import_module("pickle")
+            var parsed = pickle_module.loads(data)
+            
+            var db_name = String(parsed["name"])
+            var schema = DatabaseSchema(db_name)
+            
+            var tables = parsed["tables"]
+            for i in range(len(tables)):
+                var table_data = tables[i]
+                var table_name = String(table_data["name"])
+                var table_schema = TableSchema(table_name)
+                
+                var columns = table_data["columns"]
+                for j in range(len(columns)):
+                    var col_data = columns[j]
+                    var col_name = String(col_data["name"])
+                    var col_type = String(col_data["type"])
+                    table_schema.add_column(col_name, col_type)
+                
+                var indexes = table_data["indexes"]
+                for k in range(len(indexes)):
+                    var idx_data = indexes[k]
+                    var idx_name = String(idx_data["name"])
+                    var idx_table_name = String(idx_data["table_name"])
+                    var idx_type = String(idx_data["type"])
+                    var idx_unique = Bool(idx_data["unique"])
+                    var idx_columns = List[String]()
+                    var cols = idx_data["columns"]
+                    for col in cols:
+                        idx_columns.append(String(col))
+                    var index = Index(idx_name, idx_table_name, idx_columns, idx_type, idx_unique)
+                    table_schema.add_index(index)
+                
+                schema.add_table(table_schema)
+            
+            # Load secrets
+            if "secrets" in parsed:
+                var secrets_data = parsed["secrets"]
+                for secret_name in secrets_data:
+                    var secret_dict = secrets_data[secret_name]
+                    var secret_kv = Dict[String, String]()
+                    for key in secret_dict:
+                        secret_kv[String(key)] = String(secret_dict[key])
+                    schema.secrets[String(secret_name)] = secret_kv^
+            
+            return schema.copy()
+        except:
+            return DatabaseSchema("default")
 
     fn list_tables(self) -> List[String]:
         """List all table names in the database."""
@@ -295,3 +341,32 @@ struct SchemaManager(Copyable, Movable):
         var schema = self.load_schema()
         var table = schema.get_table(table_name)
         return table.indexes.copy()
+
+    fn store_secret(mut self, name: String, secret_data: Dict[String, String]) -> Bool:
+        """Store an encrypted secret in the database schema."""
+        var schema = self.load_schema()
+        schema.secrets[name] = secret_data.copy()
+        return self.save_schema(schema)
+
+    fn get_secret(mut self, name: String) -> Dict[String, String]:
+        """Retrieve a secret from the database schema."""
+        var schema = self.load_schema()
+        if name in schema.secrets:
+            return schema.secrets[name].copy()
+        return Dict[String, String]()
+
+    fn list_secrets(mut self) -> List[String]:
+        """List all secret names in the database."""
+        var schema = self.load_schema()
+        var secret_names = List[String]()
+        for secret_name in schema.secrets:
+            secret_names.append(secret_name)
+        return secret_names^
+
+    fn delete_secret(mut self, name: String) raises -> Bool:
+        """Delete a secret from the database schema."""
+        var schema = self.load_schema()
+        if name in schema.secrets:
+            _ = schema.secrets.pop(name)
+            return self.save_schema(schema)
+        return False

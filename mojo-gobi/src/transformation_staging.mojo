@@ -199,8 +199,8 @@ struct TransformationStaging:
         
         # Simple hash (in real implementation, use proper hashing)
         var hash_val = 0
-        for c in hash_input:
-            hash_val = (hash_val * 31 + ord(c)) % 1000000007
+        for c in hash_input.codepoints():
+            hash_val = (hash_val * 31 + Int(c)) % 1000000007
         return String(hash_val)
 
     fn _run_data_quality_checks(mut self, model_name: String, environment: String) raises -> ValidationResult:

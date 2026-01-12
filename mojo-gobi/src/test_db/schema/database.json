@@ -1,0 +1,1 @@
+{"name": "default","tables": [{"name": "test_table","columns": [{"name": "id", "type": "INT"},{"name": "name", "type": "STRING"}],"indexes": []}]}

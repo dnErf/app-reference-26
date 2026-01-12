@@ -12,125 +12,78 @@ from blob_storage import BlobStorage
 from schema_manager import Index
 
 struct BTreeIndex(Movable, Copyable):
-    var root: PythonObject  # B-tree implementation using Python's btree or similar
+    var data: Dict[String, List[Int]]  # Use Mojo Dict instead of Python object
     var order: Int
 
     fn __init__(out self, order: Int = 100) raises:
         self.order = order
-        # Initialize Python B-tree (using sortedcontainers or similar)
-        try:
-            var sortedcontainers = Python.import_module("sortedcontainers")
-            self.root = sortedcontainers.SortedDict()
-        except:
-            # Fallback to simple dict if sortedcontainers not available
-            self.root = Python.dict()
+        self.data = Dict[String, List[Int]]()
 
     fn __copyinit__(out self, other: Self):
-        self.root = other.root
+        self.data = other.data.copy()
         self.order = other.order
 
     fn __moveinit__(out self, deinit existing: Self):
-        self.root = existing.root^
+        self.data = existing.data^
         self.order = existing.order
 
-    fn insert(mut self, key: String, row_id: Int):
+    fn insert(mut self, key: String, row_id: Int) raises:
         """Insert a key-row_id pair into the B-tree."""
-        try:
-            var key_list = self.root.get(key, Python.list())
-            if Python.type(key_list) != Python.type(Python.list()):
-                key_list = Python.list()
-            key_list.append(row_id)
-            self.root[key] = key_list
-        except:
-            pass
+        if not (key in self.data):
+            self.data[key] = List[Int]()
+        self.data[key].append(row_id)
 
     fn search(self, key: String) -> List[Int]:
         """Search for row IDs by key."""
-        var results = List[Int]()
         try:
-            var key_list = self.root.get(key, Python.list())
-            if Python.type(key_list) == Python.type(Python.list()):
-                for item in key_list:
-                    results.append(Int(item))
+            if key in self.data:
+                return self.data[key].copy()
         except:
             pass
-        return results
+        return List[Int]()
 
     fn range_search(self, start_key: String, end_key: String) -> List[Int]:
         """Search for row IDs in a key range."""
         var results = List[Int]()
         try:
-            # Get all keys in range
-            var keys = Python.list(self.root.keys())
-            for key in keys:
-                var key_str = String(key)
-                if key_str >= start_key and key_str <= end_key:
-                    var key_list = self.root[key]
-                    if Python.isinstance(key_list, Python.list):
-                        for item in key_list:
-                            results.append(Int(item))
+            for key in self.data.keys():
+                if key >= start_key and key <= end_key:
+                    for row_id in self.data[key]:
+                        results.append(row_id)
         except:
             pass
-        return results
+        return results.copy()
 
 struct HashIndex(Movable, Copyable):
-    var buckets: PythonObject  # Hash table using Python dict
+    var data: Dict[String, List[Int]]  # Use Mojo Dict instead of Python object
     var bucket_count: Int
 
     fn __init__(out self, bucket_count: Int = 1000) raises:
         self.bucket_count = bucket_count
-        self.buckets = Python.dict()
+        self.data = Dict[String, List[Int]]()
 
     fn __copyinit__(out self, other: Self):
-        self.buckets = other.buckets
+        self.data = other.data.copy()
         self.bucket_count = other.bucket_count
 
     fn __moveinit__(out self, deinit existing: Self):
-        self.buckets = existing.buckets^
+        self.data = existing.data^
         self.bucket_count = existing.bucket_count
 
-    fn _hash(self, key: String) -> Int:
-        """Simple hash function for string keys."""
-        var hash_val = 0
-        for c in key:
-            hash_val = (hash_val * 31 + ord(c)) % self.bucket_count
-        return hash_val
-
-    fn insert(mut self, key: String, row_id: Int):
+    fn insert(mut self, key: String, row_id: Int) raises:
         """Insert a key-row_id pair into the hash index."""
-        try:
-            var bucket_key = String(self._hash(key))
-            var bucket = self.buckets.get(bucket_key, Python.list())
-            try:
-                _ = bucket[0]  # Try to access first element to check if it's a list
-            except:
-                bucket = Python.list()
-            bucket.append([key, row_id])
-            self.buckets[bucket_key] = bucket
-        except:
-            pass
+        if not (key in self.data):
+            self.data[key] = List[Int]()
+        self.data[key].append(row_id)
 
     fn search(self, key: String) -> List[Int]:
         """Search for row IDs by key."""
-        var results = List[Int]()
         try:
-            var bucket_key = String(self._hash(key))
-            var bucket = self.buckets.get(bucket_key, Python.list())
-            try:
-                _ = bucket[0]  # Check if it's a list
-                for item in bucket:
-                    try:
-                        if len(item) == 2:
-                            var item_key = String(item[0])
-                            if item_key == key:
-                                results.append(Int(item[1]))
-                    except:
-                        pass
-            except:
-                pass
+            if key in self.data:
+                return self.data[key].copy()
         except:
             pass
-        return results
+        return List[Int]()
 
 struct BitmapIndex(Movable, Copyable):
     var bitmaps: PythonObject  # Dict of bitmaps for each value
@@ -183,23 +136,28 @@ struct BitmapIndex(Movable, Copyable):
                         results.append(i)
         except:
             pass
-        return results
+        return results.copy()
 
 struct IndexStorage(Copyable, Movable):
     var storage: BlobStorage
-    var indexes: Dict[String, PythonObject]  # Map index_name -> index_object
+    var btree_indexes: Dict[String, BTreeIndex]  # Store BTreeIndex objects directly
+    var hash_indexes: Dict[String, HashIndex]
+    var bitmap_indexes: Dict[String, BitmapIndex]
 
     fn __init__(out self, storage: BlobStorage):
         self.storage = storage.copy()
-        self.indexes = Dict[String, PythonObject]()
+        self.btree_indexes = Dict[String, BTreeIndex]()
+        self.hash_indexes = Dict[String, HashIndex]()
+        self.bitmap_indexes = Dict[String, BitmapIndex]()
 
-    fn __copyinit__(out self, other: Self):
-        self.storage = other.storage.copy()
-        self.indexes = other.indexes.copy()
+    # Remove __copyinit__ to avoid compilation loops
+    # IndexStorage instances should be passed by reference, not copied
 
     fn __moveinit__(out self, deinit existing: Self):
         self.storage = existing.storage^
-        self.indexes = existing.indexes^
+        self.btree_indexes = existing.btree_indexes^
+        self.hash_indexes = existing.hash_indexes^
+        self.bitmap_indexes = existing.bitmap_indexes^
 
     fn create_index(mut self, index: Index, table_data: List[List[String]], column_positions: Dict[String, Int]) -> Bool:
         """Create and build an index on table data."""
@@ -210,15 +168,15 @@ struct IndexStorage(Copyable, Movable):
             if index_type == "btree":
                 var btree_index = BTreeIndex()
                 self._build_btree_index(btree_index, index, table_data, column_positions)
-                self.indexes[index_name] = btree_index.root
+                self.btree_indexes[index_name] = btree_index.copy()
             elif index_type == "hash":
                 var hash_index = HashIndex()
                 self._build_hash_index(hash_index, index, table_data, column_positions)
-                self.indexes[index_name] = hash_index.buckets
+                self.hash_indexes[index_name] = hash_index.copy()
             elif index_type == "bitmap":
                 var bitmap_index = BitmapIndex()
                 self._build_bitmap_index(bitmap_index, index, table_data, column_positions)
-                self.indexes[index_name] = bitmap_index.bitmaps
+                self.bitmap_indexes[index_name] = bitmap_index.copy()
             else:
                 return False
 
@@ -259,80 +217,145 @@ struct IndexStorage(Copyable, Movable):
                 key += row[col_pos]
         return key
 
-    fn drop_index(mut self, index_name: String) -> Bool:
+    fn drop_index(mut self, index_name: String) raises -> Bool:
         """Drop an index."""
-        _ = self.indexes.pop(index_name, Python.none())
+        if index_name in self.btree_indexes:
+            _ = self.btree_indexes.pop(index_name)
+        if index_name in self.hash_indexes:
+            _ = self.hash_indexes.pop(index_name)
+        if index_name in self.bitmap_indexes:
+            _ = self.bitmap_indexes.pop(index_name)
         return self._delete_index_file(index_name)
 
-    fn search_index(self, index_name: String, index_type: String, key: String, start_key: String = "", end_key: String = "") -> List[Int]:
+    fn search_index(mut self, index_name: String, index_type: String, key: String, start_key: String = "", end_key: String = "") -> List[Int]:
         """Search an index for matching row IDs."""
         var results = List[Int]()
 
-        # Check if index exists
-        var index_exists = False
-        for k in self.indexes.keys():
-            if k[] == index_name:
-                index_exists = True
-                break
+        # Check if index exists in memory
+        var index_loaded = False
+        if index_type == "btree" and index_name in self.btree_indexes:
+            index_loaded = True
+        elif index_type == "hash" and index_name in self.hash_indexes:
+            index_loaded = True
+        elif index_type == "bitmap" and index_name in self.bitmap_indexes:
+            index_loaded = True
 
-        if not index_exists:
+        if not index_loaded:
             # Try to load from storage
             if not self._load_index(index_name, index_type):
-                return results
+                return results.copy()
 
         try:
             if index_type == "btree":
-                var btree_root = self.indexes[index_name]
-                var btree_index = BTreeIndex()
-                btree_index.root = btree_root
-
+                var btree_index = self.btree_indexes[index_name].copy()
                 if start_key != "" and end_key != "":
                     results = btree_index.range_search(start_key, end_key)
                 else:
                     results = btree_index.search(key)
 
             elif index_type == "hash":
-                var hash_buckets = self.indexes[index_name]
-                var hash_index = HashIndex()
-                hash_index.buckets = hash_buckets
+                var hash_index = self.hash_indexes[index_name].copy()
                 results = hash_index.search(key)
 
             elif index_type == "bitmap":
-                var bitmaps = self.indexes[index_name]
-                var bitmap_index = BitmapIndex()
-                bitmap_index.bitmaps = bitmaps
+                var bitmap_index = self.bitmap_indexes[index_name].copy()
                 results = bitmap_index.search(key)
 
         except:
             pass
 
-        return results
+        return results.copy()
 
     fn _save_index(self, index_name: String, index_type: String) -> Bool:
-        """Save index to storage."""
+        """Save index to storage using pickle."""
         try:
-            var index_data = self.indexes[index_name]
-            # Serialize Python object to JSON string
-            var json_module = Python.import_module("json")
-            var json_str = json_module.dumps(index_data)
-            return self.storage.write_blob("indexes/" + index_name + ".json", String(json_str))
+            var pickle_module = Python.import_module("pickle")
+            var data_dict = Python.dict()
+
+            if index_type == "btree" and index_name in self.btree_indexes:
+                var btree_index = self.btree_indexes[index_name].copy()
+                # Convert Mojo Dict[String, List[Int]] to Python dict
+                var keys = List[String]()
+                for key in btree_index.data.keys():
+                    keys.append(key)
+                for key in keys:
+                    var row_ids = btree_index.data[key].copy()
+                    var py_list = Python.list()
+                    for row_id in row_ids:
+                        py_list.append(row_id)
+                    data_dict[key] = py_list
+            elif index_type == "hash" and index_name in self.hash_indexes:
+                var hash_index = self.hash_indexes[index_name].copy()
+                # Convert Mojo Dict[String, List[Int]] to Python dict
+                var keys = List[String]()
+                for key in hash_index.data.keys():
+                    keys.append(key)
+                for key in keys:
+                    var row_ids = hash_index.data[key].copy()
+                    var py_list = Python.list()
+                    for row_id in row_ids:
+                        py_list.append(row_id)
+                    data_dict[key] = py_list
+            elif index_type == "bitmap" and index_name in self.bitmap_indexes:
+                # For bitmap indexes, store the Python object directly
+                var bitmap_index = self.bitmap_indexes[index_name].copy()
+                data_dict["bitmaps"] = bitmap_index.bitmaps
+                data_dict["max_row_id"] = bitmap_index.max_row_id
+            else:
+                return False
+
+            var pickled_data = pickle_module.dumps(data_dict)
+            return self.storage.write_blob("indexes/" + index_name + ".pkl", String(pickled_data))
         except:
             return False
 
     fn _load_index(mut self, index_name: String, index_type: String) -> Bool:
-        """Load index from storage."""
+        """Load index from storage using pickle."""
         try:
-            var json_str = self.storage.read_blob("indexes/" + index_name + ".json")
-            if json_str == "":
+            var data = self.storage.read_blob("indexes/" + index_name + ".pkl")
+            if data == "":
                 return False
 
-            var json_module = Python.import_module("json")
-            var index_data = json_module.loads(json_str)
-            self.indexes[index_name] = index_data
+            var pickle_module = Python.import_module("pickle")
+            var data_dict = pickle_module.loads(data)
+
+            if index_type == "btree":
+                var btree_index = BTreeIndex()
+                # Parse the pickled data back into Dict[String, List[Int]]
+                var keys = Python.list(data_dict.keys())
+                for key in keys:
+                    var key_str = String(key)
+                    var py_list = data_dict[key_str]
+                    var row_ids = List[Int]()
+                    for item in py_list:
+                        row_ids.append(Int(item))
+                    btree_index.data[key_str] = row_ids.copy()
+                self.btree_indexes[index_name] = btree_index.copy()
+            elif index_type == "hash":
+                var hash_index = HashIndex()
+                var keys = Python.list(data_dict.keys())
+                for key in keys:
+                    var key_str = String(key)
+                    var py_list = data_dict[key_str]
+                    var row_ids = List[Int]()
+                    for item in py_list:
+                        row_ids.append(Int(item))
+                    hash_index.data[key_str] = row_ids.copy()
+                self.hash_indexes[index_name] = hash_index.copy()
+            elif index_type == "bitmap":
+                var bitmap_index = BitmapIndex()
+                bitmap_index.bitmaps = data_dict["bitmaps"]
+                bitmap_index.max_row_id = Int(data_dict["max_row_id"])
+                self.bitmap_indexes[index_name] = bitmap_index.copy()
+
             return True
         except:
             return False
 
+
     fn _delete_index_file(self, index_name: String) -> Bool:
         """Delete index file from storage."""
-        return self.storage.delete_blob("indexes/" + index_name + ".json")
+        # Try to delete both pickle and JSON files for backward compatibility
+        var pickle_deleted = self.storage.delete_blob("indexes/" + index_name + ".pkl")
+        var json_deleted = self.storage.delete_blob("indexes/" + index_name + ".json")
+        return pickle_deleted or json_deleted

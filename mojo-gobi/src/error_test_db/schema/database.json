@@ -1,0 +1,1 @@
+{"name": "default","tables": [{"name": "empty_table","columns": [{"name": "id", "type": "INT"},{"name": "name", "type": "STRING"}],"indexes": []},{"name": "empty_table","columns": [{"name": "id", "type": "INT"},{"name": "name", "type": "STRING"}],"indexes": []},{"name": "empty_table","columns": [{"name": "id", "type": "INT"},{"name": "name", "type": "STRING"}],"indexes": []}]}

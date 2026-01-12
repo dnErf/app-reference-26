@@ -26,3 +26,28 @@
     - jit compiler
     - python like
     - linq query (https://learn.microsoft.com/en-us/dotnet/csharp/linq/get-started/introduction-to-linq-queries)
+
+- type secret
+```
+INSTALL httpfs;
+LOAD io, math, httpfs;
+
+-- Attach Files
+ATTACH 'other_database.db'
+ATTACH 'same_folder.sql'
+
+-- highly secured encrypted secret text
+TYPE SECRET AS Github_Token (kind: 'https', key: 'authentication', value: 'bearer ghp_your_github_token_here');
+
+WITH (select * from CTE) SELECT * FROM 'https://api.github.com/repos/owner/repo/issues' WITH SECRET ['github_token','other_secret']
+
+-- Export data to authenticated endpoint
+COPY (SELECT * FROM users WHERE active = true) 
+TO 'https://api.example.com/upload' WITH SECRET ['one_value_secret_like_array']
+
+-- List all secrets
+SHOW SECRETS
+
+-- Delete a secret
+DROP SECRET secret_name 
+```

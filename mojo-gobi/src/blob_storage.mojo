@@ -109,13 +109,13 @@ struct BlobStorage(Movable, Copyable):
                         results.append(rel_path)
         except:
             pass
-        return results
+        return results.copy()
 
     fn blob_exists(self, path: String) -> Bool:
         """Check if a blob exists."""
         try:
             var full_path = self.root_path + "/" + path
             var file_info = self.fs.get_file_info(full_path)
-            return file_info.is_file
+            return Bool(file_info.is_file)
         except:
             return False

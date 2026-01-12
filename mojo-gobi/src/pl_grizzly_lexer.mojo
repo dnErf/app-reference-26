@@ -29,8 +29,8 @@ fn get_keywords() -> Dict[String, String]:
     keywords["VIEW"] = VIEW
     keywords["refresh"] = REFRESH
     keywords["REFRESH"] = REFRESH
-    keywords["import"] = IMPORT
-    keywords["IMPORT"] = IMPORT
+    keywords["load"] = LOAD
+    keywords["LOAD"] = LOAD
     keywords["update"] = UPDATE
     keywords["UPDATE"] = UPDATE
     keywords["delete"] = DELETE
@@ -57,8 +57,9 @@ fn get_keywords() -> Dict[String, String]:
     keywords["DETACH"] = DETACH
     keywords["all"] = ALL
     keywords["ALL"] = ALL
-    keywords["list"] = LIST
-    keywords["LIST"] = LIST
+    keywords["array"] = ARRAY
+    keywords["ARRAY"] = ARRAY
+    keywords["Array"] = ARRAY
     keywords["attached"] = ATTACHED
     keywords["ATTACHED"] = ATTACHED
     keywords["as"] = AS
@@ -109,6 +110,8 @@ fn get_keywords() -> Dict[String, String]:
     keywords["FOR"] = FOR
     keywords["while"] = WHILE
     keywords["WHILE"] = WHILE
+    keywords["then"] = THEN
+    keywords["THEN"] = THEN
     keywords["case"] = CASE
     keywords["CASE"] = CASE
     keywords["in"] = IN
@@ -123,6 +126,10 @@ fn get_keywords() -> Dict[String, String]:
     keywords["TRUE"] = TRUE
     keywords["false"] = FALSE
     keywords["FALSE"] = FALSE
+    keywords["break"] = BREAK
+    keywords["BREAK"] = BREAK
+    keywords["continue"] = CONTINUE
+    keywords["CONTINUE"] = CONTINUE
     keywords["and"] = AND
     keywords["AND"] = AND
     keywords["or"] = OR
@@ -137,6 +144,14 @@ fn get_keywords() -> Dict[String, String]:
     keywords["VALUES"] = VALUES
     keywords["set"] = SET
     keywords["SET"] = SET
+    keywords["show"] = SHOW
+    keywords["SHOW"] = SHOW
+    keywords["secret"] = SECRET
+    keywords["SECRET"] = SECRET
+    keywords["drop_secret"] = DROP_SECRET
+    keywords["DROP_SECRET"] = DROP_SECRET
+    keywords["secrets"] = SECRETS
+    keywords["SECRETS"] = SECRETS
     return keywords^
 alias SELECT = "SELECT"
 alias FROM = "FROM"
@@ -147,7 +162,7 @@ alias INDEX = "INDEX"
 alias MATERIALIZED = "MATERIALIZED"
 alias VIEW = "VIEW"
 alias REFRESH = "REFRESH"
-alias IMPORT = "IMPORT"
+alias LOAD = "LOAD"
 alias UPDATE = "UPDATE"
 alias DELETE = "DELETE"
 alias LOGIN = "LOGIN"
@@ -161,7 +176,7 @@ alias ON = "ON"
 alias ATTACH = "ATTACH"
 alias DETACH = "DETACH"
 alias ALL = "ALL"
-alias LIST = "LIST"
+alias ARRAY = "ARRAY"
 alias ATTACHED = "ATTACHED"
 alias AS = "AS"
 alias CACHE = "CACHE"
@@ -188,6 +203,7 @@ alias ELSE = "ELSE"
 alias MATCH = "MATCH"
 alias FOR = "FOR"
 alias WHILE = "WHILE"
+alias THEN = "THEN"
 alias CASE = "CASE"
 alias IN = "IN"
 alias TRY = "TRY"
@@ -195,6 +211,8 @@ alias CATCH = "CATCH"
 alias LET = "LET"
 alias TRUE = "TRUE"
 alias FALSE = "FALSE"
+alias BREAK = "BREAK"
+alias CONTINUE = "CONTINUE"
 
 # Operators
 alias EQUALS = "="
@@ -224,6 +242,8 @@ alias LBRACE = "{"
 alias RBRACE = "}"
 alias LBRACKET = "["
 alias RBRACKET = "]"
+alias LANGLE = "<"
+alias RANGLE = ">"
 alias COMMA = ","
 alias SEMICOLON = ";"
 alias COLON = ":"
@@ -233,6 +253,10 @@ alias INSERT = "INSERT"
 alias INTO = "INTO"
 alias VALUES = "VALUES"
 alias SET = "SET"
+alias SHOW = "SHOW"
+alias SECRET = "SECRET"
+alias DROP_SECRET = "DROP_SECRET"
+alias SECRETS = "SECRETS"
 
 # Literals and identifiers
 alias IDENTIFIER = "IDENTIFIER"
@@ -296,8 +320,8 @@ struct PLGrizzlyLexer:
         elif c == ")":
             self.add_token(RPAREN)
         elif c == "{":
-            # Check if this is a variable {name} or just a brace
-            if self.is_alpha(self.peek()):
+            # Check if this is a variable {identifier} or just a brace
+            if self.is_variable_syntax():
                 self.variable()
             else:
                 self.add_token(LBRACE)
@@ -364,7 +388,7 @@ struct PLGrizzlyLexer:
             if self.match("="):
                 self.add_token(GREATER_EQUAL)
             else:
-                self.add_token(GREATER)
+                self.add_token(RANGLE)
         elif c == "<":
             if self.match("="):
                 self.add_token(LESS_EQUAL)
@@ -386,8 +410,8 @@ struct PLGrizzlyLexer:
                 self.add_token(COALESCE)
             else:
                 self.add_token(UNKNOWN, "?")
-        elif c == "\"":
-            self.string()
+        elif c == "\"" or c == "'":
+            self.string(c)
         elif self.is_digit(c):
             self.number()
         elif self.is_alpha(c):
@@ -445,12 +469,40 @@ struct PLGrizzlyLexer:
     fn is_alpha(self, c: String) -> Bool:
         return (c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or c == "_"
 
-    fn is_alphanumeric(self, c: String) -> Bool:
-        return self.is_alpha(c) or self.is_digit(c)
+    fn is_variable_syntax(mut self) -> Bool:
+        """Check if this is a variable syntax {identifier}."""
+        var saved_current = self.current
+        var saved_column = self.column
+        
+        # Skip the {
+        _ = self.advance()
+        
+        # Check if followed by identifier
+        if not self.is_alpha(self.peek()):
+            # Restore position
+            self.current = saved_current
+            self.column = saved_column
+            return False
+        
+        # Consume identifier
+        while self.is_alphanumeric(self.peek()):
+            _ = self.advance()
+        
+        # Check if followed by }
+        if self.peek() != "}":
+            # Restore position
+            self.current = saved_current
+            self.column = saved_column
+            return False
+        
+        # Restore position
+        self.current = saved_current
+        self.column = saved_column
+        return True
 
-    fn string(mut self):
+    fn string(mut self, quote_char: String):
         """Parse a string literal."""
-        while self.peek() != "\"" and not self.is_at_end():
+        while self.peek() != quote_char and not self.is_at_end():
             if self.peek() == "\n":
                 self.line += 1
                 self.column = 1
@@ -460,7 +512,7 @@ struct PLGrizzlyLexer:
             self.add_token(UNKNOWN, "Unterminated string")
             return
 
-        _ = self.advance()  # consume the closing "
+        _ = self.advance()  # consume the closing quote
         var value = String(self.source[self.start + 1:self.current - 1])
         self.add_token(STRING, value)
 
@@ -497,6 +549,9 @@ struct PLGrizzlyLexer:
         _ = self.advance()  # consume the closing }
         var value = String(self.source[self.start + 1:self.current - 1])
         self.add_token(VARIABLE, value)
+
+    fn is_alphanumeric(self, c: String) -> Bool:
+        return self.is_alpha(c) or self.is_digit(c)
 
     fn get_keyword_type(self, text: String) -> String:
         """Get the token type for keywords using O(1) dictionary lookup."""
