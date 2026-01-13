@@ -15,7 +15,7 @@ from schema_manager import SchemaManager, Column
 from extensions.httpfs import HTTPFSExtension
 from extensions.pyarrow_reader import PyArrowFileReader
 from extensions.pyarrow_writer import PyArrowFileWriter
-from python import Python
+from python import Python, PythonObject
 
 struct ASTEvaluator:
     var symbol_table: SymbolTable
@@ -738,7 +738,7 @@ struct ASTEvaluator:
 
         # Apply ORDER BY clause if present
         if order_clause:
-            result_data = self._apply_order_by_ast(result_data, order_clause.value(), selected_columns)
+            result_data = self._apply_order_by_ast_old(result_data, order_clause.value(), selected_columns)
 
         # Format result as string for now (skip for THEN execution)
         if then_clause:
@@ -2166,9 +2166,425 @@ struct ASTEvaluator:
 
     fn eval_join_select(mut self, node: ASTNode, from_clause: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate SELECT with JOIN operations."""
-        return PLValue("string", "JOIN evaluation placeholder - not fully implemented")
+        # Extract select list
+        var select_list: Optional[ASTNode] = None
+        for child in node.children:
+            if child.node_type == "SELECT_LIST":
+                select_list = child.copy()
+                break
+        
+        # Parse FROM clause to get base table and joins
+        var base_table: Optional[ASTNode] = None
+        var joins = List[ASTNode]()
+        
+        for child in from_clause.children:
+            if child.node_type == "TABLE_REFERENCE":
+                base_table = child.copy()
+            elif child.node_type == AST_JOIN or child.node_type == AST_LEFT_JOIN or child.node_type == AST_RIGHT_JOIN or child.node_type == AST_FULL_JOIN or child.node_type == AST_INNER_JOIN or child.node_type == AST_ANTI_JOIN:
+                joins.append(child.copy())
+        
+        if not base_table:
+            return PLValue.enhanced_error(PLGrizzlyError.syntax_error(
+                "JOIN requires a base table", node.line, node.column, self._get_source_line(node.line)
+            ))
+        
+        # Start with base table data
+        var result_list = self.eval_table_reference(base_table.value(), env, orc_storage)
+        if result_list.type == "error":
+            return result_list
+        
+        # Apply each JOIN
+        for join_node in joins:
+            var join_result = self.eval_single_join(result_list, join_node, env, orc_storage)
+            if join_result.type == "error":
+                return join_result
+            result_list = join_result
+        
+        # Apply WHERE clause if present
+        var where_clause: Optional[ASTNode] = None
+        for child in node.children:
+            if child.node_type == "WHERE":
+                where_clause = child.copy()
+                break
+        
+        if where_clause:
+            result_list = self._apply_where_clause_ast(result_list, where_clause.value(), env, orc_storage)
+        
+        # Apply SELECT list (projection)
+        if select_list:
+            result_list = self._apply_select_list_ast(result_list, select_list.value(), env, orc_storage)
+        
+        # Apply GROUP BY if present
+        var group_clause: Optional[ASTNode] = None
+        for child in node.children:
+            if child.node_type == "GROUP_BY":
+                group_clause = child.copy()
+                break
+        
+        if group_clause:
+            result_list = self._apply_group_by_ast(result_list, group_clause.value(), select_list.value(), env, orc_storage)
+        
+        # Apply ORDER BY if present
+        var order_clause: Optional[ASTNode] = None
+        for child in node.children:
+            if child.node_type == "ORDER_BY":
+                order_clause = child.copy()
+                break
+        
+        if order_clause:
+            result_list = self._apply_order_by_ast(result_list, order_clause.value(), env, orc_storage)
+        
+        return result_list
 
-    fn _apply_order_by_ast(mut self, result_data: List[List[String]], order_clause: ASTNode, selected_columns: List[String]) raises -> List[List[String]]:
+    fn eval_single_join(mut self, left_data: PLValue, join_node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate a single JOIN operation."""
+        if len(join_node.children) < 2:
+            return PLValue.enhanced_error(PLGrizzlyError.syntax_error(
+                "JOIN node must have table and condition", join_node.line, join_node.column, self._get_source_line(join_node.line)
+            ))
+        
+        # Get the joined table
+        var joined_table = join_node.children[0].copy()
+        var join_condition = join_node.children[1].copy()
+        
+        # Evaluate the joined table
+        var right_data = self.eval_table_reference(joined_table, env, orc_storage)
+        if right_data.type == "error":
+            return right_data
+        
+        if left_data.type != "list" or right_data.type != "list":
+            return PLValue.enhanced_error(PLGrizzlyError.syntax_error(
+                "JOIN operands must be lists", join_node.line, join_node.column, self._get_source_line(join_node.line)
+            ))
+        
+        var left_list = left_data.get_list()
+        var right_list = right_data.get_list()
+        var joined = List[PLValue]()
+        
+        # Perform nested loop join
+        for left_row in left_list:
+            for right_row in right_list:
+                if left_row.is_struct() and right_row.is_struct():
+                    # Create combined environment for condition evaluation
+                    var combined_env = env.copy()
+                    
+                    # Add left row fields to environment
+                    for key in left_row.get_struct().keys():
+                        combined_env.define(key, left_row.get_struct()[key])
+                    
+                    # Add right row fields to environment
+                    for key in right_row.get_struct().keys():
+                        combined_env.define(key, right_row.get_struct()[key])
+                    
+                    # Evaluate the ON condition
+                    var condition_result = self.evaluate(join_condition, combined_env, orc_storage)
+                    if condition_result.type == "error":
+                        return condition_result
+                    
+                    if condition_result.is_truthy():
+                        # Combine the structs
+                        var combined_struct = Dict[String, PLValue]()
+                        
+                        # Add all fields from left row
+                        for key in left_row.get_struct().keys():
+                            combined_struct[key] = left_row.get_struct()[key]
+                        
+                        # Add all fields from right row
+                        for key in right_row.get_struct().keys():
+                            combined_struct[key] = right_row.get_struct()[key]
+                        
+                        joined.append(PLValue.struct(combined_struct))
+        
+        return PLValue.list(joined)
+
+    fn eval_table_reference(mut self, table_node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate a table reference (TABLE_REFERENCE AST node)."""
+        var table_name = table_node.get_attribute("table")
+        var table_alias = table_node.get_attribute("alias")
+        
+        # Try to read from ORC storage first
+        var table_data = orc_storage.read_table(table_name)
+        if len(table_data) > 0:
+            # Convert to PLValue list of structs
+            var result_list = List[PLValue]()
+            
+            # Get column names from schema
+            var column_names = List[String]()
+            try:
+                var schema = orc_storage.schema_manager.load_schema()
+                var table_schema = schema.get_table(table_name)
+                for col in table_schema.columns:
+                    column_names.append(col.name)
+            except:
+                # If schema not available, use generic column names
+                if len(table_data) > 0 and len(table_data[0]) > 0:
+                    for i in range(len(table_data[0])):
+                        column_names.append("col" + String(i))
+            
+            for row in table_data:
+                var row_struct = Dict[String, PLValue]()
+                for i in range(len(column_names)):
+                    if i < len(row):
+                        row_struct[column_names[i]] = PLValue("string", row[i])
+                result_list.append(PLValue.struct(row_struct))
+            
+            return PLValue.list(result_list)
+        
+        # If not found in ORC storage, try as file reference
+        if table_name.startswith("'") and table_name.endswith("'"):
+            table_name = table_name[1:-1]  # Remove quotes
+        
+        # Try to read as JSON file
+        try:
+            var file_data = self._read_json_file(table_name)
+            if file_data.type != "error":
+                return file_data
+        except:
+            pass
+        
+        # Try environment variable
+        var env_data = env.get(table_name)
+        if env_data.type != "error":
+            return env_data
+        
+        return PLValue.enhanced_error(PLGrizzlyError.syntax_error(
+            "Table or file not found: " + table_name, table_node.line, table_node.column, self._get_source_line(table_node.line)
+        ))
+
+    fn _read_json_file(mut self, file_path: String) raises -> PLValue:
+        """Read JSON file and return as PLValue."""
+        try:
+            Python.add_to_path(".")
+            var json = Python.import_module("json")
+            var os = Python.import_module("os")
+            
+            if not os.path.exists(file_path):
+                return PLValue("error", "File not found: " + file_path)
+            
+            var file = open(file_path, "r")
+            var content = file.read()
+            file.close()
+            
+            var data = json.loads(content)
+            return self._python_to_plvalue(data)
+        except:
+            return PLValue("error", "Failed to read JSON file: " + file_path)
+
+    fn _python_to_plvalue(mut self, py_obj: PythonObject) raises -> PLValue:
+        """Convert Python object to PLValue."""
+        if py_obj.isinstance(Python.evaluate("list")):
+            var result_list = List[PLValue]()
+            for item in py_obj:
+                result_list.append(self._python_to_plvalue(item))
+            return PLValue.list(result_list)
+        elif py_obj.isinstance(Python.evaluate("dict")):
+            var result_struct = Dict[String, PLValue]()
+            for key in py_obj.keys():
+                var key_str = String(key)
+                result_struct[key_str] = self._python_to_plvalue(py_obj[key])
+            return PLValue.struct(result_struct)
+        else:
+            return PLValue("string", String(py_obj))
+
+    fn _apply_where_clause_ast(mut self, data: PLValue, where_node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Apply WHERE clause filtering using AST."""
+        if data.type != "list":
+            return data
+        
+        var result_list = List[PLValue]()
+        var original_list = data.get_list()
+        
+        for row in original_list:
+            if row.is_struct():
+                # Temporarily add row data to env
+                var added_keys = List[String]()
+                for key in row.get_struct().keys():
+                    var existing = env.get(key)
+                    if existing.type == "error":  # Key doesn't exist
+                        env.define(key, row.get_struct()[key])
+                        added_keys.append(key)
+                
+                # Evaluate condition
+                var condition_result = self.evaluate(where_node.children[0], env, orc_storage)
+                if condition_result.type != "error" and condition_result.is_truthy():
+                    result_list.append(row)
+                
+                # Remove temporarily added keys
+                for key in added_keys:
+                    _ = env.values.pop(key, PLValue("null"))
+            else:
+                # If not a struct, include it
+                result_list.append(row)
+        
+        return PLValue.list(result_list)
+
+    fn _apply_select_list_ast(mut self, data: PLValue, select_node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Apply SELECT list projection using AST."""
+        if data.type != "list":
+            return data
+        
+        var result_list = List[PLValue]()
+        var original_list = data.get_list()
+        
+        for row in original_list:
+            if row.is_struct():
+                var projected_struct = Dict[String, PLValue]()
+                
+                for select_item in select_node.children:
+                    if select_item.node_type == "SELECT_ITEM":
+                        # Handle qualified column references like table.column
+                        var expression = select_item.children[0].copy()
+                        var col_alias = select_item.get_attribute("alias")
+                        
+                        if expression.node_type == "IDENTIFIER":
+                            var col_name = expression.value
+                            if col_name in row.get_struct():
+                                var field_name = col_alias if col_alias != "" else col_name
+                                projected_struct[field_name] = row.get_struct()[col_name]
+                        elif expression.node_type == "BINARY_OP" or expression.node_type == "LITERAL":
+                            # Temporarily add row data to env
+                            var added_keys = List[String]()
+                            for key in row.get_struct().keys():
+                                var existing = env.get(key)
+                                if existing.type == "error":  # Key doesn't exist
+                                    env.define(key, row.get_struct()[key])
+                                    added_keys.append(key)
+                            
+                            var expr_result = self.evaluate(expression, env, orc_storage)
+                            var field_name = col_alias if col_alias != "" else "expr"
+                            projected_struct[field_name] = expr_result
+                            
+                            # Remove temporarily added keys
+                            for key in added_keys:
+                                _ = env.values.pop(key, PLValue("null"))
+                
+                result_list.append(PLValue.struct(projected_struct))
+            else:
+                result_list.append(row)
+        
+        return PLValue.list(result_list)
+
+    fn _apply_group_by_ast(mut self, data: PLValue, group_node: ASTNode, select_node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Apply GROUP BY clause using AST."""
+        if data.type != "list":
+            return data
+        
+        var groups = Dict[String, List[PLValue]]()
+        var original_list = data.get_list()
+        
+        # Parse group columns
+        var group_columns = List[String]()
+        for child in group_node.children:
+            if child.node_type == "IDENTIFIER":
+                group_columns.append(child.value)
+        
+        # Group rows
+        for row in original_list:
+            if row.is_struct():
+                var group_key = ""
+                for col in group_columns:
+                    if col in row.get_struct():
+                        group_key += row.get_struct()[col].__str__() + "|"
+                    else:
+                        group_key += "NULL|"
+                
+                if group_key not in groups:
+                    groups[group_key] = List[PLValue]()
+                groups[group_key].append(row)
+        
+        # Apply aggregation to each group
+        var grouped_results = List[PLValue]()
+        for group in groups.values():
+            if len(group) > 0:
+                var aggregated_row = self._apply_aggregates_to_group_ast(group, select_node, env, orc_storage)
+                grouped_results.append(aggregated_row)
+        
+        return PLValue.list(grouped_results)
+
+    fn _apply_aggregates_to_group_ast(mut self, group: List[PLValue], select_node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Apply aggregate functions to a group using AST."""
+        var result_struct = Dict[String, PLValue]()
+        
+        for select_item in select_node.children:
+            if select_item.node_type == "SELECT_ITEM":
+                var expression = select_item.children[0].copy()
+                var col_alias = select_item.get_attribute("alias")
+                
+                if expression.node_type == "FUNCTION_CALL":
+                    var func_name = expression.value
+                    var field_name = col_alias if col_alias != "" else func_name
+                    
+                    if func_name == "COUNT":
+                        result_struct[field_name] = PLValue("number", String(len(group)))
+                    elif func_name == "SUM" and len(expression.children) > 0:
+                        var sum_val = 0.0
+                        var col_expr = expression.children[0].copy()
+                        if col_expr.node_type == "IDENTIFIER":
+                            var col_name = col_expr.value
+                            for row in group:
+                                if row.is_struct() and col_name in row.get_struct():
+                                    var val = row.get_struct()[col_name]
+                                    if val.type == "number":
+                                        sum_val += Float64(val.value)
+                        result_struct[field_name] = PLValue("number", String(sum_val))
+                    # Add more aggregates as needed
+                elif expression.node_type == "IDENTIFIER":
+                    # Group column - take first value
+                    var col_name = expression.value
+                    var field_name = col_alias if col_alias != "" else col_name
+                    if len(group) > 0 and group[0].is_struct() and col_name in group[0].get_struct():
+                        result_struct[field_name] = group[0].get_struct()[col_name]
+        
+        return PLValue.struct(result_struct)
+
+    fn _apply_order_by_ast(mut self, data: PLValue, order_node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Apply ORDER BY clause using AST."""
+        if data.type != "list":
+            return data
+        
+        var result_list = data.get_list().copy()
+        
+        # Simple bubble sort for now
+        for i in range(len(result_list)):
+            for j in range(i + 1, len(result_list)):
+                if self._compare_rows_for_order(result_list[i], result_list[j], order_node, env) > 0:
+                    var temp = result_list[i]
+                    result_list[i] = result_list[j]
+                    result_list[j] = temp
+        
+        return PLValue.list(result_list)
+
+    fn _compare_rows_for_order(mut self, row1: PLValue, row2: PLValue, order_node: ASTNode, mut env: Environment) raises -> Int:
+        """Compare two rows for ordering."""
+        if not row1.is_struct() or not row2.is_struct():
+            return 0
+        
+        for order_spec in order_node.children:
+            var col_name = order_spec.value
+            var direction = order_spec.get_attribute("direction")
+            if direction == "":
+                direction = "ASC"
+            
+            var val1 = row1.get_struct().get(col_name, PLValue("string", ""))
+            var val2 = row2.get_struct().get(col_name, PLValue("string", ""))
+            
+            var val1_str = val1.__str__()
+            var val2_str = val2.__str__()
+            if val1_str < val2_str:
+                cmp = -1
+            elif val1_str > val2_str:
+                cmp = 1
+            else:
+                cmp = 0
+            if direction == "DESC":
+                cmp = -cmp
+            
+            if cmp != 0:
+                return cmp
+        
+        return 0
+
+    fn _apply_order_by_ast_old(mut self, result_data: List[List[String]], order_clause: ASTNode, selected_columns: List[String]) raises -> List[List[String]]:
         """Apply ORDER BY clause to result data using AST-based sorting."""
         if len(order_clause.children) == 0:
             return result_data.copy()

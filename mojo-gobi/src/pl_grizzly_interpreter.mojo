@@ -961,46 +961,44 @@ struct PLGrizzlyInterpreter:
         
         # Handle JOIN if present
         if join_table != "":
-            # TODO: Implement JOIN
-            return PLValue("error", "JOIN not yet implemented")
-            # var join_data = self.evaluate(join_table, env)
-            # if join_data.type != "list":
-            #     return PLValue("error", "JOIN table must evaluate to a list")
-            # var join_list = join_data.get_list()
-            # var joined = List[PLValue]()
-            # for row1 in result_list:
-            #     for row2 in join_list:
-            #         if row1.is_struct() and row2.is_struct():
-            #             var row1_env = env.copy()
-            #             for key in row1.get_struct().keys():
-            #                 row1_env.define(key, row1.get_struct()[key])
-            #             var row2_env = env.copy()
-            #             for key in row2.get_struct().keys():
-            #                 row2_env.define(key, row2.get_struct()[key])
-            #             # Combine envs for condition
-            #             var combined_env = Environment()
-            #             # Copy all from row1_env
-            #             for entry in row1_env.values.items():
-            #                 combined_env.values[entry.key] = entry.value
-            #             # Copy all from row2_env  
-            #             for entry in row2_env.values.items():
-            #                 combined_env.values[entry.key] = entry.value
-            #             var cond = self.evaluate(on_condition, combined_env)
-            #             if cond.is_truthy():
-            #                 # Combine structs
-            #                 var row1_struct = row1.get_struct()
-            #                 var row2_struct = row2.get_struct()
-            #                 var combined_struct = Dict[String, PLValue]()
-            #                 for key in row1_struct.keys():
-            #                     combined_struct[key] = row1_struct[key]
-            #                 for key in row2_struct.keys():
-            #                     combined_struct[key] = row2_struct[key]
-            #                 joined.append(PLValue.struct(combined_struct))
-            #         else:
-            #             # If not structs, just add pairs
-            #             joined.append(row1)
-            #             joined.append(row2)
-            # result_list = joined
+            var join_data = self.evaluate(join_table, env)
+            if join_data.type != "list":
+                return PLValue("error", "JOIN table must evaluate to a list")
+            var join_list = join_data.get_list()
+            var joined = List[PLValue]()
+            for row1 in result_list:
+                for row2 in join_list:
+                    if row1.is_struct() and row2.is_struct():
+                        var row1_env = env.copy()
+                        for key in row1.get_struct().keys():
+                            row1_env.define(key, row1.get_struct()[key])
+                        var row2_env = env.copy()
+                        for key in row2.get_struct().keys():
+                            row2_env.define(key, row2.get_struct()[key])
+                        # Combine envs for condition
+                        var combined_env = Environment()
+                        # Copy all from row1_env
+                        for entry in row1_env.values.items():
+                            combined_env.values[entry.key] = entry.value
+                        # Copy all from row2_env
+                        for entry in row2_env.values.items():
+                            combined_env.values[entry.key] = entry.value
+                        var cond = self.evaluate(on_condition, combined_env)
+                        if cond.is_truthy():
+                            # Combine structs
+                            var row1_struct = row1.get_struct()
+                            var row2_struct = row2.get_struct()
+                            var combined_struct = Dict[String, PLValue]()
+                            for key in row1_struct.keys():
+                                combined_struct[key] = row1_struct[key]
+                            for key in row2_struct.keys():
+                                combined_struct[key] = row2_struct[key]
+                            joined.append(PLValue.struct(combined_struct))
+                    else:
+                        # If not structs, just add pairs
+                        joined.append(row1)
+                        joined.append(row2)
+            result_list = joined
         
         # Apply WHERE filtering if present
         if where_clause != "":
