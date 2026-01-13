@@ -12,6 +12,7 @@ from pl_grizzly_environment import Environment
 from pl_grizzly_errors import PLGrizzlyError, ErrorManager, create_undefined_variable_error, create_type_mismatch_error, create_division_by_zero_error, create_table_not_found_error
 from orc_storage import ORCStorage
 from schema_manager import SchemaManager, Column
+from extensions.httpfs import HTTPFSExtension
 from python import Python
 
 struct ASTEvaluator:
@@ -20,6 +21,7 @@ struct ASTEvaluator:
     var recursion_depth: Int
     var error_manager: ErrorManager
     var source_code: String  # Store source code for error context
+    var httpfs_extension: HTTPFSExtension  # HTTPFS extension for URL support
 
     fn __init__(out self, source_code: String = ""):
         self.symbol_table = SymbolTable()
@@ -27,6 +29,7 @@ struct ASTEvaluator:
         self.recursion_depth = 0
         self.error_manager = ErrorManager()
         self.source_code = source_code
+        self.httpfs_extension = HTTPFSExtension()
 
     fn set_source_code(mut self, source: String):
         """Set the source code for error context."""
@@ -83,6 +86,8 @@ struct ASTEvaluator:
             result = self.eval_array_node(node, env, orc_storage)
         elif node.node_type == "STRUCT_LITERAL":
             result = self.eval_struct_literal_node(node, env, orc_storage)
+        elif node.node_type == "TYPED_STRUCT_LITERAL":
+            result = self.eval_typed_struct_literal_node(node, env, orc_storage)
         elif node.node_type == "TYPED_ARRAY":
             result = self.eval_typed_array_node(node, env, orc_storage)
         elif node.node_type == "ARRAY_AGGREGATION":
@@ -115,6 +120,12 @@ struct ASTEvaluator:
             result = self.eval_detach_node(node, env, orc_storage)
         elif node.node_type == "EXECUTE":
             result = self.eval_execute_node(node, env, orc_storage)
+        elif node.node_type == "TYPEOF":
+            result = self.eval_typeof_node(node, env, orc_storage)
+        elif node.node_type == "INSTALL":
+            result = self.eval_install_node(node, env, orc_storage)
+        elif node.node_type == "LOAD":
+            result = self.eval_load_node(node, env, orc_storage)
         elif node.node_type == "SHOW":
             result = self.eval_show_node(node, env, orc_storage)
         elif node.node_type == "DROP":
@@ -175,6 +186,12 @@ struct ASTEvaluator:
         var is_array_iteration = False
         var array_data: Optional[PLValue] = None
         
+        # Declare result variables
+        var result_data = List[List[String]]()
+        var selected_columns = List[String]()
+        var column_names = List[String]()
+        var table_data = List[List[String]]()
+        
         # Check if this is array iteration (variable reference) or table iteration
         if table_name == "":
             # Check if FROM clause contains a variable reference
@@ -194,16 +211,31 @@ struct ASTEvaluator:
                 "Invalid FROM clause", node.line, node.column, self._get_source_line(node.line)
             ))
         elif table_name != "":
-            # Traditional table iteration
-            is_array_iteration = False
+            # Check if this is an HTTP URL
+            if self.httpfs_extension.is_http_url(table_name):
+                # Handle HTTP URL data source
+                var url = table_name
+                var secrets_attr = from_clause.value().get_attribute("secrets")
+
+                # Use HTTPFS extension to fetch and process data
+                try:
+                    var result = self.httpfs_extension.process_http_from_clause(url, secrets_attr)
+                    result_data = result[0].copy()
+                    table_data = result_data.copy()  # Set table_data for WHERE processing
+
+                    selected_columns = result[1].copy()
+                    column_names = selected_columns.copy()
+
+                    is_array_iteration = False
+                except e:
+                    return PLValue("error", "HTTP fetch failed: " + String(e))
+            else:
+                # Traditional table iteration
+                is_array_iteration = False
         else:
             return PLValue.enhanced_error(PLGrizzlyError.syntax_error(
             "Invalid table name in FROM clause", node.line, node.column, self._get_source_line(node.line)
         ))
-
-        var result_data: List[List[String]]
-        var selected_columns = List[String]()
-        var column_names: List[String]
 
         if is_array_iteration:
             # Handle array iteration
@@ -211,7 +243,6 @@ struct ASTEvaluator:
             var array_elements = arr.value.split("[")[1].split("]")[0].split(", ")
             
             # For array iteration, we create synthetic rows with [index, value]
-            result_data = List[List[String]]()
             for i in range(len(array_elements)):
                 var row = List[String]()
                 row.append(String(i))  # array_index
@@ -221,24 +252,30 @@ struct ASTEvaluator:
             selected_columns = List[String]("array_index", "array_value")
             column_names = selected_columns.copy()
         else:
-            # Traditional table iteration
-            # Get table schema to know column structure
-            var schema = orc_storage.schema_manager.load_schema()
-            var table_schema = schema.get_table(table_name)
-            if table_schema.name == "":
-                return PLValue.enhanced_error(create_table_not_found_error(
-                    table_name, node.line, node.column, self._get_source_line(node.line)
-                ))
+            # Check if this is HTTP URL data (already handled above)
+            var is_url_handled = table_name != "" and from_clause.value().get_attribute("is_url") == "true"
+            if is_url_handled:
+                # HTTP data already processed above, just set column info
+                selected_columns = List[String]("response")
+                column_names = selected_columns.copy()
+            else:
+                # Traditional table iteration
+                # Get table schema to know column structure
+                var schema = orc_storage.schema_manager.load_schema()
+                var table_schema = schema.get_table(table_name)
+                if table_schema.name == "":
+                    return PLValue.enhanced_error(create_table_not_found_error(
+                        table_name, node.line, node.column, self._get_source_line(node.line)
+                    ))
 
-            # Read all data from the table
-            var table_data = orc_storage.read_table(table_name)
-            
-            # Get column names from schema
-            column_names = List[String]()
-            for col in table_schema.columns:
-                column_names.append(col.name)
+                # Read all data from the table
+                table_data = orc_storage.read_table(table_name)
+                
+                # Get column names from schema
+                for col in table_schema.columns:
+                    column_names.append(col.name)
 
-            # Determine which columns to select
+                # Determine which columns to select
             var selected_columns = List[String]()
             var has_array_aggregation = False
             var array_aggregation_node: Optional[ASTNode] = None
@@ -821,6 +858,72 @@ struct ASTEvaluator:
         result += "}"
         return PLValue("struct", result)
 
+    fn eval_typed_struct_literal_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate TYPED_STRUCT_LITERAL operations like type struct as Person {key: value, ...}."""
+        var struct_type = node.get_attribute("struct_type")
+        
+        # Get the struct definition from schema
+        var struct_fields: Dict[String, String]
+        try:
+            struct_fields = orc_storage.schema_manager.get_struct_definition(struct_type)
+        except:
+            return PLValue("error", "Struct type '" + struct_type + "' is not defined")
+        
+        # Validate that all required fields are present and types match
+        var provided_fields = Dict[String, PLValue]()
+        for field_node in node.children:
+            var field_name = field_node.value
+            var field_value = self.evaluate(field_node.children[0], env, orc_storage)
+            provided_fields[field_name] = field_value
+        
+        # Check that all defined fields are provided
+        var missing_fields = List[String]()
+        var field_keys = List[String]()
+        for key in struct_fields.keys():
+            field_keys.append(key)
+        
+        for defined_field in field_keys:
+            if defined_field not in provided_fields:
+                missing_fields.append(defined_field)
+        
+        if len(missing_fields) > 0:
+            var error_msg = "Struct '" + struct_type + "' is missing required fields: "
+            for i in range(len(missing_fields)):
+                if i > 0:
+                    error_msg += ", "
+                error_msg += missing_fields[i]
+            return PLValue("error", error_msg)
+        
+        # Check field types (basic validation)
+        var provided_field_keys = List[String]()
+        for key in provided_fields.keys():
+            provided_field_keys.append(key)
+            
+        for provided_field in provided_field_keys:
+            var expected_type = struct_fields[provided_field]
+            var actual_value = provided_fields[provided_field]
+            var actual_type = actual_value.type
+            
+            # Simple type checking - can be enhanced
+            if expected_type == "string" and actual_type != "string":
+                return PLValue("error", "Field '" + provided_field + "' should be string, got " + actual_type)
+            elif expected_type == "int" and actual_type != "number":
+                return PLValue("error", "Field '" + provided_field + "' should be int, got " + actual_type)
+            elif expected_type == "boolean" and actual_type != "boolean":
+                return PLValue("error", "Field '" + provided_field + "' should be boolean, got " + actual_type)
+        
+        # Create typed struct representation
+        var result = struct_type + "{"
+        for i in range(len(node.children)):
+            if i > 0:
+                result += ", "
+            var field = node.children[i].copy()
+            var field_name = field.value
+            var field_value = provided_fields[field_name]
+            result += field_name + ": " + field_value.value
+        result += "}"
+        return PLValue("struct", result)
+
     fn eval_typed_array_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate TYPED_ARRAY operations like Array<Type> as [...] or Array<Type>::[...]."""
         var type_name = node.get_attribute("type")
@@ -1141,10 +1244,12 @@ struct ASTEvaluator:
             return PLValue("error", "sqrt() requires a number argument")
 
     fn eval_type_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
-        """Evaluate TYPE statement (currently only TYPE SECRET)."""
+        """Evaluate TYPE statement (TYPE SECRET and TYPE STRUCT)."""
         var type_attr = node.get_attribute("type")
         if type_attr == "SECRET":
             return self.eval_type_secret_node(node, env, orc_storage)
+        elif type_attr == "STRUCT":
+            return self.eval_type_struct_node(node, env, orc_storage)
         else:
             return PLValue("error", "Unknown TYPE: " + type_attr)
 
@@ -1169,6 +1274,26 @@ struct ASTEvaluator:
         _ = orc_storage.schema_manager.store_secret(secret_name, secrets)
         
         return PLValue("string", "Secret '" + secret_name + "' defined")
+
+    fn eval_type_struct_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate TYPE STRUCT statement."""
+        var struct_name = node.get_attribute("name")
+        if struct_name == "":
+            return PLValue("error", "Struct name is required")
+
+        # Collect field definitions
+        var fields = Dict[String, String]()
+        for child in node.children:
+            if child.node_type == "FIELD_DEF":
+                var field_name = child.value
+                var field_type = child.get_attribute("type")
+                if field_name != "" and field_type != "":
+                    fields[field_name] = field_type
+
+        # Store struct definition in schema manager
+        _ = orc_storage.schema_manager.store_struct_definition(struct_name, fields)
+
+        return PLValue("string", "Struct '" + struct_name + "' defined")
 
     fn eval_attach_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate ATTACH statement."""
@@ -1256,6 +1381,53 @@ struct ASTEvaluator:
         except:
             return PLValue("error", "Failed to execute SQL file '" + `alias` + "' from '" + file_path + "'")
 
+    fn eval_install_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate INSTALL statement for extensions."""
+        var extension = node.get_attribute("extension")
+        
+        if extension == "":
+            return PLValue("error", "Extension name is required")
+        
+        # Check if already installed
+        if orc_storage.schema_manager.is_extension_installed(extension):
+            return PLValue("string", "Extension '" + extension + "' is already installed")
+        
+        # Install the extension
+        var success = orc_storage.schema_manager.install_extension(extension)
+        if success:
+            return PLValue("string", "Extension '" + extension + "' installed successfully")
+        else:
+            return PLValue("error", "Failed to install extension '" + extension + "'")
+
+    fn eval_load_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate LOAD statement for extensions."""
+        var extensions = node.get_attribute("extensions")
+        
+        if extensions == "":
+            return PLValue("error", "Extension names are required")
+        
+        # Parse extension list (comma-separated)
+        var extension_list = extensions.split(",")
+        var not_installed = List[String]()
+        
+        for ext in extension_list:
+            var extension_name = String(ext.strip())
+            if extension_name != "" and not orc_storage.schema_manager.is_extension_installed(extension_name):
+                not_installed.append(extension_name)
+        
+        if len(not_installed) > 0:
+            var error_msg = "Extensions not installed: "
+            for i in range(len(not_installed)):
+                if i > 0:
+                    error_msg += ", "
+                error_msg += not_installed[i]
+            error_msg += ". Use INSTALL to install them first."
+            return PLValue("error", error_msg)
+        
+        # For now, we'll simulate loading extensions
+        # In a real implementation, this would load DuckDB extensions
+        return PLValue("string", "Extensions loaded successfully: " + extensions)
+
     fn eval_show_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate SHOW statement."""
         var show_type = node.get_attribute("type")
@@ -1264,6 +1436,25 @@ struct ASTEvaluator:
             var result = "Available secrets:\n"
             for secret_name in secrets:
                 result += "- " + secret_name + "\n"
+            return PLValue("string", result)
+        elif show_type == "STRUCTS":
+            var structs = orc_storage.schema_manager.list_struct_definitions()
+            var result = "Available struct definitions:\n"
+            for struct_name in structs:
+                var fields = orc_storage.schema_manager.get_struct_definition(struct_name)
+                result += "- " + struct_name + "("
+                var field_names = List[String]()
+                for field_name in fields.keys():
+                    field_names.append(field_name)
+                for i in range(len(field_names)):
+                    if i > 0:
+                        result += ", "
+                    var field_name = field_names[i]
+                    var field_type = fields[field_name]
+                    result += field_name + " " + field_type
+                result += ")\n"
+            if len(structs) == 0:
+                result += "(none)\n"
             return PLValue("string", result)
         elif show_type == "ATTACHED_DATABASES":
             var attached_dbs = orc_storage.schema_manager.list_attached_databases()
@@ -1275,6 +1466,14 @@ struct ASTEvaluator:
                 var path = attached_dbs[`alias`]
                 result += "- " + `alias` + " -> " + path + "\n"
             if len(aliases) == 0:
+                result += "(none)\n"
+            return PLValue("string", result)
+        elif show_type == "EXTENSIONS":
+            var extensions = orc_storage.schema_manager.list_installed_extensions()
+            var result = "Installed extensions:\n"
+            for extension in extensions:
+                result += "- " + extension + "\n"
+            if len(extensions) == 0:
                 result += "(none)\n"
             return PLValue("string", result)
         else:
@@ -1341,3 +1540,16 @@ struct ASTEvaluator:
             return String(content)
         except:
             raise Error("Failed to read file: " + file_path)
+
+    fn eval_typeof_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate @TypeOf expression to return the type of a variable or column."""
+        if len(node.children) != 1:
+            return PLValue("error", "@TypeOf requires exactly one argument")
+        
+        var arg = node.children[0].copy()
+        var arg_value = self.evaluate(arg, env, orc_storage)
+        
+        # For now, return the PLValue type as a string
+        # In the future, this could be enhanced to return more detailed type information
+        return PLValue("string", arg_value.type)
+

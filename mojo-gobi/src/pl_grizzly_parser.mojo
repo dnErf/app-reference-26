@@ -5,7 +5,7 @@ Optimized recursive descent parser with memoization and efficient AST representa
 """
 
 from collections import List, Dict
-from pl_grizzly_lexer import Token, PLGrizzlyLexer, SELECT, FROM, WHERE, CREATE, DROP, INDEX, MATERIALIZED, VIEW, REFRESH, LOAD, UPDATE, DELETE, LOGIN, LOGOUT, BEGIN, COMMIT, ROLLBACK, MACRO, JOIN, ON, ATTACH, DETACH, EXECUTE, ALL, ARRAY, ATTACHED, DATABASES, AS, CACHE, CLEAR, DISTINCT, GROUP, ORDER, BY, SUM, COUNT, AVG, MIN, MAX, FUNCTION, TYPE, STRUCT, EXCEPTION, MODULE, DOUBLE_COLON, RETURNS, THROWS, IF, ELSE, MATCH, FOR, WHILE, THEN, CASE, IN, TRY, CATCH, LET, TRUE, FALSE, BREAK, CONTINUE, EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUAL, LESS_EQUAL, AND, OR, NOT, BANG, COALESCE, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, PIPE, ARROW, DOT, LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, LANGLE, RANGLE, COMMA, SEMICOLON, COLON, INSERT, INTO, VALUES, SET, SHOW, SECRET, SECRETS, DROP_SECRET, IDENTIFIER, STRING, NUMBER, VARIABLE, EOF, UNKNOWN
+from pl_grizzly_lexer import Token, PLGrizzlyLexer, SELECT, FROM, WHERE, CREATE, DROP, INDEX, MATERIALIZED, VIEW, REFRESH, LOAD, UPDATE, DELETE, LOGIN, LOGOUT, BEGIN, COMMIT, ROLLBACK, MACRO, JOIN, ON, ATTACH, DETACH, EXECUTE, ALL, ARRAY, ATTACHED, DATABASES, AS, CACHE, CLEAR, DISTINCT, GROUP, ORDER, BY, SUM, COUNT, AVG, MIN, MAX, FUNCTION, TYPE, STRUCT, STRUCTS, TYPEOF, EXCEPTION, MODULE, DOUBLE_COLON, RETURNS, THROWS, IF, ELSE, MATCH, FOR, WHILE, THEN, CASE, IN, TRY, CATCH, LET, TRUE, FALSE, BREAK, CONTINUE, INSTALL, HTTPFS, WITH, HTTPS, EXTENSIONS, EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUAL, LESS_EQUAL, AND, OR, NOT, BANG, COALESCE, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, PIPE, ARROW, DOT, LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, LANGLE, RANGLE, COMMA, SEMICOLON, COLON, INSERT, INTO, VALUES, SET, SHOW, SECRET, SECRETS, DROP_SECRET, IDENTIFIER, STRING, NUMBER, VARIABLE, EOF, UNKNOWN
 
 # Optimized AST Node types using enum-like constants
 alias AST_SELECT = "SELECT"
@@ -25,6 +25,9 @@ alias AST_DICT = "DICT"
 alias AST_BREAK = "BREAK"
 alias AST_CONTINUE = "CONTINUE"
 alias AST_EXECUTE = "EXECUTE"
+alias AST_INSTALL = "INSTALL"
+alias AST_LOAD = "LOAD"
+alias AST_WITH = "WITH"
 
 # Efficient AST Node using Dict for flexible representation
 struct ASTNode(Copyable, Movable):
@@ -171,6 +174,10 @@ struct PLGrizzlyParser:
             result = self.detach_statement()
         elif self.match(EXECUTE):
             result = self.execute_statement()
+        elif self.match(INSTALL):
+            result = self.install_statement()
+        elif self.match(LOAD):
+            result = self.load_statement()
         elif self.match(SHOW):
             result = self.show_statement()
         elif self.match(DROP):
@@ -298,7 +305,18 @@ struct PLGrizzlyParser:
     fn parse_from_clause(mut self) raises -> ASTNode:
         """Parse FROM clause."""
         var node = ASTNode(AST_FROM, "", self.previous().line, self.previous().column)
-        var table_name = self.consume(IDENTIFIER, "Expected table name after FROM").value
+        
+        # Support both identifiers (table names) and strings (HTTP URLs)
+        var table_name: String
+        if self.check(STRING):
+            var url_token = self.consume(STRING, "Expected table name or URL after FROM")
+            table_name = url_token.value
+            node.set_attribute("is_url", "true")
+        else:
+            var table_token = self.consume(IDENTIFIER, "Expected table name after FROM")
+            table_name = table_token.value
+            node.set_attribute("is_url", "false")
+        
         node.set_attribute("table", table_name)
 
         # Check for alias
@@ -308,6 +326,21 @@ struct PLGrizzlyParser:
         elif self.check(IDENTIFIER):
             var alias_token = self.advance()
             node.set_attribute("alias", alias_token.value)
+
+        # Check for WITH SECRET clause
+        if self.match(WITH):
+            _ = self.consume(SECRET, "Expected SECRET after WITH")
+            _ = self.consume(LBRACKET, "Expected '[' after SECRET")
+            
+            var secrets = List[String]()
+            secrets.append(self.consume(IDENTIFIER, "Expected secret name").value)
+            while self.match(COMMA):
+                secrets.append(self.consume(IDENTIFIER, "Expected secret name").value)
+            
+            _ = self.consume(RBRACKET, "Expected ']' after secret names")
+            
+            var secret_list = String(", ").join(secrets)
+            node.set_attribute("secrets", secret_list)
 
         return node^
 
@@ -455,6 +488,14 @@ struct PLGrizzlyParser:
                 var node = ASTNode(AST_IDENTIFIER, name, self.previous().line, self.previous().column)
                 node.set_attribute("type", var_type)
                 return node^
+        elif self.match(TYPEOF):
+            # Handle @TypeOf function
+            _ = self.consume(LPAREN, "Expected '(' after @TypeOf")
+            var arg = self.expression()
+            _ = self.consume(RPAREN, "Expected ')' after @TypeOf argument")
+            var node = ASTNode("TYPEOF", "@TypeOf", self.previous().line, self.previous().column)
+            node.add_child(arg)
+            return node^
         elif self.match(ARRAY):
             # Handle Array<Type> syntax when Array is tokenized as keyword
             if self.check(LANGLE):
@@ -496,6 +537,30 @@ struct PLGrizzlyParser:
         var node = ASTNode("STRUCT_LITERAL", "", self.previous().line, self.previous().column)
         
         # Check if this is an empty struct {}
+        if self.match(RBRACE):
+            return node^
+        
+        # Parse struct fields
+        while True:
+            var key = self.consume(IDENTIFIER, "Expected field name").value
+            _ = self.consume(COLON, "Expected ':' after field name")
+            var value = self.expression()
+            
+            var field_node = ASTNode("FIELD", key)
+            field_node.add_child(value)
+            node.add_child(field_node)
+            
+            if not self.match(COMMA):
+                break
+        
+        _ = self.consume(RBRACE, "Expected '}' after struct fields")
+        return node^
+
+    fn parse_struct_literal_content(mut self) raises -> ASTNode:
+        """Parse the content of a struct literal (fields only, without outer braces)."""
+        var node = ASTNode("STRUCT_LITERAL", "", self.previous().line, self.previous().column)
+        
+        # Check if this is an empty struct
         if self.match(RBRACE):
             return node^
         
@@ -904,44 +969,89 @@ struct PLGrizzlyParser:
         return ASTNode(AST_CONTINUE, "", self.previous().line, self.previous().column)
 
     fn type_statement(mut self) raises -> ASTNode:
-        """Parse TYPE statement (including TYPE SECRET)."""
+        """Parse TYPE statement (including TYPE SECRET and TYPE STRUCT)."""
         var node = ASTNode("TYPE", "", self.previous().line, self.previous().column)
-        
+
         if self.match(SECRET):
             node.set_attribute("type", "SECRET")
             _ = self.consume(AS, "Expected AS after TYPE SECRET")
             var secret_name = self.consume(IDENTIFIER, "Expected secret name").value
             node.set_attribute("name", secret_name)
-            
+
             _ = self.consume(LPAREN, "Expected '(' after secret name")
-            
+
             # Parse key-value pairs - kind is required as first field
             var has_kind = False
             while not self.check(RPAREN) and not self.is_at_end():
                 var key = self.consume(IDENTIFIER, "Expected key name").value
                 _ = self.consume(COLON, "Expected ':' after key")
                 var value = self.consume(STRING, "Expected string value").value
-                
+
                 var kv_node = ASTNode("KEY_VALUE", "", self.previous().line, self.previous().column)
                 kv_node.set_attribute("key", key)
                 kv_node.set_attribute("value", value)
                 node.add_child(kv_node)
-                
+
                 if key == "kind":
                     has_kind = True
-                
+
                 if not self.match(COMMA):
                     break
-            
+
             # Validate that kind is present
             if not has_kind:
                 self.error("TYPE SECRET requires 'kind' field (e.g., kind: 'https')")
-            
+
             _ = self.consume(RPAREN, "Expected ')' after secret definition")
+        elif self.match(STRUCT):
+            node.set_attribute("type", "STRUCT")
+            _ = self.consume(AS, "Expected AS after TYPE STRUCT")
+            var struct_name = self.consume(IDENTIFIER, "Expected struct name").value
+            node.set_attribute("name", struct_name)
+
+            if self.match(LPAREN):
+                # Parse field definitions: field_name field_type, ...
+                while not self.check(RPAREN) and not self.is_at_end():
+                    var field_name = self.consume(IDENTIFIER, "Expected field name").value
+                    var field_type = self.consume(IDENTIFIER, "Expected field type").value
+
+                    var field_node = ASTNode("FIELD_DEF", field_name)
+                    field_node.set_attribute("type", field_type)
+                    node.add_child(field_node)
+
+                    if not self.match(COMMA):
+                        break
+
+                _ = self.consume(RPAREN, "Expected ')' after struct field definitions")
+            elif self.match(LBRACE):
+                # Parse typed struct literal: { field: value, ... }
+                node.node_type = "TYPED_STRUCT_LITERAL"
+                node.set_attribute("struct_type", struct_name)
+                
+                # Check if this is an empty struct
+                if self.match(RBRACE):
+                    return node^
+                
+                # Parse struct fields
+                while True:
+                    var key = self.consume(IDENTIFIER, "Expected field name").value
+                    _ = self.consume(COLON, "Expected ':' after field name")
+                    var value = self.expression()
+                    
+                    var field_node = ASTNode("FIELD", key)
+                    field_node.add_child(value)
+                    node.add_child(field_node)
+                    
+                    if not self.match(COMMA):
+                        break
+                
+                _ = self.consume(RBRACE, "Expected '}' after struct fields")
+            else:
+                self.error("Expected '(' for struct definition or '{' for struct literal after TYPE STRUCT AS name")
         else:
             # Handle other TYPE statements (future extension)
-            self.error("Expected SECRET after TYPE")
-        
+            self.error("Expected SECRET or STRUCT after TYPE")
+
         return node^
 
     fn attach_statement(mut self) raises -> ASTNode:
@@ -974,17 +1084,38 @@ struct PLGrizzlyParser:
         node.set_attribute("alias", sql_alias)
         return node^
 
+    fn install_statement(mut self) raises -> ASTNode:
+        """Parse INSTALL statement for extensions."""
+        var node = ASTNode(AST_INSTALL, "", self.previous().line, self.previous().column)
+        var extension_name = self.consume(IDENTIFIER, "Expected extension name").value
+        node.set_attribute("extension", extension_name)
+        return node^
+
+    fn load_statement(mut self) raises -> ASTNode:
+        """Parse LOAD statement for extensions."""
+        var node = ASTNode(AST_LOAD, "", self.previous().line, self.previous().column)
+        var extensions = List[String]()
+        extensions.append(self.consume(IDENTIFIER, "Expected extension name").value)
+        while self.match(COMMA):
+            extensions.append(self.consume(IDENTIFIER, "Expected extension name").value)
+        node.set_attribute("extensions", String(", ").join(extensions))
+        return node^
+
     fn show_statement(mut self) raises -> ASTNode:
         """Parse SHOW statement."""
         var node = ASTNode("SHOW", "", self.previous().line, self.previous().column)
         
         if self.match(SECRETS):
             node.set_attribute("type", "SECRETS")
+        elif self.match(STRUCTS):
+            node.set_attribute("type", "STRUCTS")
         elif self.match(ATTACHED):
             _ = self.consume(DATABASES, "Expected DATABASES after ATTACHED")
             node.set_attribute("type", "ATTACHED_DATABASES")
+        elif self.match(EXTENSIONS):
+            node.set_attribute("type", "EXTENSIONS")
         else:
-            self.error("Expected SECRETS or ATTACHED DATABASES after SHOW")
+            self.error("Expected SECRETS, STRUCTS, ATTACHED DATABASES, or EXTENSIONS after SHOW")
         
         return node^
 

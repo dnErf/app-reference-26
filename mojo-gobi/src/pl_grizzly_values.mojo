@@ -119,7 +119,7 @@ struct PLValue(Copyable, Movable, ImplicitlyCopyable):
                     msg += " (" + self.error_context + ")"
                 return msg
         elif self.type == "struct":
-            return "Struct(...)"
+            return self.value
 
         elif self.type == "list":
             return "List(...)"

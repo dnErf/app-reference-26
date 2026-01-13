@@ -2533,6 +2533,8 @@ struct PLGrizzlyInterpreter:
             return self.show_databases()
         elif show_part.upper() == "SCHEMA":
             return self.show_schema()
+        elif show_part.upper() == "EXTENSIONS":
+            return self.show_extensions()
         else:
             return PLValue.error("Unknown SHOW command: " + show_part)
 
@@ -2593,6 +2595,17 @@ struct PLGrizzlyInterpreter:
         schema_info["table_count"] = PLValue("number", String(len(schema.tables)))
         
         return PLValue.struct(schema_info)
+
+    fn show_extensions(self) raises -> PLValue:
+        """Show installed extensions."""
+        var schema = self.orc_storage.schema_manager.load_schema()
+        var extensions = schema.installed_extensions.copy()
+        
+        var result = String("Installed extensions:\n")
+        for i in range(len(extensions)):
+            result += "- " + extensions[i] + "\n"
+        
+        return PLValue.string(result)
 
     fn describe_table(self, table_name: String) raises -> PLValue:
         """Describe a specific table's structure."""

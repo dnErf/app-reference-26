@@ -96,6 +96,10 @@ fn get_keywords() -> Dict[String, String]:
     keywords["TYPE"] = TYPE
     keywords["struct"] = STRUCT
     keywords["STRUCT"] = STRUCT
+    keywords["structs"] = STRUCTS
+    keywords["STRUCTS"] = STRUCTS
+    keywords["typeof"] = TYPEOF
+    keywords["TypeOf"] = TYPEOF
     keywords["exception"] = EXCEPTION
     keywords["EXCEPTION"] = EXCEPTION
     keywords["module"] = MODULE
@@ -156,6 +160,16 @@ fn get_keywords() -> Dict[String, String]:
     keywords["DROP_SECRET"] = DROP_SECRET
     keywords["secrets"] = SECRETS
     keywords["SECRETS"] = SECRETS
+    keywords["install"] = INSTALL
+    keywords["INSTALL"] = INSTALL
+    keywords["httpfs"] = HTTPFS
+    keywords["HTTPFS"] = HTTPFS
+    keywords["with"] = WITH
+    keywords["WITH"] = WITH
+    keywords["https"] = HTTPS
+    keywords["HTTPS"] = HTTPS
+    keywords["extensions"] = EXTENSIONS
+    keywords["EXTENSIONS"] = EXTENSIONS
     return keywords^
 alias SELECT = "SELECT"
 alias FROM = "FROM"
@@ -199,6 +213,8 @@ alias MAX = "MAX"
 alias FUNCTION = "FUNCTION"
 alias TYPE = "TYPE"
 alias STRUCT = "STRUCT"
+alias STRUCTS = "STRUCTS"
+alias TYPEOF = "TYPEOF"
 alias EXCEPTION = "EXCEPTION"
 alias MODULE = "MODULE"
 alias DOUBLE_COLON = "::"
@@ -219,6 +235,11 @@ alias TRUE = "TRUE"
 alias FALSE = "FALSE"
 alias BREAK = "BREAK"
 alias CONTINUE = "CONTINUE"
+alias INSTALL = "INSTALL"
+alias HTTPFS = "HTTPFS"
+alias WITH = "WITH"
+alias HTTPS = "HTTPS"
+alias EXTENSIONS = "EXTENSIONS"
 
 # Operators
 alias EQUALS = "="
@@ -348,6 +369,8 @@ struct PLGrizzlyLexer:
                 self.add_token(DOUBLE_COLON)
             else:
                 self.add_token(COLON)
+        elif c == "@":
+            self.at_function()
         elif c == ".":
             self.add_token(DOT)
         elif c == "+":
@@ -541,6 +564,15 @@ struct PLGrizzlyLexer:
 
         var text = String(self.source[self.start:self.current])
         var type = self.get_keyword_type(text)
+        self.add_token(type)
+
+    fn at_function(mut self):
+        """Parse an @function like @TypeOf."""
+        while self.is_alphanumeric(self.peek()):
+            _ = self.advance()
+
+        var text = String(self.source[self.start + 1:self.current])  # Skip the @
+        var type = self.keywords.get(text, IDENTIFIER)
         self.add_token(type)
 
     fn variable(mut self):

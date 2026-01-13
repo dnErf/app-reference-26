@@ -7,7 +7,7 @@ Uses BLOB storage for persistence.
 """
 
 from collections import List
-from python import Python
+from python import Python, PythonObject
 from blob_storage import BlobStorage
 
 struct Column(Movable, Copyable):
@@ -99,29 +99,39 @@ struct DatabaseSchema(Movable, Copyable):
     var name: String
     var tables: List[TableSchema]
     var secrets: Dict[String, Dict[String, String]]  # secret_name -> {key -> encrypted_value}
+    var struct_definitions: Dict[String, Dict[String, String]]  # struct_name -> {field_name -> field_type}
     var attached_databases: Dict[String, String]  # alias -> path
     var attached_sql_files: Dict[String, String]  # alias -> sql_content
+    var installed_extensions: List[String]  # list of installed extensions
 
     fn __init__(out self, name: String):
         self.name = name
         self.tables = List[TableSchema]()
         self.secrets = Dict[String, Dict[String, String]]()
+        self.struct_definitions = Dict[String, Dict[String, String]]()
         self.attached_databases = Dict[String, String]()
         self.attached_sql_files = Dict[String, String]()
+        self.installed_extensions = List[String]()
+        # Install httpfs by default
+        self.installed_extensions.append("httpfs")
 
     fn __copyinit__(out self, other: Self):
         self.name = other.name
         self.tables = other.tables.copy()
         self.secrets = other.secrets.copy()
+        self.struct_definitions = other.struct_definitions.copy()
         self.attached_databases = other.attached_databases.copy()
         self.attached_sql_files = other.attached_sql_files.copy()
+        self.installed_extensions = other.installed_extensions.copy()
 
     fn __moveinit__(out self, deinit existing: Self):
         self.name = existing.name^
         self.tables = existing.tables^
         self.secrets = existing.secrets^
+        self.struct_definitions = existing.struct_definitions^
         self.attached_databases = existing.attached_databases^
         self.attached_sql_files = existing.attached_sql_files^
+        self.installed_extensions = existing.installed_extensions^
 
     fn add_table(mut self, table: TableSchema):
         """Add a table to the database schema."""
@@ -217,9 +227,32 @@ struct SchemaManager(Copyable, Movable):
                 sql_dict[`alias`] = schema.attached_sql_files[`alias`]
             py_dict["attached_sql_files"] = sql_dict
             
+            # Save installed extensions
+            var extensions_list = Python.list()
+            for extension in schema.installed_extensions:
+                extensions_list.append(extension)
+            py_dict["installed_extensions"] = extensions_list
+            
+            # Save struct definitions
+            var structs_dict = Python.dict()
+            for struct_name in schema.struct_definitions:
+                var fields = schema.struct_definitions[struct_name].copy()
+                var fields_py_dict = Python.dict()
+                var field_keys = List[String]()
+                for field_key in fields.keys():
+                    field_keys.append(field_key)
+                for field_key in field_keys:
+                    var field_type = fields[field_key]
+                    fields_py_dict[field_key] = field_type
+                structs_dict[struct_name] = fields_py_dict
+            py_dict["struct_definitions"] = structs_dict
+            
             var pickle_module = Python.import_module("pickle")
+            var base64_module = Python.import_module("base64")
             var pickled_data = pickle_module.dumps(py_dict)
-            return self.storage.write_blob(self.schema_path, String(pickled_data))
+            var encoded_data = base64_module.b64encode(pickled_data)
+            var encoded_str = encoded_data.decode("ascii")
+            return self.storage.write_blob(self.schema_path, String(encoded_str))
         except:
             return False
 
@@ -231,7 +264,10 @@ struct SchemaManager(Copyable, Movable):
 
         try:
             var pickle_module = Python.import_module("pickle")
-            var parsed = pickle_module.loads(data)
+            var base64_module = Python.import_module("base64")
+            var encoded_bytes = PythonObject(data).encode("ascii")
+            var decoded_data = base64_module.b64decode(encoded_bytes)
+            var parsed = pickle_module.loads(decoded_data)
             
             var db_name = String(parsed["name"])
             var schema = DatabaseSchema(db_name)
@@ -290,6 +326,28 @@ struct SchemaManager(Copyable, Movable):
                 for `alias` in keys:
                     var content = String(sql_dict[`alias`])
                     schema.attached_sql_files[String(`alias`)] = content
+            
+            # Load struct definitions
+            if "struct_definitions" in parsed:
+                var structs_data = parsed["struct_definitions"]
+                for struct_name in structs_data:
+                    var fields_dict = structs_data[struct_name]
+                    var fields = Dict[String, String]()
+                    for field_name in fields_dict:
+                        var field_type = String(fields_dict[field_name])
+                        fields[String(field_name)] = field_type
+                    schema.struct_definitions[String(struct_name)] = fields^
+            
+            # Load installed extensions
+            if "installed_extensions" in parsed:
+                var extensions_list = parsed["installed_extensions"]
+                schema.installed_extensions.clear()
+                for extension in extensions_list:
+                    schema.installed_extensions.append(String(extension))
+            else:
+                # For backward compatibility, ensure httpfs is installed by default
+                if not schema.installed_extensions.__contains__("httpfs"):
+                    schema.installed_extensions.append("httpfs")
             
             return schema.copy()
         except:
@@ -410,6 +468,35 @@ struct SchemaManager(Copyable, Movable):
             return self.save_schema(schema)
         return False
 
+    fn store_struct_definition(mut self, name: String, fields: Dict[String, String]) -> Bool:
+        """Store a struct definition in the database schema."""
+        var schema = self.load_schema()
+        schema.struct_definitions[name] = fields.copy()
+        return self.save_schema(schema)
+
+    fn get_struct_definition(mut self, name: String) raises -> Dict[String, String]:
+        """Retrieve a struct definition from the database schema."""
+        var schema = self.load_schema()
+        if name in schema.struct_definitions:
+            return schema.struct_definitions[name].copy()
+        return Dict[String, String]()
+
+    fn list_struct_definitions(mut self) -> List[String]:
+        """List all struct definition names in the database."""
+        var schema = self.load_schema()
+        var struct_names = List[String]()
+        for struct_name in schema.struct_definitions:
+            struct_names.append(struct_name)
+        return struct_names^
+
+    fn delete_struct_definition(mut self, name: String) raises -> Bool:
+        """Delete a struct definition from the database schema."""
+        var schema = self.load_schema()
+        if name in schema.struct_definitions:
+            _ = schema.struct_definitions.pop(name)
+            return self.save_schema(schema)
+        return False
+
     fn attach_database(mut self, `alias`: String, path: String) -> Bool:
         """Attach a database with the given alias."""
         var schema = self.load_schema()
@@ -454,6 +541,29 @@ struct SchemaManager(Copyable, Movable):
         """List all attached SQL files."""
         var schema = self.load_schema()
         return schema.attached_sql_files.copy()
+
+    fn install_extension(mut self, extension_name: String) raises -> Bool:
+        """Install an extension."""
+        var schema = self.load_schema()
+        # Check if already installed
+        for installed in schema.installed_extensions:
+            if installed == extension_name:
+                return True  # Already installed
+        schema.installed_extensions.append(extension_name)
+        return self.save_schema(schema)
+
+    fn is_extension_installed(self, extension_name: String) -> Bool:
+        """Check if an extension is installed."""
+        var schema = self.load_schema()
+        for installed in schema.installed_extensions:
+            if installed == extension_name:
+                return True
+        return False
+
+    fn list_installed_extensions(self) -> List[String]:
+        """List all installed extensions."""
+        var schema = self.load_schema()
+        return schema.installed_extensions.copy()
 
     fn get_attached_sql_content(self, `alias`: String) raises -> String:
         """Get the path of an attached SQL file by alias."""

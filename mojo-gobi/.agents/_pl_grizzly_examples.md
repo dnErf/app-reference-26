@@ -41,6 +41,14 @@ let y = x as string    # Casts 42 to "42"
 let z = "123" :: int   # Casts "123" to 123
 ```
 
+### Type Inspection
+```pl-grizzly
+@TypeOf(42)           # Returns "number"
+@TypeOf("hello")      # Returns "string"  
+@TypeOf(true)         # Returns "boolean"
+@TypeOf([1,2,3])      # Returns "array"
+```
+
 ## Variables and Data Types
 
 ### Basic Types
@@ -51,56 +59,38 @@ let active = true
 let error = ERROR("something went wrong")
 ```
 
-### Type Declarations
-```pl-grizzly
-type struct as Person (
-    name: string,
-    age: int
-)
-
-let a = type struct as Person {
-    name: "John", 
-    age: 30, 
-    active: true
-}
-
-let b = type struct :: Person {
-    name: "Jane", 
-    age: 25
-}
-```
-
-### Struct Types
+### Struct Literals (Object Syntax)
 ```pl-grizzly
 let user = {name: "John", age: 30, active: true}
-user.name          # Returns "John"
-user.age           # Returns 30
+# Note: Struct literals are parsed but field access is not fully implemented
 ```
 
 ### Array Types
 ```pl-grizzly
-# Array creation - new syntax
+# Array creation - basic syntax
 let empty_array = []
 let numbers = [1, 2, 3, 4, 5]
 let names = ["Alice", "Bob", "Charlie"]
 
-# Array creation - old syntax (still supported)
-let old_numbers = (ARRAY 1 2 3 4 5)
-let old_names = (ARRAY "Alice" "Bob" "Charlie")
+# Note: Array indexing and operations are not fully implemented
+```
 
-# Array indexing (works with both syntaxes)
-(index numbers 0)        # Returns 1 (first element)
-(index names 1)          # Returns "Bob" (second element)
-(index numbers 4)        # Returns 5 (last element)
+### TYPE STRUCT Definitions and Literals
+```pl-grizzly
+# Define a struct type
+TYPE STRUCT AS Person(id int, name string, active boolean)
 
-# Array indexing (negative)
-(index numbers -1)       # Returns 5 (last element)
-(index names -2)         # Returns "Bob" (second-to-last element)
+# Create typed struct instances with type checking
+type struct as Person { id: 1, name: "John", active: true }
+# Returns: Person{id: 1, name: John, active: true}
 
-# Error handling
-(index numbers 10)       # Returns error: index out of bounds
-(index "not_an_array" 0) # Returns error: can only index into lists
-(index numbers "zero")   # Returns error: index must be a number
+# Type checking - missing field error
+type struct as Person { id: 1, name: "John" }
+# Error: Struct 'Person' is missing required fields: active
+
+# Type checking - wrong type error
+type struct as Person { id: "wrong", name: "John", active: true }
+# Error: Field 'id' should be int, got string
 ```
 
 ## Functions
@@ -126,29 +116,7 @@ user.get_name()    # Equivalent to get_name(user)
 user.is_adult()    # Equivalent to is_adult(user)
 ```
 
-## Control Flow
-
-### Try/Catch Error Handling
-```pl-grizzly
-TRY
-    risky_operation()
-CATCH
-    handle_error()
-```
-
-### Exception Types
-```pl-grizzly
-let ex = EXCEPTION("Invalid input")
-throw ex
-```
-
 ## LINQ-Style Queries and Pipes
-
-### Basic Pipes
-```pl-grizzly
-[1, 2, 3, 4, 5] |> filter(x => x > 3)    # Returns [4, 5]
-[1, 2, 3] |> map(x => x * 2)             # Returns [2, 4, 6]
-```
 
 ### Complex Queries
 ```pl-grizzly
@@ -258,11 +226,9 @@ WHERE p.stock < 10
 
 ## Module System
 
-### Basic Imports
+### Basic Module Loading
 ```pl-grizzly
-IMPORT math
-IMPORT io
-IMPORT database
+LOAD math, io, database;
 ```
 
 ## Complete Examples
@@ -434,17 +400,12 @@ INSERT INTO order_items VALUES (2, 1001, 102, 1, 29.99, 0.00)
 INSERT INTO order_items VALUES (3, 1002, 102, 2, 29.99, 0.00)
 INSERT INTO order_items VALUES (4, 1003, 103, 1, 299.99, 0.00)
 
--- Define business logic functions
-FUNCTION calculate_profit_margin(product_id) =>
-    TRY
-        let product = SELECT price, cost FROM products WHERE id = product_id
-        if product then
-            let margin = (product.price - product.cost) / product.price * 100
-            margin
-        else
-            0.0
-    CATCH
-        0.0
+-- Define business logic functions (using basic expressions)
+FUNCTION calculate_profit_margin(price, cost) =>
+    CASE
+        WHEN price > 0 THEN (price - cost) / price * 100
+        ELSE 0.0
+    END
 
 FUNCTION get_customer_segment(lifetime_value) =>
     CASE
@@ -455,10 +416,10 @@ FUNCTION get_customer_segment(lifetime_value) =>
     END
 
 FUNCTION safe_divide(numerator, denominator) =>
-    TRY
-        if denominator == 0 then 0.0 else numerator / denominator
-    CATCH
-        0.0
+    CASE
+        WHEN denominator != 0 THEN numerator / denominator
+        ELSE 0.0
+    END
 
 -- Complex analytics queries with mixed syntax
 
@@ -482,7 +443,7 @@ SELECT
     p.category,
     p.price,
     p.stock,
-    calculate_profit_margin(p.id) as profit_margin,
+    calculate_profit_margin(p.price, p.cost) as profit_margin,
     SUM(oi.quantity) as units_sold,
     SUM(oi.quantity * oi.unit_price) as revenue,
     SUM(oi.quantity * (oi.unit_price - p.cost)) as profit,
@@ -499,23 +460,16 @@ GROUP BY p.id, p.name, p.category, p.price, p.cost, p.stock
 HAVING units_sold > 0
 ORDER BY revenue DESC
 
--- 3. Monthly Sales Trend Analysis using Pipes
-FUNCTION monthly_sales_report() =>
-    orders
-    |> filter(o => o.status == "completed")
-    |> map(o => {
-        month: o.order_date.substring(0, 7),  -- Extract YYYY-MM
-        revenue: o.total_amount,
-        customer_id: o.customer_id
-    })
-    |> group_by(item => item.month)
-    |> map(group => {
-        month: group.key,
-        total_revenue: group.items |> map(i => i.revenue) |> sum(),
-        order_count: group.items.size(),
-        unique_customers: group.items |> map(i => i.customer_id) |> distinct() |> size()
-    })
-    |> sort_by(item => item.month)
+-- 3. Monthly Sales Summary (SQL-based)
+let monthly_sales = SELECT
+    SUBSTRING(o.order_date, 1, 7) as month,
+    SUM(o.total_amount) as total_revenue,
+    COUNT(o.id) as order_count,
+    COUNT(DISTINCT o.customer_id) as unique_customers
+FROM orders o
+WHERE o.status = "completed"
+GROUP BY SUBSTRING(o.order_date, 1, 7)
+ORDER BY month
 
 -- 4. Inventory Management with Alerts
 SELECT
@@ -533,29 +487,20 @@ FROM products
 WHERE discontinued = false AND stock <= 20
 ORDER BY stock ASC, inventory_value DESC
 
--- 5. Customer Churn Risk Analysis
+-- 5. Customer Order Summary
 SELECT
-    c.name,
+    c.name as customer_name,
     c.email,
-    c.lifetime_value,
-    DATEDIFF(CURRENT_DATE, c.last_order_date) as days_since_last_order,
-    c.total_orders,
-    CASE
-        WHEN DATEDIFF(CURRENT_DATE, c.last_order_date) > 90 THEN "High Risk"
-        WHEN DATEDIFF(CURRENT_DATE, c.last_order_date) > 30 THEN "Medium Risk"
-        ELSE "Low Risk"
-    END as churn_risk,
-    c.segment
-FROM (
-    SELECT
-        c.id, c.name, c.email, c.lifetime_value,
-        COUNT(o.id) as total_orders,
-        MAX(o.order_date) as last_order_date
-    FROM customers c
-    LEFT JOIN orders o ON c.id = o.customer_id
-    GROUP BY c.id, c.name, c.email, c.lifetime_value
-) c
-ORDER BY days_since_last_order DESC
+    COUNT(o.id) as total_orders,
+    SUM(o.total_amount) as total_spent,
+    AVG(o.total_amount) as avg_order_value,
+    MAX(o.order_date) as last_order_date,
+    MIN(o.order_date) as first_order_date,
+    get_customer_segment(c.lifetime_value) as segment
+FROM customers c
+LEFT JOIN orders o ON c.id = o.customer_id AND o.status = "completed"
+GROUP BY c.id, c.name, c.email, c.lifetime_value
+ORDER BY total_spent DESC
 
 -- 6. Comprehensive Business Metrics Dashboard
 let monthly_sales = monthly_sales_report()
@@ -589,101 +534,28 @@ SELECT
     "$" + CAST(inventory_health.total_inventory_value as STRING) as inventory_value
 FROM dual
 
--- Error handling example with business logic
-FUNCTION process_customer_order(customer_id, product_id, quantity) =>
-    TRY
-        -- Validate customer exists and is active
-        let customer = SELECT status FROM customers WHERE id = customer_id
-        if not customer or customer.status != "active" then
-            throw EXCEPTION("Customer not found or inactive")
+-- Simple order processing function
+FUNCTION calculate_order_total(product_id, quantity) =>
+    let product = SELECT price FROM products WHERE id = product_id AND discontinued = false
+    CASE
+        WHEN product THEN product.price * quantity
+        ELSE 0.0
+    END
 
-        -- Validate product exists and has stock
-        let product = SELECT stock, price FROM products WHERE id = product_id AND discontinued = false
-        if not product then
-            throw EXCEPTION("Product not found or discontinued")
-        if product.stock < quantity then
-            throw EXCEPTION("Insufficient stock")
-
-        -- Calculate order total
-        let order_total = product.price * quantity
-
-        -- Create order
-        let order_id = SELECT MAX(id) + 1 FROM orders ?? 1000
-        INSERT INTO orders VALUES (order_id, customer_id, CURRENT_DATE, "pending", order_total, 10.00)
-
-        -- Create order item
-        let item_id = SELECT MAX(id) + 1 FROM order_items ?? 1
-        INSERT INTO order_items VALUES (item_id, order_id, product_id, quantity, product.price, 0.00)
-
-        -- Update inventory
-        UPDATE products SET stock = stock - quantity WHERE id = product_id
-
-        -- Return success
-        {order_id: order_id, total: order_total, status: "success"}
-
-    CATCH error
-        {error: error.message, status: "failed"}
-
--- Usage example with error handling
-let order_result = process_customer_order(1, 101, 1)
-if order_result.status == "success" then
-    print("Order created successfully: #" + CAST(order_result.order_id as STRING))
-else
-    print("Order failed: " + order_result.error)
+-- Usage example
+let order_total = calculate_order_total(101, 2)
+SELECT "Order total: $" + CAST(order_total as STRING) FROM dual
 
 -- =====================================================
 -- END OF BUSINESS INTELLIGENCE DASHBOARD EXAMPLE
 -- This example demonstrates:
 -- ✅ SQL-style DDL and DML operations
 -- ✅ Complex queries with JOINs, aggregations, subqueries
--- ✅ Functional programming with pipes and lambdas
--- ✅ Error handling with TRY/CATCH
--- ✅ User-defined functions
--- ✅ CASE expressions and conditional logic
+-- ✅ User-defined functions with CASE expressions
 -- ✅ Type casting and string operations
 -- ✅ Business logic implementation
+-- ✅ Variable assignment and reuse
 -- =====================================================
-```
-
-### Data Processing Pipeline
-```pl-grizzly
-# Process user data
-{raw_users}
-|> filter(u => u.email != "")
-|> map(u => {
-    name: u.name,
-    email: u.email.lower(),
-    age: calculate_age(u.birth_date),
-    active: true
-})
-|> validate_user_data()
-|> save_to_table("processed_users")
-```
-
-## Error Handling Patterns
-
-### Safe Division
-```pl-grizzly
-FUNCTION safe_divide(a, b) =>
-    TRY
-        a / b
-    CATCH
-        0  # Return 0 on division by zero
-
-safe_divide(10, 2)    # Returns 5
-safe_divide(10, 0)    # Returns 0
-```
-
-### Database Error Handling
-```pl-grizzly
-FUNCTION safe_query(table_name) =>
-    TRY
-        SELECT * FROM {table_name}
-    CATCH
-        []  # Return empty list on error
-
-let users = safe_query("users")
-let orders = safe_query("nonexistent_table")  # Returns []
 ```
 
 ## Current Language Status
@@ -692,10 +564,6 @@ let orders = safe_query("nonexistent_table")  # Returns []
 - Basic expressions (arithmetic, comparisons, logic)
 - Variable binding and scoping
 - Function definitions and calls
-- Method-style syntax
-- STRUCT and EXCEPTION types
-- Try/catch error handling
-- LINQ-style pipes and queries
 - **Full SQL-style CRUD operations**: CREATE TABLE, SELECT, INSERT, UPDATE, DELETE
 - **Schema persistence**: Tables persist across sessions with JSON metadata
 - **Data persistence**: ORCStorage with integrity verification
@@ -707,6 +575,10 @@ let orders = safe_query("nonexistent_table")  # Returns []
 - CASE expressions for conditional logic
 - CAST operations for type conversion
 - BETWEEN, IN, and other SQL operators
+- TYPE SECRET for security configuration
+- TYPE STRUCT definitions and typed struct literals
+- Struct literals (`{key: value}` syntax)
+- HTTP URL support in FROM clauses (via HTTPFS extension)
 
 ### 🔄 Partially Implemented
 - UPDATE/DELETE parsing (AST evaluation works, but parser methods not implemented)
@@ -714,6 +586,7 @@ let orders = safe_query("nonexistent_table")  # Returns []
 - Complex JOIN syntax (works via correlated queries)
 
 ### ❌ Not Yet Implemented
+- Method-style syntax (object.method() calls)
 - Pattern matching
 - Closures and higher-order functions
 - Advanced control structures (if/else, loops)
@@ -723,6 +596,11 @@ let orders = safe_query("nonexistent_table")  # Returns []
 - Stored procedures and triggers
 - Transaction management
 - Index creation and optimization
+- LINQ-style pipe operations (filter, map, etc.)
+- Array operations and indexing
+- TRY/CATCH error handling
+- PIPE operator (`|>`)
+- EXCEPTION types and throwing
 
 ## REPL Usage Examples
 
@@ -763,9 +641,6 @@ godi> greet("World")
 
 godi> 1 + 2 * 3
 7
-
-godi> [1, 2, 3, 4, 5] |> filter(x => x > 3)
-[4, 5]
 ```
 
 This document represents the current state of PL-GRIZZLY as of January 12, 2026.</content>
