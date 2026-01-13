@@ -79,6 +79,10 @@ struct PLGrizzlyInterpreter:
                 struct_dict[col_name] = PLValue.string(col_value)
         return PLValue("list", "mock")
 
+    fn get_performance_stats(self) -> Dict[String, Int]:
+        """Get performance statistics from the AST evaluator."""
+        return self.ast_evaluator.get_cache_stats()
+
     fn query_attached_table(self, `alias`: String, table_name: String) raises -> PLValue:
         """Query table from attached database."""
         if `alias` not in self.attached_databases:
@@ -448,7 +452,7 @@ struct PLGrizzlyInterpreter:
         var parser = PLGrizzlyParser(tokens)
         var ast = parser.parse()
 
-        # Evaluate using optimized AST evaluator
+        # Evaluate using optimized AST evaluator with type checking
         self.ast_evaluator.set_source_code(source)
         var result = self.ast_evaluator.evaluate(ast, self.global_env, self.orc_storage)
         

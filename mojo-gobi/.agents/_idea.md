@@ -121,3 +121,100 @@ then
         ... 
     }  
 ```
+
+- match expression
+```
+let some_var = MATCH user.tier {
+    "premium" -> "VIP",
+    "basic" -> "Standard",
+    _ -> "Unknown"
+}
+
+from plans
+select tier match {
+    "premium" -> "vip",
+    "basic" -> "standard",
+    _ -> "unknow"
+}
+where user == "john"
+```
+
+- read supported pyarrow format
+    - installed by default extension
+    - can infer the type of what has been read
+```
+select * from '/folder/file.orc'
+select * from 'file.parquet'
+select * from 'file.feather'
+select * from 'file.json'
+
+type struct as Person (id int, name string)
+let x = select name from 'employees.json'
+@TypeOf(x) -- this should automatically infer the type if the type has been declared
+```
+
+- COPY supported pyarrow format
+    - can infer the type of what has been read
+    - orc, parquet, feather
+```
+--- imports data from an external file into an existing table
+COPY 'test.orc' TO test_table
+
+-- exports data from Table to an external CSV, Parquet, JSON or BLOB file
+COPY test_table TO 'test.orc'
+```
+
+- CTE Basic
+```
+-- basic
+WITH cte AS (SELECT 42 AS x)
+SELECT * FROM cte
+
+WITH cte AS (SELECT 42 AS x)
+FROM cte SELECT * 
+```
+
+- JOIN
+```
+SELECT n.*, r.*
+FROM l_nations n
+JOIN l_regions r ON (n_regionkey = r_regionkey);
+
+SELECT n.*, r.*
+FROM l_nations n
+LEFT JOIN l_regions r ON (n_regionkey = r_regionkey);
+
+SELECT n.*, r.*
+FROM l_nations n
+RIGHT JOIN l_regions r ON (n_regionkey = r_regionkey);
+
+SELECT n.*, r.*
+FROM l_nations n
+FULL JOIN l_regions r ON (n_regionkey = r_regionkey);
+
+SELECT n.*, r.*
+FROM l_nations n
+ANTI JOIN l_regions r ON (n_regionkey = r_regionkey);
+```
+
+- WHERE
+```
+SELECT *
+FROM tbl
+WHERE id = 3 OR id = 7
+```
+
+-- ORDER BY
+```
+SELECT zip_code
+FROM addresses
+ORDER BY DESC zip_code
+
+SELECT zip_code
+FROM addresses
+ORDER BY DSC zip_code
+
+SELECT zip_code
+FROM addresses
+ORDER BY ASC 
+```

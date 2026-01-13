@@ -5,7 +5,8 @@ Optimized recursive descent parser with memoization and efficient AST representa
 """
 
 from collections import List, Dict
-from pl_grizzly_lexer import Token, PLGrizzlyLexer, SELECT, FROM, WHERE, CREATE, DROP, INDEX, MATERIALIZED, VIEW, REFRESH, LOAD, UPDATE, DELETE, LOGIN, LOGOUT, BEGIN, COMMIT, ROLLBACK, MACRO, JOIN, ON, ATTACH, DETACH, EXECUTE, ALL, ARRAY, ATTACHED, DATABASES, AS, CACHE, CLEAR, DISTINCT, GROUP, ORDER, BY, SUM, COUNT, AVG, MIN, MAX, FUNCTION, TYPE, STRUCT, STRUCTS, TYPEOF, EXCEPTION, MODULE, DOUBLE_COLON, RETURNS, THROWS, IF, ELSE, MATCH, FOR, WHILE, THEN, CASE, IN, TRY, CATCH, LET, TRUE, FALSE, BREAK, CONTINUE, INSTALL, HTTPFS, WITH, HTTPS, EXTENSIONS, EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUAL, LESS_EQUAL, AND, OR, NOT, BANG, COALESCE, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, PIPE, ARROW, DOT, LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, LANGLE, RANGLE, COMMA, SEMICOLON, COLON, INSERT, INTO, VALUES, SET, SHOW, SECRET, SECRETS, DROP_SECRET, IDENTIFIER, STRING, NUMBER, VARIABLE, EOF, UNKNOWN
+from pl_grizzly_lexer import Token, PLGrizzlyLexer, SELECT, FROM, WHERE, CREATE, DROP, INDEX, MATERIALIZED, VIEW, REFRESH, LOAD, UPDATE, DELETE, LOGIN, LOGOUT, BEGIN, COMMIT, ROLLBACK, MACRO, JOIN, LEFT, RIGHT, FULL, INNER, ANTI, ON, ATTACH, DETACH, EXECUTE, ALL, ARRAY, ATTACHED, DATABASES, AS, CACHE, CLEAR, DISTINCT, GROUP, ORDER, BY, SUM, COUNT, AVG, MIN, MAX, FUNCTION, TYPE, STRUCT, STRUCTS, TYPEOF, EXCEPTION, MODULE, DOUBLE_COLON, RETURNS, THROWS, IF, ELSE, MATCH, FOR, WHILE, THEN, CASE, IN, TRY, CATCH, LET, TRUE, FALSE, BREAK, CONTINUE, INSTALL, HTTPFS, WITH, HTTPS, EXTENSIONS, STREAM, COPY, TO, EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUAL, LESS_EQUAL, AND, OR, NOT, BANG, COALESCE, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, PIPE, ARROW, DOT, LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, LANGLE, RANGLE, COMMA, SEMICOLON, COLON, INSERT, INTO, VALUES, SET, SHOW, SECRET, SECRETS, DROP_SECRET, IDENTIFIER, STRING, NUMBER, VARIABLE, UNDERSCORE, EOF, UNKNOWN
+from pl_grizzly_errors import PLGrizzlyError
 
 # Optimized AST Node types using enum-like constants
 alias AST_SELECT = "SELECT"
@@ -24,10 +25,23 @@ alias AST_ARRAY = "ARRAY"
 alias AST_DICT = "DICT"
 alias AST_BREAK = "BREAK"
 alias AST_CONTINUE = "CONTINUE"
+alias AST_MATCH = "MATCH"
 alias AST_EXECUTE = "EXECUTE"
 alias AST_INSTALL = "INSTALL"
 alias AST_LOAD = "LOAD"
 alias AST_WITH = "WITH"
+alias AST_STREAM = "STREAM"
+alias AST_MEMBER_ACCESS = "MEMBER_ACCESS"
+alias AST_INDEX_ACCESS = "INDEX_ACCESS"
+alias AST_STRUCT_LITERAL = "STRUCT_LITERAL"
+alias AST_TUPLE = "TUPLE"
+alias AST_COPY = "COPY"
+alias AST_JOIN = "JOIN"
+alias AST_LEFT_JOIN = "LEFT_JOIN"
+alias AST_RIGHT_JOIN = "RIGHT_JOIN"
+alias AST_FULL_JOIN = "FULL_JOIN"
+alias AST_INNER_JOIN = "INNER_JOIN"
+alias AST_ANTI_JOIN = "ANTI_JOIN"
 
 # Efficient AST Node using Dict for flexible representation
 struct ASTNode(Copyable, Movable):
@@ -37,6 +51,7 @@ struct ASTNode(Copyable, Movable):
     var attributes: Dict[String, String]
     var line: Int
     var column: Int
+    var inferred_type: String  # Dynamic type inference
 
     fn __init__(out self, node_type: String, value: String = "", line: Int = -1, column: Int = -1):
         self.node_type = node_type
@@ -45,6 +60,7 @@ struct ASTNode(Copyable, Movable):
         self.attributes = Dict[String, String]()
         self.line = line
         self.column = column
+        self.inferred_type = "unknown"
 
     fn add_child(mut self, child: ASTNode) raises:
         self.children.append(child.copy())
@@ -54,6 +70,332 @@ struct ASTNode(Copyable, Movable):
 
     fn get_attribute(self, key: String) -> String:
         return self.attributes.get(key, "")
+
+# Type System for Dynamic Semantic Analysis
+struct TypeInfo(Copyable, Movable):
+    var type_name: String
+    var is_nullable: Bool
+    var constraints: List[String]  # e.g., ["min:0", "max:100"]
+
+    fn __init__(out self, type_name: String, is_nullable: Bool = False):
+        self.type_name = type_name
+        self.is_nullable = is_nullable
+        self.constraints = List[String]()
+
+    fn add_constraint(mut self, constraint: String):
+        self.constraints.append(constraint)
+
+# User-defined struct type definition
+struct StructDefinition(Copyable, Movable):
+    var name: String
+    var fields: Dict[String, String]  # field_name -> field_type
+
+    fn __init__(out self, name: String):
+        self.name = name
+        self.fields = Dict[String, String]()
+
+    fn add_field(mut self, field_name: String, field_type: String):
+        self.fields[field_name] = field_type
+
+    fn get_field_type(self, field_name: String) -> String:
+        return self.fields.get(field_name, "unknown")
+
+    fn has_field(self, field_name: String) -> Bool:
+        return field_name in self.fields
+
+# Dynamic Type Checker
+struct TypeChecker:
+    var type_table: Dict[String, TypeInfo]
+    var function_signatures: Dict[String, Dict[String, String]]  # func_name -> {param: type}
+    var struct_definitions: Dict[String, StructDefinition]  # struct_name -> definition
+
+    fn __init__(out self):
+        self.type_table = Dict[String, TypeInfo]()
+        self.function_signatures = Dict[String, Dict[String, String]]()
+        self.struct_definitions = Dict[String, StructDefinition]()
+        self.initialize_builtin_types()
+
+    fn initialize_builtin_types(mut self):
+        self.type_table["int"] = TypeInfo("int")
+        self.type_table["float"] = TypeInfo("float")
+        self.type_table["string"] = TypeInfo("string")
+        self.type_table["boolean"] = TypeInfo("boolean")
+        self.type_table["array"] = TypeInfo("array")
+        self.type_table["struct"] = TypeInfo("struct")
+
+    fn define_struct(mut self, owned struct_def: StructDefinition):
+        """Register a user-defined struct type."""
+        self.struct_definitions[struct_def.name] = struct_def^
+
+    fn get_struct_definition(self, struct_name: String) -> Optional[StructDefinition]:
+        """Get a struct definition by name."""
+        return self.struct_definitions.get(struct_name)
+
+    fn is_struct_type(self, type_name: String) -> Bool:
+        """Check if a type is a user-defined struct."""
+        return type_name in self.struct_definitions
+
+    fn create_array_type(self, element_type: String) -> String:
+        """Create an array type string."""
+        return "Array<" + element_type + ">"
+
+    fn infer_type(self, node: ASTNode, symbol_table: SymbolTable) raises -> String:
+        """Infer type for an AST node with enhanced type inference."""
+        if node.node_type == AST_LITERAL:
+            return self.infer_literal_type(node.value)
+        elif node.node_type == AST_IDENTIFIER:
+            return self.infer_identifier_type(node.value, symbol_table)
+        elif node.node_type == AST_BINARY_OP:
+            return self.infer_binary_op_type(node, symbol_table)
+        elif node.node_type == AST_UNARY_OP:
+            return self.infer_unary_op_type(node, symbol_table)
+        elif node.node_type == AST_CALL:
+            return self.infer_call_type(node, symbol_table)
+        elif node.node_type == AST_ARRAY:
+            return self.infer_array_type(node, symbol_table)
+        elif node.node_type == AST_DICT:
+            return "Dict<string, unknown>"
+        elif node.node_type == AST_MEMBER_ACCESS:
+            return self.infer_member_access_type(node, symbol_table)
+        elif node.node_type == AST_INDEX:
+            return self.infer_index_access_type(node, symbol_table)
+        elif node.node_type == AST_STRUCT_LITERAL:
+            return self.infer_struct_literal_type(node)
+        elif node.node_type == AST_TUPLE:
+            return "Tuple"
+        return "unknown"
+
+    fn infer_literal_type(self, value: String) -> String:
+        """Enhanced literal type inference."""
+        if value.isdigit():
+            return "int"
+        elif value.startswith("-") and value[1:].isdigit():
+            return "int"
+        elif self.is_float_literal(value):
+            return "float"
+        elif value == "true" or value == "false":
+            return "boolean"
+        elif (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+            return "string"
+        else:
+            return "string"  # Default to string for complex literals
+
+    fn is_float_literal(self, value: String) -> Bool:
+        """Check if a string represents a float literal."""
+        return value.find(".") != -1 or value.lower().find("e") != -1
+
+    fn infer_identifier_type(self, name: String, symbol_table: SymbolTable) -> String:
+        """Enhanced identifier type inference with fallback."""
+        try:
+            var type_info = symbol_table.lookup(name)
+            return type_info
+        except:
+            # Check if it's a built-in function or constant
+            if name == "true" or name == "false":
+                return "boolean"
+            elif name == "null":
+                return "null"
+            return "unknown"
+
+    fn infer_binary_op_type(self, node: ASTNode, symbol_table: SymbolTable) raises -> String:
+        """Enhanced binary operation type inference."""
+        if len(node.children) < 2:
+            return "unknown"
+
+        var left_type = self.infer_type(node.children[0], symbol_table)
+        var right_type = self.infer_type(node.children[1], symbol_table)
+
+        return self.resolve_binary_op_type_enhanced(left_type, right_type, node.value)
+
+    fn resolve_binary_op_type_enhanced(self, left: String, right: String, op: String) -> String:
+        """Enhanced binary operation type resolution with better type promotion."""
+        # Arithmetic operations
+        if op == "+" or op == "-" or op == "*" or op == "/":
+            # String concatenation
+            if left == "string" or right == "string":
+                return "string"
+            # Numeric operations
+            elif left == "float" or right == "float":
+                return "float"
+            elif left == "int" and right == "int":
+                return "int"
+            else:
+                return "unknown"
+
+        # Comparison operations
+        elif op == "==" or op == "!=" or op == "<" or op == ">" or op == "<=" or op == ">=":
+            return "boolean"
+
+        # Logical operations
+        elif op == "and" or op == "or":
+            if left == "boolean" and right == "boolean":
+                return "boolean"
+            else:
+                return "unknown"
+
+        # Modulo operation
+        elif op == "%":
+            if left == "int" and right == "int":
+                return "int"
+            else:
+                return "unknown"
+
+        return "unknown"
+
+    fn infer_unary_op_type(self, node: ASTNode, symbol_table: SymbolTable) raises -> String:
+        """Infer type for unary operations."""
+        if len(node.children) < 1:
+            return "unknown"
+
+        var operand_type = self.infer_type(node.children[0], symbol_table)
+
+        if node.value == "not":
+            return "boolean"  # Logical not always returns boolean
+        elif node.value == "-":
+            return operand_type  # Negation preserves type
+        elif node.value == "+":
+            return operand_type  # Unary plus preserves type
+
+        return "unknown"
+
+    fn infer_call_type(self, node: ASTNode, symbol_table: SymbolTable) raises -> String:
+        """Enhanced function call type inference."""
+        var func_name = node.value
+
+        # Built-in functions
+        if func_name == "len":
+            return "int"
+        elif func_name == "abs" or func_name == "sqrt" or func_name == "sin" or func_name == "cos" or func_name == "tan":
+            return "float"
+        elif func_name == "min" or func_name == "max" or func_name == "sum":
+            # Infer from arguments
+            if len(node.children) > 0:
+                return self.infer_type(node.children[0], symbol_table)
+            return "unknown"
+        elif func_name == "print":
+            return "void"
+        elif func_name == "type":
+            return "string"  # Type introspection returns string
+
+        # Check user-defined functions
+        var func_sig_opt = self.function_signatures.get(func_name)
+        if func_sig_opt:
+            var func_sig = func_sig_opt.value().copy()
+            var return_type_opt = func_sig.get("return")
+            if return_type_opt:
+                return return_type_opt.value()
+
+        return "unknown"
+
+    fn infer_array_type(self, node: ASTNode, symbol_table: SymbolTable) raises -> String:
+        """Infer array type from elements."""
+        if len(node.children) == 0:
+            return "Array<unknown>"
+
+        # Infer type from first element
+        var element_type = self.infer_type(node.children[0], symbol_table)
+        return self.create_array_type(element_type)
+
+    fn infer_member_access_type(self, node: ASTNode, symbol_table: SymbolTable) raises -> String:
+        """Infer type for member access operations."""
+        if len(node.children) < 1:
+            return "unknown"
+
+        var object_type = self.infer_type(node.children[0], symbol_table)
+        var member_name = node.value
+
+        # Handle struct member access
+        if object_type.startswith("struct:"):
+            var struct_name = object_type[7:]  # Remove "struct:" prefix
+            var struct_def_opt = self.struct_definitions.get(struct_name)
+            if struct_def_opt:
+                var struct_def = struct_def_opt.value().copy()
+                var field_type_opt = struct_def.fields.get(member_name)
+                if field_type_opt:
+                    return field_type_opt.value()
+        elif object_type.startswith("Array<"):
+            # Array methods
+            if member_name == "length" or member_name == "size":
+                return "int"
+            elif member_name == "get" or member_name == "set":
+                # Extract element type from Array<type>
+                var start_idx = object_type.find("<")
+                var end_idx = object_type.find(">")
+                if start_idx != -1 and end_idx != -1:
+                    return object_type[start_idx + 1:end_idx]
+
+        return "unknown"
+
+    fn infer_index_access_type(self, node: ASTNode, symbol_table: SymbolTable) raises -> String:
+        """Infer type for index access operations."""
+        if len(node.children) < 1:
+            return "unknown"
+
+        var collection_type = self.infer_type(node.children[0], symbol_table)
+
+        if collection_type.startswith("Array<"):
+            # Extract element type from Array<type>
+            var start_idx = collection_type.find("<")
+            var end_idx = collection_type.find(">")
+            if start_idx != -1 and end_idx != -1:
+                return collection_type[start_idx + 1:end_idx]
+        elif collection_type.startswith("Dict<"):
+            # Dict access returns value type
+            var first_comma = collection_type.find(",")
+            var end_bracket = collection_type.find(">")
+            if first_comma != -1 and end_bracket != -1:
+                return String(collection_type[first_comma + 1:end_bracket].strip())
+
+        return "unknown"
+
+    fn infer_struct_literal_type(self, node: ASTNode) -> String:
+        """Infer type for struct literals."""
+        var struct_type = node.get_attribute("struct_type")
+        if struct_type != "":
+            return "struct:" + struct_type
+        return "struct:anonymous"
+
+    fn check_type_compatibility(self, expected: String, actual: String) raises:
+        """Check if types are compatible."""
+        if expected != actual and expected != "unknown" and actual != "unknown":
+            if not (expected == "float" and actual == "int"):  # int can be promoted to float
+                raise Error("Type mismatch: expected " + expected + ", got " + actual)
+
+    fn perform_semantic_analysis(mut self, node: ASTNode, mut symbol_table: SymbolTable) raises:
+        """Perform dynamic semantic analysis on AST."""
+        if node.node_type == "TYPE" and node.get_attribute("type") == "STRUCT":
+            # Handle struct type definition
+            var struct_name = node.get_attribute("name")
+            var struct_def = StructDefinition(struct_name)
+            
+            # Collect field definitions
+            for i in range(len(node.children)):
+                var child = node.children[i].copy()
+                if child.node_type == "FIELD_DEF":
+                    var field_name = child.value
+                    var field_type = child.get_attribute("type")
+                    struct_def.add_field(field_name, field_type)
+            
+            # Register the struct definition
+            self.define_struct(struct_def^)
+            print("Registered struct type:", struct_name)
+        elif node.node_type == AST_BINARY_OP:
+            var left_type = self.infer_type(node.children[0], symbol_table)
+            var right_type = self.infer_type(node.children[1], symbol_table)
+            var result_type = self.resolve_binary_op_type_enhanced(left_type, right_type, node.value)
+            # Note: ASTNode is not mutable, so we can't modify inferred_type here
+            # Type checking is done during evaluation instead
+        elif node.node_type == "LET":  # Use string instead of undefined constant
+            var expr_type = self.infer_type(node.children[0], symbol_table)
+            symbol_table.define(node.value, expr_type)
+        elif node.node_type == AST_FUNCTION:
+            # Analyze function parameters and body
+            for i in range(len(node.children)):
+                self.perform_semantic_analysis(node.children[i], symbol_table)
+
+        # Recursively analyze children
+        for i in range(len(node.children)):
+            self.perform_semantic_analysis(node.children[i], symbol_table)
 
 # Memoization cache for parser expressions - simplified for non-copyable ASTNode
 struct ParserCache:
@@ -91,20 +433,27 @@ struct PLGrizzlyParser:
     var current: Int
     var cache: ParserCache
     var symbol_table: SymbolTable
+    var type_checker: TypeChecker
 
     fn __init__(out self, tokens: List[Token]):
         self.tokens = tokens.copy()
         self.current = 0
         self.cache = ParserCache()
         self.symbol_table = SymbolTable()
+        self.type_checker = TypeChecker()
 
     fn parse(mut self) raises -> ASTNode:
-        """Parse tokens into optimized AST."""
+        """Parse tokens into optimized AST with semantic analysis."""
         if len(self.tokens) == 0:
             return ASTNode(AST_LITERAL, "empty")
 
-        # Try to parse as statement
-        return self.statement()
+        # Parse the statement
+        var ast = self.statement()
+
+        # Perform dynamic semantic analysis and type checking
+        self.type_checker.perform_semantic_analysis(ast, self.symbol_table)
+
+        return ast.copy()
 
     fn statement(mut self) raises -> ASTNode:
         """Parse a statement."""
@@ -117,8 +466,20 @@ struct PLGrizzlyParser:
     fn parenthesized_statement(mut self) raises -> ASTNode:
         """Parse a parenthesized statement."""
         var result: ASTNode
-        if self.match(SELECT) or self.match(FROM):
-            result = self.select_from_statement()
+        if self.match(STREAM):
+            # STREAM keyword found, now expect SELECT or FROM
+            if self.match(SELECT) or self.match(FROM):
+                result = self.select_from_statement(True)  # Pass flag indicating STREAM was present
+            else:
+                # Invalid syntax after STREAM
+                var error = PLGrizzlyError.syntax_error(
+                    "Expected SELECT or FROM after STREAM",
+                    self.previous().line, self.previous().column, ""
+                )
+                error.add_suggestion("Use '(STREAM SELECT ...)' or '(STREAM FROM ... SELECT ...)'")
+                return ASTNode("ERROR", "Invalid STREAM syntax")
+        elif self.match(SELECT) or self.match(FROM):
+            result = self.select_from_statement(False)  # No STREAM
         elif self.match(CREATE):
             result = self.create_statement()
         elif self.match(DROP):
@@ -150,10 +511,26 @@ struct PLGrizzlyParser:
     fn unparenthesized_statement(mut self) raises -> ASTNode:
         """Parse an unparenthesized statement (for SQL-like syntax)."""
         var result: ASTNode
-        if self.match(SELECT) or self.match(FROM):
-            result = self.select_from_statement()
+        if self.match(STREAM):
+            # STREAM keyword found, now expect SELECT or FROM
+            if self.match(SELECT) or self.match(FROM):
+                result = self.select_from_statement(True)  # Pass flag indicating STREAM was present
+            else:
+                # Invalid syntax after STREAM
+                var error = PLGrizzlyError.syntax_error(
+                    "Expected SELECT or FROM after STREAM",
+                    self.previous().line, self.previous().column, ""
+                )
+                error.add_suggestion("Use 'STREAM SELECT ...' or 'STREAM FROM ... SELECT ...'")
+                return ASTNode("ERROR", "Invalid STREAM syntax")
+        elif self.match(WITH):
+            result = self.with_statement()
+        elif self.match(SELECT) or self.match(FROM):
+            result = self.select_from_statement(False)  # No STREAM
         elif self.match(CREATE):
             result = self.create_statement()
+        elif self.match(COPY):
+            result = self.copy_statement()
         elif self.match(DROP):
             result = self.drop_statement()
         elif self.match(INSERT):
@@ -196,31 +573,31 @@ struct PLGrizzlyParser:
 
         return result^
 
-    fn select_from_statement(mut self) raises -> ASTNode:
+    fn select_from_statement(mut self, is_stream: Bool = False, require_from: Bool = True) raises -> ASTNode:
         """Parse SELECT/FROM statement with interchangeable keywords."""
         var node = ASTNode(AST_SELECT, "", self.previous().line, self.previous().column)
-        var has_select = False
-        var has_from = False
-
-        # Check which keyword we started with
-        if self.previous().type == SELECT:
-            has_select = True
-        elif self.previous().type == FROM:
-            has_from = True
+        
+        # Add STREAM attribute if present
+        if is_stream:
+            node.add_child(ASTNode(AST_STREAM, "stream", self.previous().line, self.previous().column))
+        
+        var started_with_select = self.previous().type == SELECT
+        var started_with_from = self.previous().type == FROM
 
         # If we started with SELECT, parse SELECT clause first
-        if has_select:
+        if started_with_select:
             var select_list = self.parse_select_list()
             node.add_child(select_list)
 
-        # Parse FROM clause (required in both syntaxes)
-        if not has_from:
-            _ = self.consume(FROM, "Expected FROM clause")
-        var from_clause = self.parse_from_clause()
-        node.add_child(from_clause)
+        # Parse FROM clause
+        if started_with_from or require_from:
+            if not started_with_from:
+                _ = self.consume(FROM, "Expected FROM clause")
+            var from_clause = self.parse_from_clause()
+            node.add_child(from_clause)
 
         # If we started with FROM, parse SELECT clause now
-        if has_from:
+        if started_with_from:
             _ = self.consume(SELECT, "Expected SELECT clause after FROM")
             var select_list = self.parse_select_list()
             node.add_child(select_list)
@@ -246,6 +623,43 @@ struct PLGrizzlyParser:
         if self.match(THEN):
             var then_clause = self.parse_then_clause()
             node.add_child(then_clause)
+
+        return node^
+
+    fn with_statement(mut self) raises -> ASTNode:
+        """Parse WITH statement (CTE - Common Table Expression)."""
+        var node = ASTNode(AST_WITH, "", self.previous().line, self.previous().column)
+
+        # Parse CTE definitions
+        var cte_list = List[ASTNode]()
+        while True:
+            var cte_name = self.consume(IDENTIFIER, "Expected CTE name").value
+            _ = self.consume(AS, "Expected AS after CTE name")
+
+            # Parse the CTE query (subquery)
+            _ = self.consume(LPAREN, "Expected '(' after AS")
+            # The CTE query should be a SELECT statement
+            _ = self.consume(SELECT, "Expected SELECT in CTE query")
+            var cte_query = self.select_from_statement(False, False)  # FROM is optional for CTE queries
+            _ = self.consume(RPAREN, "Expected ')' after CTE query")
+
+            # Create CTE definition node
+            var cte_def = ASTNode("CTE_DEFINITION", cte_name)
+            cte_def.add_child(cte_query)
+            cte_list.append(cte_def^)
+
+            # Check for comma (more CTEs) or end
+            if not self.match(COMMA):
+                break
+
+        # Add all CTE definitions to the WITH node
+        for cte in cte_list:
+            node.add_child(cte)
+
+        # Parse the main query
+        # The main query can be either SELECT ... FROM ... or FROM ... SELECT ...
+        var main_query = self.statement()
+        node.add_child(main_query)
 
         return node^
 
@@ -275,6 +689,20 @@ struct PLGrizzlyParser:
         if self.check(ARRAY) and self.peek_next_type() == DOUBLE_COLON:
             var array_agg_node = self.parse_array_aggregation()
             node.add_child(array_agg_node)
+        # Check for qualified column references like table.* or table.column
+        elif self.check(IDENTIFIER) and self.peek_next_type() == DOT:
+            var qualifier = self.consume(IDENTIFIER, "Expected table/alias name")
+            _ = self.consume(DOT, "Expected '.' after qualifier")
+            
+            if self.match(MULTIPLY):
+                # table.*
+                var qualified_star = ASTNode("QUALIFIED_STAR", qualifier.value, qualifier.line, qualifier.column)
+                node.add_child(qualified_star)
+            else:
+                # table.column
+                var column = self.consume(IDENTIFIER, "Expected column name after '.'")
+                var qualified_column = ASTNode("QUALIFIED_IDENTIFIER", qualifier.value + "." + column.value, qualifier.line, qualifier.column)
+                node.add_child(qualified_column)
         # Check for aggregate functions
         elif self.check(SUM) or self.check(COUNT) or self.check(AVG) or self.check(MIN) or self.check(MAX):
             var func_name = self.advance().value
@@ -303,18 +731,37 @@ struct PLGrizzlyParser:
         return node^
 
     fn parse_from_clause(mut self) raises -> ASTNode:
-        """Parse FROM clause."""
+        """Parse FROM clause with JOIN support."""
         var node = ASTNode(AST_FROM, "", self.previous().line, self.previous().column)
         
-        # Support both identifiers (table names) and strings (HTTP URLs)
+        # Parse the first table
+        var first_table = self.parse_table_reference()
+        node.add_child(first_table)
+        
+        # Parse optional JOIN clauses
+        while self.is_join_keyword():
+            var join_node = self.parse_join_clause()
+            node.add_child(join_node)
+        
+        return node^
+
+    fn parse_table_reference(mut self) raises -> ASTNode:
+        """Parse a table reference (table name with optional alias and secrets)."""
+        var node = ASTNode("TABLE_REFERENCE", "", self.previous().line, self.previous().column)
+        
+        # Support identifiers (table names), strings (HTTP URLs or quoted file names), or file paths
         var table_name: String
         if self.check(STRING):
-            var url_token = self.consume(STRING, "Expected table name or URL after FROM")
-            table_name = url_token.value
-            node.set_attribute("is_url", "true")
+            var string_token = self.consume(STRING, "Expected table name, URL, or file path")
+            table_name = string_token.value
+            # Check if this is actually an HTTP URL
+            if table_name.startswith("http://") or table_name.startswith("https://"):
+                node.set_attribute("is_url", "true")
+            else:
+                node.set_attribute("is_url", "false")
         else:
-            var table_token = self.consume(IDENTIFIER, "Expected table name after FROM")
-            table_name = table_token.value
+            # Parse table name or file path (allow dots in file names)
+            table_name = self.parse_table_or_file_name()
             node.set_attribute("is_url", "false")
         
         node.set_attribute("table", table_name)
@@ -344,6 +791,77 @@ struct PLGrizzlyParser:
 
         return node^
 
+    fn is_join_keyword(mut self) -> Bool:
+        """Check if the next token is a JOIN keyword."""
+        return self.check(JOIN) or self.check(LEFT) or self.check(RIGHT) or self.check(FULL) or self.check(INNER) or self.check(ANTI)
+
+    fn parse_join_clause(mut self) raises -> ASTNode:
+        """Parse a JOIN clause."""
+        var join_type = self.determine_join_type()
+        
+        # Create appropriate AST node based on join type
+        var node: ASTNode
+        if join_type == "LEFT":
+            node = ASTNode(AST_LEFT_JOIN, "", self.previous().line, self.previous().column)
+        elif join_type == "RIGHT":
+            node = ASTNode(AST_RIGHT_JOIN, "", self.previous().line, self.previous().column)
+        elif join_type == "FULL":
+            node = ASTNode(AST_FULL_JOIN, "", self.previous().line, self.previous().column)
+        elif join_type == "INNER":
+            node = ASTNode(AST_INNER_JOIN, "", self.previous().line, self.previous().column)
+        elif join_type == "ANTI":
+            node = ASTNode(AST_ANTI_JOIN, "", self.previous().line, self.previous().column)
+        else:
+            node = ASTNode(AST_JOIN, "", self.previous().line, self.previous().column)
+        
+        # Parse the joined table
+        var joined_table = self.parse_table_reference()
+        node.add_child(joined_table)
+        
+        # Parse ON clause
+        _ = self.consume(ON, "Expected ON clause after JOIN")
+        var on_condition = self.expression()
+        node.add_child(on_condition)
+        
+        return node^
+
+    fn determine_join_type(mut self) raises -> String:
+        """Determine the type of JOIN and consume the tokens."""
+        if self.match(LEFT):
+            _ = self.consume(JOIN, "Expected JOIN after LEFT")
+            return "LEFT"
+        elif self.match(RIGHT):
+            _ = self.consume(JOIN, "Expected JOIN after RIGHT")
+            return "RIGHT"
+        elif self.match(FULL):
+            _ = self.consume(JOIN, "Expected JOIN after FULL")
+            return "FULL"
+        elif self.match(INNER):
+            _ = self.consume(JOIN, "Expected JOIN after INNER")
+            return "INNER"
+        elif self.match(ANTI):
+            _ = self.consume(JOIN, "Expected JOIN after ANTI")
+            return "ANTI"
+        else:
+            _ = self.consume(JOIN, "Expected JOIN keyword")
+            return "INNER"  # Default to INNER JOIN
+
+    fn parse_table_or_file_name(mut self) raises -> String:
+        """Parse table name or file path (allows dots in file names)."""
+        var name_parts = List[String]()
+        
+        # Consume first identifier
+        var first_token = self.consume(IDENTIFIER, "Expected table name or file path after FROM")
+        name_parts.append(first_token.value)
+        
+        # Allow additional identifiers separated by dots
+        while self.match(DOT):
+            var next_token = self.consume(IDENTIFIER, "Expected identifier after dot")
+            name_parts.append(".")
+            name_parts.append(next_token.value)
+        
+        return String("").join(name_parts)
+
     fn parse_where_clause(mut self) raises -> ASTNode:
         """Parse WHERE clause."""
         var node = ASTNode(AST_WHERE, "", self.previous().line, self.previous().column)
@@ -368,14 +886,32 @@ struct PLGrizzlyParser:
         var node = ASTNode("ORDER_BY", "", self.previous().line, self.previous().column)
 
         while True:
-            var col = self.expression()
             var direction = "ASC"
+            var col: Optional[ASTNode] = None
 
-            if self.match("ASC") or self.match("DESC"):
+            # Check if direction comes first (ASC|DESC column)
+            if self.match("ASC") or self.match("DESC") or self.match("DSC"):
                 direction = self.previous().value
+                if direction == "DSC":
+                    direction = "DESC"  # Handle typo
+                col = self.expression()
+            else:
+                # Check if it's column [ASC|DESC] (original syntax)
+                col = self.expression()
+                if self.match("ASC") or self.match("DESC") or self.match("DSC"):
+                    direction = self.previous().value
+                    if direction == "DSC":
+                        direction = "DESC"  # Handle typo
 
-            col.set_attribute("direction", direction)
-            node.add_child(col)
+            if col:
+                col.value().set_attribute("direction", direction)
+                node.add_child(col.value())
+            else:
+                # Handle case like "ORDER BY ASC" without column
+                # This is invalid SQL but we'll handle it gracefully
+                var dummy_col = ASTNode("IDENTIFIER", "*", self.previous().line, self.previous().column)
+                dummy_col.set_attribute("direction", direction)
+                node.add_child(dummy_col)
 
             if not self.match(COMMA):
                 break
@@ -438,7 +974,7 @@ struct PLGrizzlyParser:
             return self.primary()
 
     fn parse_postfix(mut self, expr: ASTNode) raises -> ASTNode:
-        """Parse postfix operations like indexing."""
+        """Parse postfix operations like indexing, member access, and MATCH expressions."""
         var result = expr.copy()
 
         while True:
@@ -451,10 +987,55 @@ struct PLGrizzlyParser:
                 index_node.add_child(result)
                 index_node.add_child(index_expr)
                 result = index_node^
+            elif self.match(DOT):
+                # Parse member access operation
+                _ = self.consume(IDENTIFIER, "Expected identifier after '.'")
+
+                var member_name = self.previous().value
+                var member_node = ASTNode(AST_MEMBER_ACCESS, member_name, self.previous().line, self.previous().column)
+                member_node.add_child(result)
+                result = member_node^
+            elif self.match(MATCH):
+                # Parse MATCH expression
+                result = self.parse_match_expression(result)
             else:
                 break
 
         return result^
+
+    fn parse_match_expression(mut self, match_expr: ASTNode) raises -> ASTNode:
+        """Parse MATCH expression: expr MATCH { pattern -> value, ... }."""
+        var match_node = ASTNode(AST_MATCH, "match", self.previous().line, self.previous().column)
+        match_node.add_child(match_expr)  # The expression being matched
+
+        _ = self.consume(LBRACE, "Expected '{' after MATCH")
+
+        # Parse match cases: pattern -> value
+        while not self.check(RBRACE) and not self.is_at_end():
+            # Parse pattern (can be literal, identifier, or _ for wildcard)
+            var pattern: ASTNode
+            if self.match(UNDERSCORE):
+                pattern = ASTNode(AST_LITERAL, "_", self.previous().line, self.previous().column)
+            else:
+                pattern = self.expression()
+
+            _ = self.consume(ARROW, "Expected '->' after pattern in MATCH case")
+
+            # Parse value expression
+            var value = self.expression()
+
+            # Create case node with pattern and value
+            var case_node = ASTNode("MATCH_CASE", "case")
+            case_node.add_child(pattern)
+            case_node.add_child(value)
+            match_node.add_child(case_node)
+
+            # Check for comma (optional for last case)
+            if not self.match(COMMA):
+                break
+
+        _ = self.consume(RBRACE, "Expected '}' after MATCH cases")
+        return match_node^
 
     fn primary(mut self) raises -> ASTNode:
         """Parse primary expressions."""
@@ -474,6 +1055,8 @@ struct PLGrizzlyParser:
             return ASTNode(AST_LITERAL, self.previous().value, self.previous().line, self.previous().column)
         elif self.match(TRUE) or self.match(FALSE):
             return ASTNode(AST_LITERAL, self.previous().value, self.previous().line, self.previous().column)
+        elif self.match(UNDERSCORE):
+            return ASTNode(AST_LITERAL, "_", self.previous().line, self.previous().column)
         elif self.match(IDENTIFIER):
             var name = self.previous().value
             var var_type = self.symbol_table.lookup(name)
@@ -1051,6 +1634,38 @@ struct PLGrizzlyParser:
         else:
             # Handle other TYPE statements (future extension)
             self.error("Expected SECRET or STRUCT after TYPE")
+
+        return node^
+
+    fn copy_statement(mut self) raises -> ASTNode:
+        """Parse COPY statement for importing/exporting data."""
+        var node = ASTNode(AST_COPY, "", self.previous().line, self.previous().column)
+
+        # Check if first token is a string (file path) or identifier (table name)
+        if self.match(STRING):
+            # COPY 'file_path' TO table_name (import)
+            var file_path = self.previous().value
+            node.set_attribute("source_type", "file")
+            node.set_attribute("source", file_path)
+            
+            _ = self.consume(TO, "Expected TO")
+            var table_name = self.consume(IDENTIFIER, "Expected table name").value
+            node.set_attribute("destination_type", "table")
+            node.set_attribute("destination", table_name)
+            node.set_attribute("operation", "import")
+        elif self.match(IDENTIFIER):
+            # COPY table_name TO 'file_path' (export)
+            var table_name = self.previous().value
+            node.set_attribute("source_type", "table")
+            node.set_attribute("source", table_name)
+            
+            _ = self.consume(TO, "Expected TO")
+            var file_path = self.consume(STRING, "Expected file path").value
+            node.set_attribute("destination_type", "file")
+            node.set_attribute("destination", file_path)
+            node.set_attribute("operation", "export")
+        else:
+            self.error("Expected file path (string) or table name (identifier) after COPY")
 
         return node^
 

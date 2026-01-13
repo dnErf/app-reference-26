@@ -8,6 +8,25 @@ from collections import Dict, List
 from pl_grizzly_environment import Environment
 from pl_grizzly_errors import PLGrizzlyError, ErrorManager
 
+# Forward declaration for lazy iterator
+struct LazyIterator(Copyable, Movable):
+    var data: List[List[String]]
+    var index: Int
+    
+    fn __init__(out self, table_data: List[List[String]]):
+        self.data = table_data.copy()
+        self.index = 0
+    
+    fn next(mut self) -> Optional[List[String]]:
+        if self.index < len(self.data):
+            var row = self.data[self.index].copy()
+            self.index += 1
+            return row
+        return None
+    
+    fn has_next(self) -> Bool:
+        return self.index < len(self.data)
+
 # Value types for PL-GRIZZLY
 struct PLValue(Copyable, Movable, ImplicitlyCopyable):
     var type: String
@@ -15,6 +34,7 @@ struct PLValue(Copyable, Movable, ImplicitlyCopyable):
     var closure_env: Optional[Environment]
     var error_context: String
     var enhanced_error_field: Optional[PLGrizzlyError]
+    var lazy_iterator: Optional[LazyIterator]
     # var struct_data: Optional[Dict[String, PLValue]]
     # var list_data: Optional[List[PLValue]]
 
@@ -24,6 +44,7 @@ struct PLValue(Copyable, Movable, ImplicitlyCopyable):
         self.closure_env = None
         self.error_context = ""
         self.enhanced_error_field = None
+        self.lazy_iterator = None
 
     fn __copyinit__(out self, other: PLValue):
         self.type = other.type
@@ -37,6 +58,7 @@ struct PLValue(Copyable, Movable, ImplicitlyCopyable):
             self.enhanced_error_field = other.enhanced_error_field.value()
         else:
             self.enhanced_error_field = None
+        self.lazy_iterator = None  # Lazy iterators are not copyable
 
     @staticmethod
     fn struct(data: Dict[String, PLValue]) -> PLValue:
@@ -57,6 +79,12 @@ struct PLValue(Copyable, Movable, ImplicitlyCopyable):
     @staticmethod
     fn string(value: String) -> PLValue:
         return PLValue("string", value)
+
+    @staticmethod
+    fn lazy(var iterator: LazyIterator) -> PLValue:
+        var result = PLValue("lazy", "iterator")
+        result.lazy_iterator = iterator^
+        return result
 
     @staticmethod
     fn bool(value: Bool) -> PLValue:
@@ -139,6 +167,30 @@ struct PLValue(Copyable, Movable, ImplicitlyCopyable):
         if self.type == "number" and other.type == "number":
             return atol(self.value) < atol(other.value)
         return False
+
+    fn attempt_error_recovery(self, context: Dict[String, String]) raises -> Optional[PLValue]:
+        """Attempt to recover from an enhanced error using recovery strategies."""
+        if self.enhanced_error_field:
+            from pl_grizzly_errors import ErrorRecovery
+            return ErrorRecovery.attempt_recovery(self.enhanced_error_field.value(), context)
+        return None
+
+    fn can_recover_error(self) -> Bool:
+        """Check if this error value can potentially be recovered from."""
+        if self.enhanced_error_field:
+            from pl_grizzly_errors import ErrorRecovery
+            return ErrorRecovery.can_recover(self.enhanced_error_field.value())
+        return False
+
+    fn get_error_suggestions(self) -> List[String]:
+        """Get recovery suggestions for this error value."""
+        if self.enhanced_error_field:
+            var error = self.enhanced_error_field.value()
+            var suggestions = error.suggestions.copy()
+            for i in range(len(error.recovery_suggestions)):
+                suggestions.append(error.recovery_suggestions[i])
+            return suggestions^
+        return List[String]()
 
 # Helper functions for operations
 fn add_op(a: Int, b: Int) -> Int:

@@ -49,6 +49,16 @@ fn get_keywords() -> Dict[String, String]:
     keywords["MACRO"] = MACRO
     keywords["join"] = JOIN
     keywords["JOIN"] = JOIN
+    keywords["left"] = LEFT
+    keywords["LEFT"] = LEFT
+    keywords["right"] = RIGHT
+    keywords["RIGHT"] = RIGHT
+    keywords["full"] = FULL
+    keywords["FULL"] = FULL
+    keywords["inner"] = INNER
+    keywords["INNER"] = INNER
+    keywords["anti"] = ANTI
+    keywords["ANTI"] = ANTI
     keywords["on"] = ON
     keywords["ON"] = ON
     keywords["attach"] = ATTACH
@@ -80,6 +90,12 @@ fn get_keywords() -> Dict[String, String]:
     keywords["ORDER"] = ORDER
     keywords["by"] = BY
     keywords["BY"] = BY
+    keywords["asc"] = ASC
+    keywords["ASC"] = ASC
+    keywords["desc"] = DESC
+    keywords["DESC"] = DESC
+    keywords["dsc"] = DSC
+    keywords["DSC"] = DSC
     keywords["sum"] = SUM
     keywords["SUM"] = SUM
     keywords["count"] = COUNT
@@ -170,6 +186,11 @@ fn get_keywords() -> Dict[String, String]:
     keywords["HTTPS"] = HTTPS
     keywords["extensions"] = EXTENSIONS
     keywords["EXTENSIONS"] = EXTENSIONS
+    keywords["copy"] = COPY
+    keywords["COPY"] = COPY
+    keywords["to"] = TO
+    keywords["TO"] = TO
+    keywords["_"] = UNDERSCORE
     return keywords^
 alias SELECT = "SELECT"
 alias FROM = "FROM"
@@ -190,6 +211,11 @@ alias COMMIT = "COMMIT"
 alias ROLLBACK = "ROLLBACK"
 alias MACRO = "MACRO"
 alias JOIN = "JOIN"
+alias LEFT = "LEFT"
+alias RIGHT = "RIGHT"
+alias FULL = "FULL"
+alias INNER = "INNER"
+alias ANTI = "ANTI"
 alias ON = "ON"
 alias ATTACH = "ATTACH"
 alias DETACH = "DETACH"
@@ -205,6 +231,9 @@ alias DISTINCT = "DISTINCT"
 alias GROUP = "GROUP"
 alias ORDER = "ORDER"
 alias BY = "BY"
+alias ASC = "ASC"
+alias DESC = "DESC"
+alias DSC = "DSC"
 alias SUM = "SUM"
 alias COUNT = "COUNT"
 alias AVG = "AVG"
@@ -240,8 +269,9 @@ alias HTTPFS = "HTTPFS"
 alias WITH = "WITH"
 alias HTTPS = "HTTPS"
 alias EXTENSIONS = "EXTENSIONS"
-
-# Operators
+alias STREAM = "STREAM"
+alias COPY = "COPY"
+alias TO = "TO"
 alias EQUALS = "="
 alias NOT_EQUALS = "!="
 alias GREATER = ">"
@@ -290,6 +320,7 @@ alias IDENTIFIER = "IDENTIFIER"
 alias STRING = "STRING"
 alias NUMBER = "NUMBER"
 alias VARIABLE = "VARIABLE"  # For {variable} syntax
+alias UNDERSCORE = "_"
 
 # Special
 alias EOF = "EOF"

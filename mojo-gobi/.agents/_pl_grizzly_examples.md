@@ -72,7 +72,14 @@ let empty_array = []
 let numbers = [1, 2, 3, 4, 5]
 let names = ["Alice", "Bob", "Charlie"]
 
-# Note: Array indexing and operations are not fully implemented
+# Array indexing and slicing
+let first = numbers[0]        # Returns 1
+let middle = numbers[1:3]     # Returns [2, 3]
+let last = numbers[-1]        # Returns 5
+
+# Array operations
+let length = numbers.length() # Returns 5
+let joined = names.join(", ") # Returns "Alice, Bob, Charlie"
 ```
 
 ### TYPE STRUCT Definitions and Literals
@@ -133,6 +140,33 @@ user.is_adult()    # Equivalent to is_adult(user)
 |> filter(o => o.status == "pending")
 |> map(o => o.total)
 |> sum()
+```
+
+## Lazy Evaluation & Streaming
+
+### STREAM Queries for Large Datasets
+```pl-grizzly
+# Stream SELECT syntax - processes data lazily for memory efficiency
+STREAM SELECT * FROM large_table WHERE active = true
+
+# Alternative FROM-first syntax
+STREAM FROM large_table SELECT id, name WHERE active = true
+
+# Streaming with aggregation (lazy evaluation)
+STREAM SELECT department, COUNT(*) as count
+FROM employees
+GROUP BY department
+ORDER BY count DESC
+```
+
+### Iterator Usage
+```pl-grizzly
+# Create a lazy iterator from a query
+let user_iterator = STREAM SELECT * FROM users WHERE active = true
+
+# Iterator methods (conceptual - implementation may vary)
+user_iterator.has_next()  # Check if more data available
+user_iterator.next()      # Get next batch of results
 ```
 
 ## Database Operations
@@ -596,11 +630,12 @@ SELECT "Order total: $" + CAST(order_total as STRING) FROM dual
 - Stored procedures and triggers
 - Transaction management
 - Index creation and optimization
-- LINQ-style pipe operations (filter, map, etc.)
-- Array operations and indexing
+- LINQ-style pipe operations (filter, map, etc.) ✅ IMPLEMENTED
+- Array operations and indexing ✅ IMPLEMENTED
 - TRY/CATCH error handling
-- PIPE operator (`|>`)
+- PIPE operator (`|>`) ✅ IMPLEMENTED
 - EXCEPTION types and throwing
+- STREAM keyword for lazy evaluation ✅ IMPLEMENTED
 
 ## REPL Usage Examples
 

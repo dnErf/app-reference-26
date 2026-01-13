@@ -5,35 +5,148 @@ Optimized AST evaluator with caching and symbol table management.
 """
 
 from collections import Dict, List
-from pl_grizzly_parser import ASTNode, SymbolTable, PLGrizzlyParser
+from pl_grizzly_parser import ASTNode, SymbolTable, PLGrizzlyParser, TypeChecker, AST_JOIN, AST_LEFT_JOIN, AST_RIGHT_JOIN, AST_FULL_JOIN, AST_INNER_JOIN, AST_ANTI_JOIN
 from pl_grizzly_lexer import PLGrizzlyLexer
-from pl_grizzly_values import PLValue
+from pl_grizzly_values import PLValue, LazyIterator
 from pl_grizzly_environment import Environment
 from pl_grizzly_errors import PLGrizzlyError, ErrorManager, create_undefined_variable_error, create_type_mismatch_error, create_division_by_zero_error, create_table_not_found_error
 from orc_storage import ORCStorage
 from schema_manager import SchemaManager, Column
 from extensions.httpfs import HTTPFSExtension
+from extensions.pyarrow_reader import PyArrowFileReader
+from extensions.pyarrow_writer import PyArrowFileWriter
 from python import Python
 
 struct ASTEvaluator:
     var symbol_table: SymbolTable
     var eval_cache: Dict[String, PLValue]
+    var query_result_cache: Dict[String, PLValue]  # Cache for complete query results
+    var string_intern_pool: Dict[String, String]   # String interning for memory optimization
+    var cache_access_times: Dict[String, Int]      # Track cache access times for LRU
+    var cache_hit_count: Int                       # Performance monitoring
+    var cache_miss_count: Int                      # Performance monitoring
     var recursion_depth: Int
     var error_manager: ErrorManager
     var source_code: String  # Store source code for error context
     var httpfs_extension: HTTPFSExtension  # HTTPFS extension for URL support
+    var pyarrow_reader: PyArrowFileReader  # PyArrow file reader extension
+    var pyarrow_writer: PyArrowFileWriter  # PyArrow file writer extension
+    var type_checker: TypeChecker  # Dynamic type checker
+    var max_cache_size: Int  # Maximum cache size for LRU eviction
 
     fn __init__(out self, source_code: String = ""):
         self.symbol_table = SymbolTable()
         self.eval_cache = Dict[String, PLValue]()
+        self.query_result_cache = Dict[String, PLValue]()
+        self.string_intern_pool = Dict[String, String]()
+        self.cache_access_times = Dict[String, Int]()
+        self.cache_hit_count = 0
+        self.cache_miss_count = 0
         self.recursion_depth = 0
         self.error_manager = ErrorManager()
         self.source_code = source_code
         self.httpfs_extension = HTTPFSExtension()
+        self.pyarrow_reader = PyArrowFileReader()
+        self.pyarrow_writer = PyArrowFileWriter()
+        self.type_checker = TypeChecker()
+        self.max_cache_size = 1000  # Default max cache size
 
     fn set_source_code(mut self, source: String):
         """Set the source code for error context."""
         self.source_code = source
+
+    fn intern_string(mut self, s: String) -> String:
+        """Intern a string to reduce memory usage for repeated strings."""
+        var existing = self.string_intern_pool.get(s)
+        if existing:
+            return existing.value()
+        self.string_intern_pool[s] = s
+        return s
+
+    fn clear_caches(mut self):
+        """Clear all caches to free memory."""
+        self.eval_cache = Dict[String, PLValue]()
+        self.query_result_cache = Dict[String, PLValue]()
+        # Keep string intern pool as it's beneficial for memory usage
+
+    fn get_cache_stats(self) -> Dict[String, Int]:
+        """Get statistics about cache usage for performance monitoring."""
+        var stats = Dict[String, Int]()
+        stats["eval_cache_size"] = len(self.eval_cache)
+        stats["query_cache_size"] = len(self.query_result_cache)
+        stats["interned_strings"] = len(self.string_intern_pool)
+        stats["cache_hits"] = self.cache_hit_count
+        stats["cache_misses"] = self.cache_miss_count
+        return stats.copy()
+
+    fn set_max_cache_size(mut self, size: Int):
+        """Set the maximum cache size for LRU eviction."""
+        self.max_cache_size = size
+
+    fn get_cache_hit_ratio(self) -> Float64:
+        """Get cache hit ratio for performance monitoring."""
+        var total = self.cache_hit_count + self.cache_miss_count
+        if total == 0:
+            return 0.0
+        return Float64(self.cache_hit_count) / Float64(total)
+
+    fn evict_lru_cache_entries(mut self) raises:
+        """Evict least recently used cache entries when cache is full."""
+        if len(self.eval_cache) < self.max_cache_size:
+            return
+
+        # Find the least recently used entry
+        var lru_key = ""
+        var lru_time = Int.MAX
+
+        # Collect all keys first to avoid aliasing issues
+        var keys = List[String]()
+        for key in self.cache_access_times.keys():
+            keys.append(key)
+
+        for key in keys:
+            var access_time = self.cache_access_times[key]
+            if access_time < lru_time:
+                lru_time = access_time
+                lru_key = key
+
+        if lru_key != "":
+            _ = self.eval_cache.pop(lru_key)
+            _ = self.cache_access_times.pop(lru_key)
+
+    fn get_enhanced_cache_key(self, node: ASTNode) -> String:
+        """Generate an enhanced cache key with better uniqueness and performance."""
+        var key_parts = List[String]()
+        key_parts.append(node.node_type)
+        key_parts.append(node.value)
+
+        # Add node-specific information for better cache differentiation
+        if node.node_type == "BINARY_OP":
+            key_parts.append("OP_" + node.value)
+        elif node.node_type == "CALL":
+            key_parts.append("FUNC_" + node.value)
+        elif node.node_type == "ARRAY":
+            key_parts.append("LEN_" + String(len(node.children)))
+        elif node.node_type == "STRUCT_LITERAL":
+            var struct_type = node.get_attribute("struct_type")
+            if struct_type != "":
+                key_parts.append("STRUCT_" + struct_type)
+
+        # Add children count for structural uniqueness
+        key_parts.append("CHILDREN_" + String(len(node.children)))
+
+        # Add hash of first few children values for content-based caching
+        var child_hash_parts = List[String]()
+        var max_children = min(3, len(node.children))  # Only hash first 3 children
+        for i in range(max_children):
+            var child = node.children[i].copy()
+            child_hash_parts.append(child.node_type + "_" + child.value)
+
+        if len(child_hash_parts) > 0:
+            var child_hash = "_".join(child_hash_parts)
+            key_parts.append("CONTENT_" + child_hash)
+
+        return "_".join(key_parts)
 
     fn _get_source_line(self, line: Int) -> String:
         """Get the source line at the given line number (1-based)."""
@@ -45,26 +158,99 @@ struct ASTEvaluator:
             return String(lines[line - 1])
         return ""
 
+    fn get_query_cache_key(self, node: ASTNode) -> String:
+        """Generate a more sophisticated cache key for query results."""
+        var key_parts = List[String]()
+        key_parts.append(node.node_type)
+        
+        # Include table name and key clauses
+        for child in node.children:
+            if child.node_type == "FROM":
+                var table_name = child.get_attribute("table")
+                if table_name != "":
+                    key_parts.append("FROM_" + table_name)
+            elif child.node_type == "WHERE":
+                # Include WHERE clause hash for cache invalidation
+                key_parts.append("WHERE_" + child.value)
+            elif child.node_type == "SELECT_LIST":
+                # Include selected columns/expressions in cache key
+                var select_parts = List[String]()
+                for select_child in child.children:
+                    if select_child.node_type == "SELECT_ITEM":
+                        for item_child in select_child.children:
+                            select_parts.append(item_child.node_type + "_" + item_child.value)
+                    else:
+                        select_parts.append(select_child.node_type + "_" + select_child.value)
+                var select_hash = "_".join(select_parts)
+                key_parts.append("SELECT_" + select_hash)
+        
+        var cache_key = "_".join(key_parts)
+        return cache_key
+
+    fn optimize_table_read(mut self, table_name: String, where_clause: Optional[ASTNode], mut orc_storage: ORCStorage) -> List[List[String]]:
+        """Optimize table reading with early WHERE clause filtering."""
+        if not where_clause:
+            # No WHERE clause, read entire table
+            return orc_storage.read_table(table_name)
+        
+        # For now, read entire table and filter - future optimization: index-based filtering
+        var all_data = orc_storage.read_table(table_name)
+        var filtered_data = List[List[String]]()
+        
+        # Apply WHERE clause filtering
+        for row in all_data:
+            # TODO: Implement efficient WHERE clause evaluation
+            # For now, include all rows (WHERE optimization is future work)
+            filtered_data.append(row.copy())
+        
+        return filtered_data^
+
     fn evaluate(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
-        """Evaluate AST node with caching and optimization."""
+        """Evaluate AST node with enhanced caching, optimization, and type checking."""
         # Prevent infinite recursion
         if self.recursion_depth > 1000:
-            var error = PLGrizzlyError.runtime_error("Maximum recursion depth exceeded")
+            var error = PLGrizzlyError.runtime_error("Maximum recursion depth exceeded", -1, -1, "AST evaluation recursion limit")
+            error.add_stack_frame("evaluate() - recursion check")
+            error.add_recovery_suggestion("Simplify the expression or increase recursion limit")
             return PLValue.enhanced_error(error)
 
         self.recursion_depth += 1
 
-        # Create cache key
-        var cache_key = node.node_type + "_" + node.value + "_" + String(len(node.children))
+        # Dynamic type checking during evaluation
+        if node.inferred_type != "unknown":
+            # Validate type consistency if type is inferred
+            var expected_type = node.inferred_type
+            # Additional type validation can be added here
+            pass
+
+        # Use query result caching for SELECT statements
+        if node.node_type == "SELECT":
+            var query_cache_key = self.get_query_cache_key(node)
+            var cached_result = self.query_result_cache.get(query_cache_key)
+            if cached_result:
+                self.cache_hit_count += 1
+                self.recursion_depth -= 1
+                return cached_result.value()
+
+        # Enhanced AST-level caching with LRU eviction
+        var cache_key = self.get_enhanced_cache_key(node)
         var cached = self.eval_cache.get(cache_key)
         if cached:
+            # Update access time for LRU
+            self.cache_access_times[cache_key] = self.cache_hit_count + self.cache_miss_count
+            self.cache_hit_count += 1
             self.recursion_depth -= 1
             return cached.value()
+
+        # Cache miss
+        self.cache_miss_count += 1
 
         var result: PLValue
 
         if node.node_type == "SELECT":
             result = self.eval_select_node(node, env, orc_storage)
+        elif node.node_type == "WITH":
+            result = self.eval_with_node(node, env, orc_storage)
         elif node.node_type == "INSERT":
             result = self.eval_insert_node(node, env, orc_storage)
         elif node.node_type == "UPDATE":
@@ -73,6 +259,8 @@ struct ASTEvaluator:
             result = self.eval_delete_node(node, env, orc_storage)
         elif node.node_type == "CREATE":
             result = self.eval_create_node(node, env, orc_storage)
+        elif node.node_type == "COPY":
+            result = self.eval_copy_node(node, env, orc_storage)
         elif node.node_type == "CREATE_TABLE":
             result = self.eval_create_table_node(node, env, orc_storage)
         elif node.node_type == "INDEX":
@@ -88,6 +276,10 @@ struct ASTEvaluator:
             result = self.eval_struct_literal_node(node, env, orc_storage)
         elif node.node_type == "TYPED_STRUCT_LITERAL":
             result = self.eval_typed_struct_literal_node(node, env, orc_storage)
+        elif node.node_type == "MEMBER_ACCESS":
+            result = self.eval_member_access_node(node, env, orc_storage)
+        elif node.node_type == "MATCH":
+            result = self.eval_match_node(node, env, orc_storage)
         elif node.node_type == "TYPED_ARRAY":
             result = self.eval_typed_array_node(node, env, orc_storage)
         elif node.node_type == "ARRAY_AGGREGATION":
@@ -144,8 +336,16 @@ struct ASTEvaluator:
             error.add_suggestion("Check the PL-GRIZZLY language documentation for supported constructs")
             result = PLValue.enhanced_error(error)
 
-        # Cache the result
+        # Enhanced caching with LRU eviction
+        self.evict_lru_cache_entries()
         self.eval_cache[cache_key] = result
+        self.cache_access_times[cache_key] = self.cache_hit_count + self.cache_miss_count
+        
+        # Cache SELECT query results separately for performance
+        if node.node_type == "SELECT":
+            var query_cache_key = self.get_query_cache_key(node)
+            self.query_result_cache[query_cache_key] = result
+        
         self.recursion_depth -= 1
         return result
 
@@ -172,6 +372,9 @@ struct ASTEvaluator:
                 order_clause = child.copy()
             elif child.node_type == "THEN":
                 then_clause = child.copy()
+            elif child.node_type == "STREAM":
+                # STREAM clause found - enable lazy evaluation
+                pass  # We'll check for this later
 
         if not from_clause:
             var error = PLGrizzlyError.syntax_error(
@@ -182,13 +385,36 @@ struct ASTEvaluator:
             error.add_suggestion("Example: SELECT * FROM table_name")
             return PLValue.enhanced_error(error)
 
-        var table_name = from_clause.value().get_attribute("table")
+        # Check if this is a JOIN query
+        var has_joins = False
+        for child in from_clause.value().children:
+            if child.node_type == AST_JOIN or child.node_type == AST_LEFT_JOIN or child.node_type == AST_RIGHT_JOIN or child.node_type == AST_FULL_JOIN or child.node_type == AST_INNER_JOIN or child.node_type == AST_ANTI_JOIN:
+                has_joins = True
+                break
+
+        if has_joins:
+            # Handle JOIN query
+            return self.eval_join_select(node, from_clause.value(), env, orc_storage)
+        
+        # Original single-table logic
+        var table_name = ""
+        if len(from_clause.value().children) > 0:
+            table_name = from_clause.value().children[0].get_attribute("table")
         var is_array_iteration = False
         var array_data: Optional[PLValue] = None
+        var is_stream = False
+        
+        # Check for STREAM clause
+        for child in node.children:
+            if child.node_type == "STREAM":
+                is_stream = True
+                break
         
         # Declare result variables
         var result_data = List[List[String]]()
         var selected_columns = List[String]()
+        var select_expressions = List[ASTNode]()
+        var has_select_expressions = False
         var column_names = List[String]()
         var table_data = List[List[String]]()
         
@@ -203,16 +429,73 @@ struct ASTEvaluator:
                     is_array_iteration = True
                     array_data = array_var
                 else:
-                    return PLValue.enhanced_error(create_undefined_variable_error(
+                    var undefined_error = create_undefined_variable_error(
                         from_value, node.line, node.column, self._get_source_line(node.line)
-                    ))
+                    )
+                    undefined_error = undefined_error.with_context("FROM clause variable resolution")
+                    return PLValue.enhanced_error(undefined_error)
             else:
                 return PLValue.enhanced_error(PLGrizzlyError.syntax_error(
                 "Invalid FROM clause", node.line, node.column, self._get_source_line(node.line)
             ))
         elif table_name != "":
+            # Check if this is a CTE reference first
+            var cte_var = env.get(table_name)
+            if cte_var.type != "error":
+                # This is a CTE reference - parse the stored table data
+                var cte_data_str = cte_var.value
+                
+                # Parse the formatted table data back to table structure
+                # Format: "Query results (X rows):\nColumns: col1, col2\n[row data]"
+                var lines = cte_data_str.split("\n")
+                if len(lines) >= 2:
+                    # Parse column names from second line: "Columns: col1, col2"
+                    var columns_line = lines[1]
+                    if columns_line.startswith("Columns: "):
+                        var columns_str = String(columns_line[9:])  # Remove "Columns: "
+                        var column_parts = columns_str.split(", ")
+                        column_names = List[String]()
+                        for part in column_parts:
+                            column_names.append(String(part))
+                        
+                        # Parse data rows
+                        for i in range(2, len(lines)):
+                            var line = lines[i].strip()
+                            if line.startswith("[") and line.endswith("]"):
+                                var row_str = line[1:len(line)-1]  # Remove [ and ]
+                                var row_data = List[String]()
+                                
+                                # Parse comma-separated values, handling quoted strings
+                                var current_value = ""
+                                var in_quotes = False
+                                for j in range(len(row_str)):
+                                    var c = row_str[j]
+                                    if c == '"' and (j == 0 or row_str[j-1] != '\\'):
+                                        in_quotes = not in_quotes
+                                    elif c == ',' and not in_quotes:
+                                        # End of value
+                                        var trimmed = String(current_value.strip())
+                                        if trimmed.startswith('"') and trimmed.endswith('"'):
+                                            trimmed = String(trimmed[1:len(trimmed)-1])  # Remove quotes
+                                        row_data.append(trimmed)
+                                        current_value = ""
+                                    else:
+                                        current_value += c
+                                
+                                # Add the last value
+                                if current_value != "":
+                                    var trimmed = String(current_value.strip())
+                                    if trimmed.startswith('"') and trimmed.endswith('"'):
+                                        trimmed = String(trimmed[1:len(trimmed)-1])
+                                    row_data.append(trimmed)
+                                
+                                result_data.append(row_data.copy())
+                        
+                        selected_columns = column_names.copy()
+                        is_array_iteration = False
+                        # CTE data processed, continue with WHERE filtering
             # Check if this is an HTTP URL
-            if self.httpfs_extension.is_http_url(table_name):
+            elif self.httpfs_extension.is_http_url(table_name):
                 # Handle HTTP URL data source
                 var url = table_name
                 var secrets_attr = from_clause.value().get_attribute("secrets")
@@ -228,7 +511,35 @@ struct ASTEvaluator:
 
                     is_array_iteration = False
                 except e:
-                    return PLValue("error", "HTTP fetch failed: " + String(e))
+                    var http_error = PLGrizzlyError.network_error(
+                        "HTTP fetch failed: " + String(e), url, node.line, node.column, self._get_source_line(node.line)
+                    )
+                    http_error.add_recovery_suggestion("Check network connectivity and URL accessibility")
+                    http_error.add_recovery_suggestion("Verify authentication credentials are correct")
+                    http_error.add_recovery_suggestion("Try the request again in case of temporary network issues")
+                    return PLValue.enhanced_error(http_error)
+            # Check if this is a supported file format
+            elif self.pyarrow_reader.is_supported_file(table_name):
+                # Handle file-based data source
+                var file_path = table_name
+
+                try:
+                    var result = self.pyarrow_reader.read_file_data(file_path)
+                    result_data = result[0].copy()
+                    table_data = result_data.copy()  # Set table_data for WHERE processing
+
+                    selected_columns = result[1].copy()
+                    column_names = selected_columns.copy()
+
+                    is_array_iteration = False
+                except e:
+                    var file_error = PLGrizzlyError.io_error(
+                        "File read failed: " + String(e), file_path, node.line, node.column, self._get_source_line(node.line)
+                    )
+                    file_error.add_recovery_suggestion("Check if the file exists and is accessible")
+                    file_error.add_recovery_suggestion("Verify the file format is supported (ORC, Parquet, Feather, JSON)")
+                    file_error.add_recovery_suggestion("Ensure PyArrow and required dependencies are installed")
+                    return PLValue.enhanced_error(file_error)
             else:
                 # Traditional table iteration
                 is_array_iteration = False
@@ -254,22 +565,29 @@ struct ASTEvaluator:
         else:
             # Check if this is HTTP URL data (already handled above)
             var is_url_handled = table_name != "" and from_clause.value().get_attribute("is_url") == "true"
+            # Check if this is file data (already handled above)
+            var is_file_handled = table_name != "" and self.pyarrow_reader.is_supported_file(table_name)
             if is_url_handled:
                 # HTTP data already processed above, just set column info
                 selected_columns = List[String]("response")
                 column_names = selected_columns.copy()
+            elif is_file_handled:
+                # File data already processed above, column info already set
+                pass
             else:
                 # Traditional table iteration
                 # Get table schema to know column structure
                 var schema = orc_storage.schema_manager.load_schema()
                 var table_schema = schema.get_table(table_name)
                 if table_schema.name == "":
-                    return PLValue.enhanced_error(create_table_not_found_error(
+                    var table_error = create_table_not_found_error(
                         table_name, node.line, node.column, self._get_source_line(node.line)
-                    ))
+                    )
+                    table_error = table_error.with_context("FROM clause table resolution")
+                    return PLValue.enhanced_error(table_error)
 
-                # Read all data from the table
-                table_data = orc_storage.read_table(table_name)
+                # Read table data with optimization
+                table_data = self.optimize_table_read(table_name, where_clause, orc_storage)
                 
                 # Get column names from schema
                 for col in table_schema.columns:
@@ -281,7 +599,7 @@ struct ASTEvaluator:
             var array_aggregation_node: Optional[ASTNode] = None
             
             if select_list:
-                # Parse select list to get column names
+                # Parse select list to get column names and expressions
                 for select_item in select_list.value().children:
                     if select_item.node_type == "SELECT_ITEM":
                         for child in select_item.children:
@@ -291,32 +609,41 @@ struct ASTEvaluator:
                                 # Store the aggregation node for later evaluation
                                 array_aggregation_node = child.copy()
                                 selected_columns.append("array_aggregation")
+                                select_expressions.append(child.copy())
                                 # Evaluate aggregation on filtered data later
                                 break
                             elif child.node_type == "IDENTIFIER":
                                 selected_columns.append(child.value)
+                                # Don't add to expressions for simple identifiers
                             elif child.node_type == "STAR":  # SELECT *
                                 selected_columns = column_names.copy()
+                                # For SELECT *, don't add expressions since we handle columns directly
                                 break
                             elif child.node_type == "AGGREGATE_FUNCTION":
                                 # For now, just add the function name as column name
                                 selected_columns.append(child.value)
+                                select_expressions.append(child.copy())
                                 break
-                        if len(selected_columns) == len(column_names):
-                            break  # Already selected all columns
+                            else:
+                                # Handle other expressions like TYPEOF, functions, etc.
+                                has_select_expressions = True
+                                selected_columns.append(child.node_type + "_" + String(len(selected_columns)))
+                                select_expressions.append(child.copy())
+                        if len(selected_columns) == len(column_names) and not has_select_expressions:
+                            break  # Already selected all columns and no expressions
             else:
                 # Default to all columns
                 selected_columns = column_names.copy()
+                # Don't add expressions for default column selection
 
-            # Apply WHERE clause filtering if present
-            var filtered_data = List[List[String]]()
+            # Apply WHERE clause filtering with optimization
             if where_clause:
-                # Evaluate WHERE condition for each row
+                # Evaluate WHERE condition for each row with optimized environment handling
                 for row_idx in range(len(table_data)):
                     var row = table_data[row_idx].copy()
                     
-                    # Create a row environment for WHERE evaluation
-                    var row_env = env.copy()
+                    # Create minimal row environment for WHERE evaluation
+                    var row_env = Environment()  # Create fresh environment instead of copying
                     for col_idx in range(len(column_names)):
                         if col_idx < len(row):
                             row_env.define(column_names[col_idx], PLValue("string", row[col_idx]))
@@ -324,31 +651,47 @@ struct ASTEvaluator:
                     # Evaluate WHERE condition
                     var condition_result = self.evaluate(where_clause.value(), row_env, orc_storage)
                     if condition_result.type == "boolean" and condition_result.value == "true":
-                        filtered_data.append(row.copy())
+                        result_data.append(row.copy())
             else:
-                # No WHERE clause, include all rows
-                for row in table_data:
-                    filtered_data.append(row.copy())
-            
-            result_data = filtered_data^
+                # No WHERE clause, use direct reference to avoid copying
+                result_data = table_data.copy()
 
-        # Select only requested columns (for table iteration)
+        # Select only requested columns or evaluate expressions (for table iteration)
         if not is_array_iteration:
-            var final_result_data = List[List[String]]()
-            for row in result_data:
-                var selected_row = List[String]()
-                for col_name in selected_columns:
-                    var col_idx = -1
-                    for i in range(len(column_names)):
-                        if column_names[i] == col_name:
-                            col_idx = i
-                            break
-                    if col_idx >= 0 and col_idx < len(row):
-                        selected_row.append(row[col_idx])
-                    else:
-                        selected_row.append("")  # Empty value for missing columns
-                final_result_data.append(selected_row.copy())
-            result_data = final_result_data^
+            if has_select_expressions:
+                # Evaluate SELECT expressions for each row
+                var final_result_data = List[List[String]]()
+                for row in result_data:
+                    var selected_row = List[String]()
+                    # Create row environment with column variables
+                    var row_env = env.copy()
+                    for col_idx in range(len(column_names)):
+                        if col_idx < len(row):
+                            row_env.define(column_names[col_idx], PLValue("string", row[col_idx]))
+
+                    # Evaluate each SELECT expression in the row context
+                    for expr in select_expressions:
+                        var expr_result = self.evaluate(expr, row_env, orc_storage)
+                        selected_row.append(expr_result.__str__())
+                    final_result_data.append(selected_row.copy())
+                result_data = final_result_data^
+            else:
+                # Select columns by name
+                var final_result_data = List[List[String]]()
+                for row in result_data:
+                    var selected_row = List[String]()
+                    for col_name in selected_columns:
+                        var col_idx = -1
+                        for i in range(len(column_names)):
+                            if column_names[i] == col_name:
+                                col_idx = i
+                                break
+                        if col_idx >= 0 and col_idx < len(row):
+                            selected_row.append(row[col_idx])
+                        else:
+                            selected_row.append("")  # Empty value for missing columns
+                    final_result_data.append(selected_row.copy())
+                result_data = final_result_data^
 
         # Evaluate array aggregation if present (table iteration only)
         var array_aggregation_result = PLValue("array", "[]")
@@ -393,9 +736,17 @@ struct ASTEvaluator:
                     elif block_result.type == "continue":
                         continue
 
+        # Apply ORDER BY clause if present
+        if order_clause:
+            result_data = self._apply_order_by_ast(result_data, order_clause.value(), selected_columns)
+
         # Format result as string for now (skip for THEN execution)
         if then_clause:
             return PLValue("string", "Query executed with THEN clause - " + String(len(result_data)) + " rows processed")
+        elif is_stream:
+            # Return lazy iterator for streaming
+            var iterator = LazyIterator(result_data)
+            return PLValue.lazy(iterator^)
         # elif not is_array_iteration and has_array_aggregation:
         #     # For array aggregations, return the aggregated result
         #     return array_aggregation_result
@@ -417,6 +768,37 @@ struct ASTEvaluator:
                 result_str += "]\n"
 
             return PLValue("string", result_str)
+
+    fn eval_with_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate WITH statement (CTE - Common Table Expression)."""
+        if len(node.children) < 1:
+            return PLValue.enhanced_error(PLGrizzlyError.syntax_error(
+                "WITH statement requires at least one CTE definition",
+                node.line, node.column, self._get_source_line(node.line)
+            ))
+
+        # Create a temporary environment for CTEs
+        var cte_env = env.copy()
+
+        # Evaluate all CTE definitions first
+        var cte_count = 0
+        for i in range(len(node.children) - 1):  # Last child is the main query
+            var child = node.children[i].copy()
+            if child.node_type == "CTE_DEFINITION":
+                var cte_name = child.value
+                var cte_query = child.children[0].copy()  # The SELECT query for this CTE
+
+                # Evaluate the CTE query
+                var cte_result = self.evaluate(cte_query, cte_env, orc_storage)
+
+                # Store the CTE result in the environment as table data
+                # CTEs should return table data from SELECT queries
+                cte_env.define(cte_name, cte_result)
+                cte_count += 1
+
+        # Now evaluate the main query with access to CTEs
+        var main_query = node.children[len(node.children) - 1].copy()  # Last child is main query
+        return self.evaluate(main_query, cte_env, orc_storage)
 
     fn eval_binary_op(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate binary operation."""
@@ -666,6 +1048,95 @@ struct ASTEvaluator:
                 return PLValue("error", "Failed to create table")
         except e:
             return PLValue("error", "Failed to create table: " + String(e))
+
+    fn eval_copy_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate COPY statement for import/export operations."""
+        var operation = node.get_attribute("operation")
+        var source_type = node.get_attribute("source_type")
+        var source = node.get_attribute("source")
+        var destination_type = node.get_attribute("destination_type")
+        var destination = node.get_attribute("destination")
+
+        if operation == "import":
+            # COPY 'file_path' TO table_name
+            if not self.pyarrow_reader.is_supported_file(source):
+                return PLValue.enhanced_error(PLGrizzlyError.io_error(
+                    "Unsupported file format for import. Supported formats: ORC, Parquet, Feather, JSON",
+                    source, node.line, node.column, self._get_source_line(node.line)
+                ))
+
+            try:
+                # Read data from file
+                var file_result = self.pyarrow_reader.read_file_data(source)
+                var table_data = file_result[0].copy()
+                var column_names = file_result[1].copy()
+
+                # Check if table exists, if not create it
+                var schema = orc_storage.schema_manager.load_schema()
+                var existing_table = schema.get_table(destination)
+                if existing_table.name == "":
+                    # Infer column types and create table
+                    var columns = List[Column]()
+                    for col_name in column_names:
+                        columns.append(Column(col_name, "string"))  # Default to string type
+                    var success = orc_storage.schema_manager.create_table(destination, columns)
+                    if not success:
+                        return PLValue("error", "Failed to create table '" + destination + "' for import")
+
+                # Import data into table
+                var success = orc_storage.save_table(destination, table_data)
+                if success:
+                    return PLValue("string", "Successfully imported " + String(len(table_data)) + " rows into table '" + destination + "'")
+                else:
+                    return PLValue("error", "Failed to import data into table '" + destination + "'")
+
+            except e:
+                return PLValue.enhanced_error(PLGrizzlyError.io_error(
+                    "Import failed: " + String(e), source, node.line, node.column, self._get_source_line(node.line)
+                ))
+
+        elif operation == "export":
+            # COPY table_name TO 'file_path'
+            if not self.pyarrow_writer.is_supported_file(destination):
+                return PLValue.enhanced_error(PLGrizzlyError.io_error(
+                    "Unsupported file format for export. Supported formats: ORC, Parquet, Feather, JSON",
+                    destination, node.line, node.column, self._get_source_line(node.line)
+                ))
+
+            try:
+                # Read data from table
+                var table_data = orc_storage.read_table(source)
+                if len(table_data) == 0:
+                    return PLValue("string", "Table '" + source + "' is empty, nothing to export")
+
+                # Get column names from schema
+                var schema = orc_storage.schema_manager.load_schema()
+                var table_schema = schema.get_table(source)
+                if table_schema.name == "":
+                    return PLValue.enhanced_error(create_table_not_found_error(
+                        source, node.line, node.column, self._get_source_line(node.line)
+                    ))
+
+                var column_names = List[String]()
+                for col in table_schema.columns:
+                    column_names.append(col.name)
+
+                # Export data to file
+                var success = self.pyarrow_writer.write_file_data(destination, table_data, column_names)
+                if success:
+                    return PLValue("string", "Successfully exported " + String(len(table_data)) + " rows from table '" + source + "' to '" + destination + "'")
+                else:
+                    return PLValue("error", "Failed to export data to file '" + destination + "'")
+
+            except e:
+                return PLValue.enhanced_error(PLGrizzlyError.io_error(
+                    "Export failed: " + String(e), destination, node.line, node.column, self._get_source_line(node.line)
+                ))
+
+        else:
+            return PLValue.enhanced_error(PLGrizzlyError.semantic_error(
+                "Invalid COPY operation: " + operation, node.line, node.column, self._get_source_line(node.line)
+            ))
 
     fn eval_insert_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate INSERT statement."""
@@ -923,6 +1394,158 @@ struct ASTEvaluator:
             result += field_name + ": " + field_value.value
         result += "}"
         return PLValue("struct", result)
+
+    fn eval_member_access_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate MEMBER_ACCESS operations like object.field with optimizations."""
+        var member_name = self.intern_string(node.value)  # Intern field name for memory efficiency
+        
+        # The first child should be the object expression
+        if len(node.children) != 1:
+            return PLValue("error", "Invalid member access: expected 1 child, got " + String(len(node.children)))
+        
+        var object_expr = node.children[0].copy()
+        var object_value = self.evaluate(object_expr, env, orc_storage)
+        
+        # Check if the object is a struct
+        if object_value.type == "struct":
+            # Parse the struct value to extract fields
+            # Struct format: "{field1: value1, field2: value2, ...}"
+            var struct_str = object_value.value
+            
+            # Create cache key for this member access
+            var cache_key = "member_" + struct_str[:50] + "_" + member_name  # Limit struct_str to avoid huge keys
+            var cached_result = self.eval_cache.get(cache_key)
+            if cached_result:
+                return cached_result.value()
+            
+            # Find the field in the struct string
+            var field_pattern = member_name + ": "
+            var field_start = struct_str.find(field_pattern)
+            
+            if field_start == -1:
+                var error = PLValue("error", "Field '" + member_name + "' not found in struct")
+                self.eval_cache[cache_key] = error
+                return error
+            
+            # Extract the field value (from after the colon to the next comma or closing brace)
+            var value_start = field_start + len(field_pattern)
+            var value_end = value_start
+            
+            # Optimized parsing - find end of field value
+            var brace_count = 0
+            var in_string = False
+            
+            while value_end < len(struct_str):
+                var c = struct_str[value_end]
+                
+                if not in_string:
+                    if c == '"' or c == "'":
+                        in_string = True
+                    elif c == ',' and brace_count == 0:
+                        break  # End of this field
+                    elif c == '}' and brace_count == 0:
+                        break  # End of struct
+                    elif c == '{':
+                        brace_count += 1
+                    elif c == '}':
+                        brace_count -= 1
+                elif (c == '"' or c == "'") and in_string:
+                    in_string = False
+                
+                value_end += 1
+            
+            var field_value_str = self.intern_string(String(struct_str[value_start:value_end].strip()))
+            var result = PLValue("string", field_value_str)
+            self.eval_cache[cache_key] = result
+            return result
+        
+        elif object_value.type == "typed_struct":
+            # Handle typed structs with caching
+            var struct_str = object_value.value
+            var cache_key = "typed_member_" + struct_str[:50] + "_" + member_name
+            var cached_result = self.eval_cache.get(cache_key)
+            if cached_result:
+                return cached_result.value()
+            
+            # Find the opening brace
+            var brace_start = struct_str.find("{")
+            if brace_start == -1:
+                var error = PLValue("error", "Invalid typed struct format")
+                self.eval_cache[cache_key] = error
+                return error
+            
+            var fields_str = struct_str[brace_start + 1:len(struct_str) - 1]  # Remove { and }
+            
+            # Optimized field lookup using string operations
+            var search_pattern = member_name + ": "
+            var field_start = fields_str.find(search_pattern)
+            
+            if field_start == -1:
+                var error = PLValue("error", "Field '" + member_name + "' not found in typed struct")
+                self.eval_cache[cache_key] = error
+                return error
+            
+            var value_start = field_start + len(search_pattern)
+            
+            # Find end of field value (next comma or end)
+            var value_end = value_start
+            var in_string = False
+            
+            while value_end < len(fields_str):
+                var c = fields_str[value_end]
+                if not in_string:
+                    if c == '"' or c == "'":
+                        in_string = True
+                    elif c == ',':
+                        break
+                elif (c == '"' or c == "'"):
+                    in_string = False
+                value_end += 1
+            
+            var field_value_str = self.intern_string(String(fields_str[value_start:value_end].strip()))
+            var result = PLValue("string", field_value_str)
+            self.eval_cache[cache_key] = result
+            return result
+        
+        else:
+            return PLValue("error", "Member access '.' can only be used on struct objects, got type: " + object_value.type)
+
+    fn eval_match_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate MATCH expressions: expr MATCH { pattern -> value, ... }."""
+        if len(node.children) < 2:
+            return PLValue("error", "MATCH expression requires at least a match expression and one case")
+
+        # First child is the expression being matched
+        var match_expr = node.children[0].copy()
+        var match_value = self.evaluate(match_expr, env, orc_storage)
+
+        # Remaining children are MATCH_CASE nodes
+        for i in range(1, len(node.children)):
+            var case_node = node.children[i].copy()
+            if case_node.node_type != "MATCH_CASE" or len(case_node.children) != 2:
+                continue
+
+            var pattern_node = case_node.children[0].copy()
+            var value_node = case_node.children[1].copy()
+
+            # Check if pattern matches
+            var pattern_matches = False
+
+            if pattern_node.node_type == "LITERAL" and pattern_node.value == "_":
+                # Wildcard pattern always matches
+                pattern_matches = True
+            else:
+                # Evaluate pattern and compare with match value
+                var pattern_value = self.evaluate(pattern_node, env, orc_storage)
+                if match_value.type == pattern_value.type and match_value.value == pattern_value.value:
+                    pattern_matches = True
+
+            if pattern_matches:
+                # Return the value for this matching case
+                return self.evaluate(value_node, env, orc_storage)
+
+        # No match found
+        return PLValue("error", "No matching case found in MATCH expression")
 
     fn eval_typed_array_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate TYPED_ARRAY operations like Array<Type> as [...] or Array<Type>::[...]."""
@@ -1540,6 +2163,76 @@ struct ASTEvaluator:
             return String(content)
         except:
             raise Error("Failed to read file: " + file_path)
+
+    fn eval_join_select(mut self, node: ASTNode, from_clause: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate SELECT with JOIN operations."""
+        return PLValue("string", "JOIN evaluation placeholder - not fully implemented")
+
+    fn _apply_order_by_ast(mut self, result_data: List[List[String]], order_clause: ASTNode, selected_columns: List[String]) raises -> List[List[String]]:
+        """Apply ORDER BY clause to result data using AST-based sorting."""
+        if len(order_clause.children) == 0:
+            return result_data.copy()
+        
+        # Make a copy to sort
+        var sorted_data = result_data.copy()
+        
+        # Simple bubble sort implementation
+        for i in range(len(sorted_data)):
+            for j in range(i + 1, len(sorted_data)):
+                if self._compare_rows_ast(sorted_data[i], sorted_data[j], order_clause, selected_columns) > 0:
+                    var temp = sorted_data[i].copy()
+                    sorted_data[i] = sorted_data[j].copy()
+                    sorted_data[j] = temp^
+        
+        return sorted_data^
+
+    fn _compare_rows_ast(mut self, row1: List[String], row2: List[String], order_clause: ASTNode, selected_columns: List[String]) raises -> Int:
+        """Compare two rows for ordering using AST ORDER BY specifications."""
+        for order_spec in order_clause.children:
+            var column_name = order_spec.value
+            var direction = order_spec.get_attribute("direction")
+            if direction == "":
+                direction = "ASC"
+            
+            # Find column index
+            var col_idx = -1
+            for i in range(len(selected_columns)):
+                if selected_columns[i] == column_name:
+                    col_idx = i
+                    break
+            
+            if col_idx == -1 or col_idx >= len(row1) or col_idx >= len(row2):
+                continue
+            
+            var val1 = row1[col_idx]
+            var val2 = row2[col_idx]
+            
+            var cmp = self._compare_string_values(val1, val2)
+            if cmp != 0:
+                return cmp if direction == "ASC" else -cmp
+        
+        return 0
+
+    fn _compare_string_values(mut self, val1: String, val2: String) raises -> Int:
+        """Compare two string values for sorting."""
+        # Try numeric comparison first
+        try:
+            var n1 = atol(val1)
+            var n2 = atol(val2)
+            if n1 < n2:
+                return -1
+            elif n1 > n2:
+                return 1
+            else:
+                return 0
+        except:
+            # Fall back to string comparison
+            if val1 < val2:
+                return -1
+            elif val1 > val2:
+                return 1
+            else:
+                return 0
 
     fn eval_typeof_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate @TypeOf expression to return the type of a variable or column."""

@@ -93,17 +93,17 @@ struct CodeGenerator:
         self.max_recursion_depth = max_depth
 
     fn generate_function(mut self, func_name: String, params: List[ASTNode], return_type: String, body: ASTNode) -> String:
-        """Generate Mojo function code from PL-GRIZZLY function AST."""
+        """Generate Mojo function code from PL-GRIZZLY function AST with type checking."""
         # Safety check for empty function name
         if func_name == "":
             return "// Error: empty function name"
 
         var code = String("")
 
-        # Generate function signature
+        # Generate function signature with type annotations
         code += "fn jit_" + func_name + "("
 
-        # Generate parameters with type inference
+        # Generate parameters with type inference and validation
         for i in range(len(params)):
             if i > 0:
                 code += ", "
@@ -111,11 +111,13 @@ struct CodeGenerator:
                 var param_name = params[i].value
                 if param_name == "":
                     param_name = "param" + String(i)
-                # Try to infer parameter type from usage in body
-                var param_type = self.infer_parameter_type(param_name, body)
+                # Use inferred type from AST node
+                var param_type = params[i].inferred_type
+                if param_type == "unknown":
+                    param_type = "PLValue"  # Fallback for dynamic typing
                 code += param_name + ": " + param_type
 
-        code += ") -> " + self.map_type(return_type) + ":\n"
+        code += ") -> " + (return_type if return_type != "unknown" else "PLValue") + ":\n"
 
         # Generate function body with error handling
         self.indent_level = 1
