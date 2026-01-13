@@ -27,7 +27,7 @@ from pl_grizzly_lexer import PLGrizzlyLexer, Token
 from pl_grizzly_parser import PLGrizzlyParser, ASTNode
 from pl_grizzly_interpreter import PLGrizzlyInterpreter, PLValue
 from enhanced_cli import EnhancedConsole, create_enhanced_console
-from lake_wal import LakeWAL
+from config_defaults import ConfigDefaults
 
 # Import required Python modules
 fn initialize_python_modules() raises:
@@ -158,7 +158,7 @@ fn start_repl(mut console: EnhancedConsole, db_path: String = ".") raises:
             console.print("  help          - Show this help")
             console.print("  quit          - Exit REPL")
             console.print("  status        - Show database status")
-            console.print("  test lakewal  - Test LakeWAL embedded configuration")
+            console.print("  test config   - Test configuration system")
             console.print("  create config table - Create queryable configuration table")
             console.print("  show config   - Show configuration table information")
             console.print("  use <db>      - Switch to database")
@@ -209,38 +209,39 @@ fn start_repl(mut console: EnhancedConsole, db_path: String = ".") raises:
             console.print_warning("Running PyArrow ORC test...")
             # test_pyarrow_orc()
             console.print_success("Test completed")
-        elif cmd == "test lakewal":
-            console.print_warning("Testing LakeWAL embedded configuration...")
-            var lakewal = LakeWAL()
-            console.print_success("LakeWAL initialized")
-            console.print(lakewal.get_storage_info())
-            
-            console.print("\nAvailable configurations:")
-            var keys = lakewal.list_configs()
-            for key in keys:
-                var value = lakewal.get_config(key)
-                console.print("  " + key + " = " + value)
-                
+        elif cmd == "test config":
+            console.print_warning("Testing configuration system...")
+            var config = ConfigDefaults.get_all_config()
+            console.print_success("Configuration loaded")
+            console.print("Available configurations (" + String(len(config)) + " keys):")
+            console.print("  database.version = " + String(config["database.version"]))
+            console.print("  database.name = " + String(config["database.name"]))
+            console.print("  storage.compression.default = " + String(config["storage.compression.default"]))
+            console.print("  query.max_memory = " + String(config["query.max_memory"]))
+            console.print("  jit.enabled = " + String(config["jit.enabled"]))
+
             console.print("\nTesting specific configs:")
-            console.print("Database version: " + lakewal.get_config_with_default("database.version", "unknown"))
-            console.print("Compression: " + lakewal.get_config_with_default("storage.compression", "unknown"))
-            console.print("Embedded: " + ("Yes" if lakewal.is_embedded() else "No"))
-        elif cmd == "create config table":
-            console.print_warning("Creating LakeWAL configuration table...")
-            var lakewal = LakeWAL()
-            var success = lakewal.create_config_table()
-            if success:
-                console.print_success("Configuration table created successfully!")
-                console.print("You can now query it with: SELECT * FROM lakewal_config")
-            else:
-                console.print_error("Failed to create configuration table")
+            console.print("Database version: " + ConfigDefaults.database_version())
+            console.print("Compression: " + ConfigDefaults.storage_compression_default())
+            console.print("JIT enabled: " + ConfigDefaults.jit_enabled())
         elif cmd == "show config":
-            console.print("LakeWAL Configuration Table:", style="bold blue")
-            console.print("You can query the configuration with SQL:")
-            console.print("  SELECT * FROM lakewal_config")
-            console.print("  SELECT key, value FROM lakewal_config WHERE key LIKE 'database.%'")
-            console.print("  SELECT value FROM lakewal_config WHERE key = 'database.version'")
-            console.print("\nTo create the table first, run: create config table")
+            console.print("Configuration System:", style="bold blue")
+            console.print("PL-GRIZZLY now uses simplified embedded defaults instead of LakeWAL.")
+            console.print("Configuration is accessed via static methods in ConfigDefaults.")
+            console.print("\nAvailable configurations:")
+            console.print("  database.version = " + ConfigDefaults.database_version())
+            console.print("  database.name = " + ConfigDefaults.database_name())
+            console.print("  database.engine = " + ConfigDefaults.database_engine())
+            console.print("  storage.compression.default = " + ConfigDefaults.storage_compression_default())
+            console.print("  storage.compression.level = " + ConfigDefaults.storage_compression_level())
+            console.print("  storage.orc.stripe_size = " + ConfigDefaults.storage_orc_stripe_size())
+            console.print("  storage.page_size = " + ConfigDefaults.storage_page_size())
+            console.print("  query.max_memory = " + ConfigDefaults.query_max_memory())
+            console.print("  query.timeout = " + ConfigDefaults.query_timeout())
+            console.print("  query.max_rows = " + ConfigDefaults.query_max_rows())
+            console.print("  jit.enabled = " + ConfigDefaults.jit_enabled())
+            console.print("  jit.optimization_level = " + ConfigDefaults.jit_optimization_level())
+            console.print("\nTo test the config system, run: test config")
         elif cmd.startswith("use "):
             var parts = cmd.split(" ")
             if len(parts) >= 2:
