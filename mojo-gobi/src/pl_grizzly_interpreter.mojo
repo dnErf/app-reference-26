@@ -449,9 +449,8 @@ struct PLGrizzlyInterpreter:
         var ast = parser.parse()
 
         # Evaluate using optimized AST evaluator
-        var schema_manager = self.orc_storage.schema_manager.copy()
         self.ast_evaluator.set_source_code(source)
-        var result = self.ast_evaluator.evaluate(ast, self.global_env, self.orc_storage, schema_manager)
+        var result = self.ast_evaluator.evaluate(ast, self.global_env, self.orc_storage)
         
         # Handle special cases
         if result.type == "create_function":

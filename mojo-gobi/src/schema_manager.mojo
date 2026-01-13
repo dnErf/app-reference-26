@@ -99,21 +99,29 @@ struct DatabaseSchema(Movable, Copyable):
     var name: String
     var tables: List[TableSchema]
     var secrets: Dict[String, Dict[String, String]]  # secret_name -> {key -> encrypted_value}
+    var attached_databases: Dict[String, String]  # alias -> path
+    var attached_sql_files: Dict[String, String]  # alias -> sql_content
 
     fn __init__(out self, name: String):
         self.name = name
         self.tables = List[TableSchema]()
         self.secrets = Dict[String, Dict[String, String]]()
+        self.attached_databases = Dict[String, String]()
+        self.attached_sql_files = Dict[String, String]()
 
     fn __copyinit__(out self, other: Self):
         self.name = other.name
         self.tables = other.tables.copy()
         self.secrets = other.secrets.copy()
+        self.attached_databases = other.attached_databases.copy()
+        self.attached_sql_files = other.attached_sql_files.copy()
 
     fn __moveinit__(out self, deinit existing: Self):
         self.name = existing.name^
         self.tables = existing.tables^
         self.secrets = existing.secrets^
+        self.attached_databases = existing.attached_databases^
+        self.attached_sql_files = existing.attached_sql_files^
 
     fn add_table(mut self, table: TableSchema):
         """Add a table to the database schema."""
@@ -134,7 +142,7 @@ struct SchemaManager(Copyable, Movable):
 
     fn __init__(out self, storage: BlobStorage):
         self.storage = storage.copy()
-        self.schema_path = "schema/database.json"
+        self.schema_path = "schema/database.pkl"
 
     fn __copyinit__(out self, other: Self):
         self.storage = other.storage.copy()
@@ -194,6 +202,21 @@ struct SchemaManager(Copyable, Movable):
                 secrets_dict[secret_name] = secret_py_dict
             py_dict["secrets"] = secrets_dict
             
+            # Save attached databases
+            var attached_list = Python.list()
+            for `alias` in schema.attached_databases:
+                var item = Python.list()
+                item.append(`alias`)
+                item.append(schema.attached_databases[`alias`])
+                attached_list.append(item)
+            py_dict["attached_databases"] = attached_list
+            
+            # Save attached SQL files
+            var sql_dict = Python.dict()
+            for `alias` in schema.attached_sql_files.keys():
+                sql_dict[`alias`] = schema.attached_sql_files[`alias`]
+            py_dict["attached_sql_files"] = sql_dict
+            
             var pickle_module = Python.import_module("pickle")
             var pickled_data = pickle_module.dumps(py_dict)
             return self.storage.write_blob(self.schema_path, String(pickled_data))
@@ -251,6 +274,22 @@ struct SchemaManager(Copyable, Movable):
                     for key in secret_dict:
                         secret_kv[String(key)] = String(secret_dict[key])
                     schema.secrets[String(secret_name)] = secret_kv^
+            
+            # Load attached databases
+            if "attached_databases" in parsed:
+                var attached_list = parsed["attached_databases"]
+                for item in attached_list:
+                    var `alias` = String(item[0])
+                    var path = String(item[1])
+                    schema.attached_databases[`alias`] = path
+            
+            # Load attached SQL files
+            if "attached_sql_files" in parsed:
+                var sql_dict = parsed["attached_sql_files"]
+                var keys = sql_dict.keys()
+                for `alias` in keys:
+                    var content = String(sql_dict[`alias`])
+                    schema.attached_sql_files[String(`alias`)] = content
             
             return schema.copy()
         except:
@@ -348,7 +387,7 @@ struct SchemaManager(Copyable, Movable):
         schema.secrets[name] = secret_data.copy()
         return self.save_schema(schema)
 
-    fn get_secret(mut self, name: String) -> Dict[String, String]:
+    fn get_secret(mut self, name: String) raises -> Dict[String, String]:
         """Retrieve a secret from the database schema."""
         var schema = self.load_schema()
         if name in schema.secrets:
@@ -370,3 +409,55 @@ struct SchemaManager(Copyable, Movable):
             _ = schema.secrets.pop(name)
             return self.save_schema(schema)
         return False
+
+    fn attach_database(mut self, `alias`: String, path: String) -> Bool:
+        """Attach a database with the given alias."""
+        var schema = self.load_schema()
+        schema.attached_databases[`alias`] = path
+        return self.save_schema(schema)
+
+    fn detach_database(mut self, `alias`: String) raises -> Bool:
+        """Detach a database by alias."""
+        var schema = self.load_schema()
+        if `alias` in schema.attached_databases:
+            _ = schema.attached_databases.pop(`alias`)
+            return self.save_schema(schema)
+        return False
+
+    fn list_attached_databases(self) -> Dict[String, String]:
+        """List all attached databases."""
+        var schema = self.load_schema()
+        return schema.attached_databases.copy()
+
+    fn get_attached_database_path(self, `alias`: String) raises -> String:
+        """Get the path of an attached database by alias."""
+        var schema = self.load_schema()
+        if `alias` in schema.attached_databases:
+            return schema.attached_databases[`alias`]
+        return ""
+
+    fn attach_sql_file(mut self, `alias`: String, file_path: String) raises -> Bool:
+        """Attach a SQL file with an alias."""
+        var schema = self.load_schema()
+        schema.attached_sql_files[`alias`] = file_path
+        return self.save_schema(schema)
+
+    fn detach_sql_file(mut self, `alias`: String) raises -> Bool:
+        """Detach a SQL file by alias."""
+        var schema = self.load_schema()
+        if `alias` in schema.attached_sql_files:
+            _ = schema.attached_sql_files.pop(`alias`)
+            return self.save_schema(schema)
+        return False
+
+    fn list_attached_sql_files(self) -> Dict[String, String]:
+        """List all attached SQL files."""
+        var schema = self.load_schema()
+        return schema.attached_sql_files.copy()
+
+    fn get_attached_sql_content(self, `alias`: String) raises -> String:
+        """Get the path of an attached SQL file by alias."""
+        var schema = self.load_schema()
+        if `alias` in schema.attached_sql_files:
+            return schema.attached_sql_files[`alias`]
+        return ""

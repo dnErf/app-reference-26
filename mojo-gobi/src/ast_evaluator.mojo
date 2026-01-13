@@ -5,12 +5,14 @@ Optimized AST evaluator with caching and symbol table management.
 """
 
 from collections import Dict, List
-from pl_grizzly_parser import ASTNode, SymbolTable
+from pl_grizzly_parser import ASTNode, SymbolTable, PLGrizzlyParser
+from pl_grizzly_lexer import PLGrizzlyLexer
 from pl_grizzly_values import PLValue
 from pl_grizzly_environment import Environment
 from pl_grizzly_errors import PLGrizzlyError, ErrorManager, create_undefined_variable_error, create_type_mismatch_error, create_division_by_zero_error, create_table_not_found_error
 from orc_storage import ORCStorage
 from schema_manager import SchemaManager, Column
+from python import Python
 
 struct ASTEvaluator:
     var symbol_table: SymbolTable
@@ -40,7 +42,7 @@ struct ASTEvaluator:
             return String(lines[line - 1])
         return ""
 
-    fn evaluate(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn evaluate(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate AST node with caching and optimization."""
         # Prevent infinite recursion
         if self.recursion_depth > 1000:
@@ -59,36 +61,36 @@ struct ASTEvaluator:
         var result: PLValue
 
         if node.node_type == "SELECT":
-            result = self.eval_select_node(node, env, orc_storage, schema_manager)
+            result = self.eval_select_node(node, env, orc_storage)
         elif node.node_type == "INSERT":
-            result = self.eval_insert_node(node, env, orc_storage, schema_manager)
+            result = self.eval_insert_node(node, env, orc_storage)
         elif node.node_type == "UPDATE":
-            result = self.eval_update_node(node, env, orc_storage, schema_manager)
+            result = self.eval_update_node(node, env, orc_storage)
         elif node.node_type == "DELETE":
-            result = self.eval_delete_node(node, env, orc_storage, schema_manager)
+            result = self.eval_delete_node(node, env, orc_storage)
         elif node.node_type == "CREATE":
-            result = self.eval_create_node(node, env, orc_storage, schema_manager)
+            result = self.eval_create_node(node, env, orc_storage)
         elif node.node_type == "CREATE_TABLE":
-            result = self.eval_create_table_node(node, env, orc_storage, schema_manager)
+            result = self.eval_create_table_node(node, env, orc_storage)
         elif node.node_type == "INDEX":
             if node.value == "index":
-                result = self.eval_index_node(node, env, orc_storage, schema_manager)
+                result = self.eval_index_node(node, env, orc_storage)
             else:
-                result = self.eval_create_index_node(node, env, orc_storage, schema_manager)
+                result = self.eval_create_index_node(node, env, orc_storage)
         elif node.node_type == "IF":
-            result = self.eval_if_node(node, env, orc_storage, schema_manager)
+            result = self.eval_if_node(node, env, orc_storage)
         elif node.node_type == "ARRAY":
-            result = self.eval_array_node(node, env, orc_storage, schema_manager)
+            result = self.eval_array_node(node, env, orc_storage)
         elif node.node_type == "STRUCT_LITERAL":
-            result = self.eval_struct_literal_node(node, env, orc_storage, schema_manager)
+            result = self.eval_struct_literal_node(node, env, orc_storage)
         elif node.node_type == "TYPED_ARRAY":
-            result = self.eval_typed_array_node(node, env, orc_storage, schema_manager)
+            result = self.eval_typed_array_node(node, env, orc_storage)
         elif node.node_type == "ARRAY_AGGREGATION":
-            result = self.eval_array_aggregation_node(node, env, orc_storage, schema_manager)
+            result = self.eval_array_aggregation_node(node, env, orc_storage)
         elif node.node_type == "BINARY_OP":
-            result = self.eval_binary_op(node, env, orc_storage, schema_manager)
+            result = self.eval_binary_op(node, env, orc_storage)
         elif node.node_type == "UNARY_OP":
-            result = self.eval_unary_op(node, env, orc_storage, schema_manager)
+            result = self.eval_unary_op(node, env, orc_storage)
         elif node.node_type == "LITERAL":
             result = self.eval_literal(node)
         elif node.node_type == "IDENTIFIER":
@@ -96,27 +98,29 @@ struct ASTEvaluator:
         elif node.node_type == "VARIABLE":
             result = self.eval_identifier(node, env)  # VARIABLE is like IDENTIFIER for lookup
         elif node.node_type == "LET":
-            result = self.eval_let_node(node, env, orc_storage, schema_manager)
+            result = self.eval_let_node(node, env, orc_storage)
         elif node.node_type == "WHILE":
-            result = self.eval_while_node(node, env, orc_storage, schema_manager)
+            result = self.eval_while_node(node, env, orc_storage)
         elif node.node_type == "BLOCK":
-            result = self.eval_block_node(node, env, orc_storage, schema_manager)
+            result = self.eval_block_node(node, env, orc_storage)
         elif node.node_type == "FUNCTION":
-            result = self.eval_function_node(node, env, orc_storage, schema_manager)
+            result = self.eval_function_node(node, env, orc_storage)
         elif node.node_type == "CALL":
-            result = self.eval_call_node(node, env, orc_storage, schema_manager)
+            result = self.eval_call_node(node, env, orc_storage)
         elif node.node_type == "TYPE":
-            result = self.eval_type_node(node, env, orc_storage, schema_manager)
+            result = self.eval_type_node(node, env, orc_storage)
         elif node.node_type == "ATTACH":
-            result = self.eval_attach_node(node, env, orc_storage, schema_manager)
+            result = self.eval_attach_node(node, env, orc_storage)
         elif node.node_type == "DETACH":
-            result = self.eval_detach_node(node, env, orc_storage, schema_manager)
+            result = self.eval_detach_node(node, env, orc_storage)
+        elif node.node_type == "EXECUTE":
+            result = self.eval_execute_node(node, env, orc_storage)
         elif node.node_type == "SHOW":
-            result = self.eval_show_node(node, env, orc_storage, schema_manager)
+            result = self.eval_show_node(node, env, orc_storage)
         elif node.node_type == "DROP":
-            result = self.eval_drop_node(node, env, orc_storage, schema_manager)
+            result = self.eval_drop_node(node, env, orc_storage)
         elif node.node_type == "DROP_SECRET":
-            result = self.eval_drop_secret_node(node, env, orc_storage, schema_manager)
+            result = self.eval_drop_secret_node(node, env, orc_storage)
         elif node.node_type == "BREAK":
             result = PLValue("break", "")
         elif node.node_type == "CONTINUE":
@@ -134,7 +138,7 @@ struct ASTEvaluator:
         self.recursion_depth -= 1
         return result
 
-    fn eval_select_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_select_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate SELECT AST node."""
         # Extract components from AST
         var select_list: Optional[ASTNode] = None
@@ -219,7 +223,7 @@ struct ASTEvaluator:
         else:
             # Traditional table iteration
             # Get table schema to know column structure
-            var schema = schema_manager.load_schema()
+            var schema = orc_storage.schema_manager.load_schema()
             var table_schema = schema.get_table(table_name)
             if table_schema.name == "":
                 return PLValue.enhanced_error(create_table_not_found_error(
@@ -281,7 +285,7 @@ struct ASTEvaluator:
                             row_env.define(column_names[col_idx], PLValue("string", row[col_idx]))
                     
                     # Evaluate WHERE condition
-                    var condition_result = self.evaluate(where_clause.value(), row_env, orc_storage, schema_manager)
+                    var condition_result = self.evaluate(where_clause.value(), row_env, orc_storage)
                     if condition_result.type == "boolean" and condition_result.value == "true":
                         filtered_data.append(row.copy())
             else:
@@ -326,7 +330,7 @@ struct ASTEvaluator:
                     row_env.define("array_value", PLValue("string", row[1]))
                     
                     # Execute THEN block with loop control handling
-                    var block_result = self.eval_block_with_loop_control(then_clause.value().children[0], row_env, orc_storage, schema_manager)
+                    var block_result = self.eval_block_with_loop_control(then_clause.value().children[0], row_env, orc_storage)
                     if block_result.type == "break":
                         break
                     elif block_result.type == "continue":
@@ -335,7 +339,7 @@ struct ASTEvaluator:
             #     # For array aggregations, execute THEN once with result
             #     var then_env = env.copy()
             #     then_env.define("result", array_aggregation_result)
-            #     _ = self.eval_block_with_loop_control(then_clause.value().children[0], then_env, orc_storage, schema_manager)
+            #     _ = self.eval_block_with_loop_control(then_clause.value().children[0], then_env, orc_storage)
             # else:
                 # For table iteration, iterate over each row
                 for row in result_data:
@@ -346,7 +350,7 @@ struct ASTEvaluator:
                             row_env.define(selected_columns[col_idx], PLValue("string", row[col_idx]))
                     
                     # Execute THEN block with loop control handling
-                    var block_result = self.eval_block_with_loop_control(then_clause.value().children[0], row_env, orc_storage, schema_manager)
+                    var block_result = self.eval_block_with_loop_control(then_clause.value().children[0], row_env, orc_storage)
                     if block_result.type == "break":
                         break
                     elif block_result.type == "continue":
@@ -377,7 +381,7 @@ struct ASTEvaluator:
 
             return PLValue("string", result_str)
 
-    fn eval_binary_op(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_binary_op(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate binary operation."""
         if len(node.children) != 2:
             var error = PLGrizzlyError.syntax_error(
@@ -387,8 +391,8 @@ struct ASTEvaluator:
             error.add_suggestion("Ensure binary operators have exactly two operands")
             return PLValue.enhanced_error(error)
 
-        var left = self.evaluate(node.children[0], env, orc_storage, schema_manager)
-        var right = self.evaluate(node.children[1], env, orc_storage, schema_manager)
+        var left = self.evaluate(node.children[0], env, orc_storage)
+        var right = self.evaluate(node.children[1], env, orc_storage)
 
         if left.is_error() or right.is_error():
             # Propagate existing errors
@@ -521,7 +525,7 @@ struct ASTEvaluator:
             node.line, node.column, self._get_source_line(node.line)
         ))
 
-    fn eval_unary_op(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_unary_op(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate unary operation."""
         if len(node.children) != 1:
             var error = PLGrizzlyError.syntax_error(
@@ -530,7 +534,7 @@ struct ASTEvaluator:
             )
             return PLValue.enhanced_error(error)
 
-        var operand = self.evaluate(node.children[0], env, orc_storage, schema_manager)
+        var operand = self.evaluate(node.children[0], env, orc_storage)
         if operand.is_error():
             return operand
 
@@ -589,18 +593,18 @@ struct ASTEvaluator:
                 name, node.line, node.column, self._get_source_line(node.line)
             ))
 
-    fn eval_create_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_create_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate CREATE statement."""
         # Check if this is CREATE TABLE
         if node.node_type == "CREATE_TABLE":
-            return self.eval_create_table_node(node, env, orc_storage, schema_manager)
+            return self.eval_create_table_node(node, env, orc_storage)
         # Check if this is CREATE INDEX
         elif len(node.children) > 0 and node.children[0].node_type == "INDEX":
-            return self.eval_index_node(node.children[0], env, orc_storage, schema_manager)
+            return self.eval_index_node(node.children[0], env, orc_storage)
         else:
             return PLValue("string", "CREATE statement acknowledged")
 
-    fn eval_create_table_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_create_table_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate CREATE TABLE statement."""
         if len(node.children) < 2:
             return PLValue("error", "CREATE TABLE requires table name and column definitions")
@@ -618,7 +622,7 @@ struct ASTEvaluator:
 
         # Create table schema
         try:
-            var success = schema_manager.create_table(table_name, columns)
+            var success = orc_storage.schema_manager.create_table(table_name, columns)
             if success:
                 return PLValue("string", "Table '" + table_name + "' created successfully")
             else:
@@ -626,7 +630,7 @@ struct ASTEvaluator:
         except e:
             return PLValue("error", "Failed to create table: " + String(e))
 
-    fn eval_insert_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_insert_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate INSERT statement."""
         var table_name = node.get_attribute("table")
         if table_name == "":
@@ -650,7 +654,7 @@ struct ASTEvaluator:
                     new_row.append(val_node.value)
                 else:
                     # Evaluate expression
-                    var val = self.evaluate(val_node, env, orc_storage, schema_manager)
+                    var val = self.evaluate(val_node, env, orc_storage)
                     new_row.append(val.value)
 
         try:
@@ -667,7 +671,7 @@ struct ASTEvaluator:
         except e:
             return PLValue("error", "Failed to insert row: " + String(e))
 
-    fn eval_update_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_update_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate UPDATE statement."""
         if len(node.children) < 3:
             return PLValue("error", "UPDATE requires table name, SET clause, and WHERE clause")
@@ -683,7 +687,7 @@ struct ASTEvaluator:
                 return PLValue("number", "0")  # No rows to update
 
             # Get schema to know column positions
-            var schema = schema_manager.load_schema()
+            var schema = orc_storage.schema_manager.load_schema()
             var table = schema.get_table(table_name)
             var column_positions = Dict[String, Int]()
             for i in range(len(table.columns)):
@@ -695,7 +699,7 @@ struct ASTEvaluator:
                 if len(assignment.children) == 2:
                     var col_name = assignment.children[0].value
                     var val_node = assignment.children[1].copy()
-                    var value = self.evaluate(val_node, env, orc_storage, schema_manager).value
+                    var value = self.evaluate(val_node, env, orc_storage).value
                     updates[col_name] = value
 
             # Apply updates to matching rows
@@ -722,7 +726,7 @@ struct ASTEvaluator:
         except e:
             return PLValue("error", "Failed to update rows: " + String(e))
 
-    fn eval_delete_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_delete_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate DELETE statement."""
         if len(node.children) < 2:
             return PLValue("error", "DELETE requires table name and WHERE clause")
@@ -750,7 +754,7 @@ struct ASTEvaluator:
         except e:
             return PLValue("error", "Failed to delete rows: " + String(e))
 
-    fn eval_create_index_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_create_index_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate CREATE INDEX statement."""
         if len(node.children) < 2:
             return PLValue("error", "CREATE INDEX requires index name and column")
@@ -772,20 +776,20 @@ struct ASTEvaluator:
         except e:
             return PLValue("error", "Failed to create index: " + String(e))
 
-    fn eval_if_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_if_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate IF conditional."""
         if len(node.children) < 2:
             return PLValue("error", "IF requires condition and then branch")
 
-        var condition = self.evaluate(node.children[0], env, orc_storage, schema_manager)
+        var condition = self.evaluate(node.children[0], env, orc_storage)
         if condition.type == "boolean" and condition.value == "true":
-            return self.evaluate(node.children[1], env, orc_storage, schema_manager)
+            return self.evaluate(node.children[1], env, orc_storage)
         elif len(node.children) > 2:
-            return self.evaluate(node.children[2], env, orc_storage, schema_manager)
+            return self.evaluate(node.children[2], env, orc_storage)
         else:
             return PLValue("boolean", "false")
 
-    fn eval_array_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_array_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate ARRAY operations."""
         if len(node.children) == 0:
             return PLValue("list", "[]")
@@ -795,12 +799,12 @@ struct ASTEvaluator:
         for i in range(len(node.children)):
             if i > 0:
                 result += ", "
-            var item = self.evaluate(node.children[i], env, orc_storage, schema_manager)
+            var item = self.evaluate(node.children[i], env, orc_storage)
             result += item.value
         result += "]"
         return PLValue("list", result)
 
-    fn eval_struct_literal_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_struct_literal_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate STRUCT_LITERAL operations like {key: value, ...}."""
         if len(node.children) == 0:
             return PLValue("struct", "{}")
@@ -812,12 +816,12 @@ struct ASTEvaluator:
                 result += ", "
             var field = node.children[i].copy()
             var field_name = field.value
-            var field_value = self.evaluate(field.children[0], env, orc_storage, schema_manager)
+            var field_value = self.evaluate(field.children[0], env, orc_storage)
             result += field_name + ": " + field_value.value
         result += "}"
         return PLValue("struct", result)
 
-    fn eval_typed_array_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_typed_array_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate TYPED_ARRAY operations like Array<Type> as [...] or Array<Type>::[...]."""
         var type_name = node.get_attribute("type")
         var syntax = node.get_attribute("syntax")
@@ -828,12 +832,12 @@ struct ASTEvaluator:
         
         # For initialized typed arrays, evaluate the array literal
         if len(node.children) > 0:
-            var array_value = self.evaluate(node.children[0], env, orc_storage, schema_manager)
+            var array_value = self.evaluate(node.children[0], env, orc_storage)
             return PLValue("typed_array", "Array<" + type_name + ">" + array_value.value)
         else:
             return PLValue("typed_array", "Array<" + type_name + ">[]")
 
-    fn eval_array_aggregation_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_array_aggregation_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate ARRAY_AGGREGATION operations like Array::(Distinct column)."""
         if len(node.children) == 0:
             return PLValue("error", "Array aggregation requires an expression")
@@ -920,18 +924,18 @@ struct ASTEvaluator:
             # Handle other aggregation functions (Count, Sum, etc.)
             return PLValue("error", "Aggregation function '" + function + "' not yet implemented for array aggregation")
 
-    fn eval_let_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_let_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate LET statement: (LET var_name value)"""
         if len(node.children) != 2:
             return PLValue("error", "LET requires variable name and value")
 
         var var_name = node.children[0].value
-        var value_expr = self.evaluate(node.children[1], env, orc_storage, schema_manager)
+        var value_expr = self.evaluate(node.children[1], env, orc_storage)
 
         env.define(var_name, value_expr)
         return value_expr
 
-    fn eval_while_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_while_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate WHILE loop."""
         if len(node.children) < 2:
             return PLValue("error", "WHILE requires condition and body")
@@ -940,12 +944,12 @@ struct ASTEvaluator:
         
         while True:
             # Evaluate condition
-            var condition = self.evaluate(node.children[0], env, orc_storage, schema_manager)
+            var condition = self.evaluate(node.children[0], env, orc_storage)
             if condition.type != "boolean" or condition.value != "true":
                 break
             
             # Execute body
-            result = self.evaluate(node.children[1], env, orc_storage, schema_manager)
+            result = self.evaluate(node.children[1], env, orc_storage)
             
             # Check for recursion depth to prevent infinite loops
             self.recursion_depth += 1
@@ -955,35 +959,35 @@ struct ASTEvaluator:
         self.recursion_depth -= 1
         return result
 
-    fn eval_block_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_block_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate a block of statements."""
         var result = PLValue("null", "null")
         
         for child in node.children:
-            result = self.evaluate(child, env, orc_storage, schema_manager)
+            result = self.evaluate(child, env, orc_storage)
             # Could add break/continue handling here if needed
         
         return result
 
-    fn eval_block_with_loop_control(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_block_with_loop_control(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate a block of statements with loop control flow handling."""
         var result = PLValue("null", "null")
         
         # If it's a single statement (not a BLOCK), evaluate it directly
         if node.node_type != "BLOCK":
-            result = self.evaluate(node, env, orc_storage, schema_manager)
+            result = self.evaluate(node, env, orc_storage)
             return result
         
         # Evaluate each statement in the block
         for child in node.children:
-            result = self.evaluate(child, env, orc_storage, schema_manager)
+            result = self.evaluate(child, env, orc_storage)
             # Check for loop control statements
             if result.type == "break" or result.type == "continue":
                 return result
         
         return result
 
-    fn eval_function_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_function_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate function definition."""
         var func_name = node.get_attribute("name")
         if func_name == "":
@@ -993,7 +997,7 @@ struct ASTEvaluator:
         env.define(func_name, PLValue("function", node.value))
         return PLValue("string", "function " + func_name + " defined")
 
-    fn eval_call_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_call_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate function call."""
         var func_name = node.get_attribute("name")
         if func_name == "":
@@ -1001,13 +1005,13 @@ struct ASTEvaluator:
 
         # Check for built-in functions first
         if func_name == "len":
-            return self.eval_builtin_len(node, env, orc_storage, schema_manager)
+            return self.eval_builtin_len(node, env, orc_storage)
         elif func_name == "print":
-            return self.eval_builtin_print(node, env, orc_storage, schema_manager)
+            return self.eval_builtin_print(node, env, orc_storage)
         elif func_name == "abs":
-            return self.eval_builtin_abs(node, env, orc_storage, schema_manager)
+            return self.eval_builtin_abs(node, env, orc_storage)
         elif func_name == "sqrt":
-            return self.eval_builtin_sqrt(node, env, orc_storage, schema_manager)
+            return self.eval_builtin_sqrt(node, env, orc_storage)
 
         # Get function definition from environment
         var func_def = env.get(func_name)
@@ -1020,13 +1024,13 @@ struct ASTEvaluator:
         # For now, return a placeholder
         return PLValue("string", "function " + func_name + " called with " + String(len(node.children)) + " arguments")
 
-    fn eval_index_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_index_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate indexing operation: list[index]."""
         if len(node.children) != 2:
             return PLValue("error", "Index operation requires target and index")
 
-        var target = self.evaluate(node.children[0], env, orc_storage, schema_manager)
-        var index = self.evaluate(node.children[1], env, orc_storage, schema_manager)
+        var target = self.evaluate(node.children[0], env, orc_storage)
+        var index = self.evaluate(node.children[1], env, orc_storage)
 
         # For now, handle basic list indexing
         if target.type == "list" and index.type == "number":
@@ -1063,12 +1067,12 @@ struct ASTEvaluator:
         else:
             return PLValue("error", "Index operation requires list and number index")
 
-    fn eval_builtin_len(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_builtin_len(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate len() built-in function."""
         if len(node.children) != 1:
             return PLValue("error", "len() requires exactly 1 argument")
 
-        var arg = self.evaluate(node.children[0], env, orc_storage, schema_manager)
+        var arg = self.evaluate(node.children[0], env, orc_storage)
         if arg.type == "list":
             # Parse list string to count elements
             var list_str = arg.value
@@ -1085,24 +1089,24 @@ struct ASTEvaluator:
         else:
             return PLValue("error", "len() can only be applied to lists or strings")
 
-    fn eval_builtin_print(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_builtin_print(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate print() built-in function."""
         var result = ""
         for i in range(len(node.children)):
             if i > 0:
                 result += " "
-            var arg = self.evaluate(node.children[i], env, orc_storage, schema_manager)
+            var arg = self.evaluate(node.children[i], env, orc_storage)
             result += arg.value
 
         print(result)
         return PLValue("string", result)
 
-    fn eval_builtin_abs(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_builtin_abs(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate abs() built-in function."""
         if len(node.children) != 1:
             return PLValue("error", "abs() requires exactly 1 argument")
 
-        var arg = self.evaluate(node.children[0], env, orc_storage, schema_manager)
+        var arg = self.evaluate(node.children[0], env, orc_storage)
         if arg.type == "number":
             try:
                 var num = atol(arg.value)
@@ -1113,12 +1117,12 @@ struct ASTEvaluator:
         else:
             return PLValue("error", "abs() requires a number argument")
 
-    fn eval_builtin_sqrt(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_builtin_sqrt(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate sqrt() built-in function."""
         if len(node.children) != 1:
             return PLValue("error", "sqrt() requires exactly 1 argument")
 
-        var arg = self.evaluate(node.children[0], env, orc_storage, schema_manager)
+        var arg = self.evaluate(node.children[0], env, orc_storage)
         if arg.type == "number":
             try:
                 var num = atol(arg.value)
@@ -1136,15 +1140,15 @@ struct ASTEvaluator:
         else:
             return PLValue("error", "sqrt() requires a number argument")
 
-    fn eval_type_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_type_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate TYPE statement (currently only TYPE SECRET)."""
         var type_attr = node.get_attribute("type")
         if type_attr == "SECRET":
-            return self.eval_type_secret_node(node, env, orc_storage, schema_manager)
+            return self.eval_type_secret_node(node, env, orc_storage)
         else:
             return PLValue("error", "Unknown TYPE: " + type_attr)
 
-    fn eval_type_secret_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_type_secret_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate TYPE SECRET statement."""
         var secret_name = node.get_attribute("name")
         if secret_name == "":
@@ -1162,72 +1166,151 @@ struct ASTEvaluator:
                     secrets[key] = self.simple_encrypt(value)
         
         # Store secret in schema manager (per-database storage)
-        _ = schema_manager.store_secret(secret_name, secrets)
+        _ = orc_storage.schema_manager.store_secret(secret_name, secrets)
         
         return PLValue("string", "Secret '" + secret_name + "' defined")
 
-    fn eval_attach_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_attach_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate ATTACH statement."""
         var db_path = node.get_attribute("path")
+        var `alias` = node.get_attribute("alias")
+        
         if db_path == "":
-            return PLValue("error", "Database path is required")
+            return PLValue("error", "Path is required")
         
-        # TODO: Implement database attachment
-        # This would load another database and make its secrets available
-        return PLValue("string", "Database attached: " + db_path)
+        if `alias` == "":
+            return PLValue("error", "Alias is required")
+        
+        # Check if it's a SQL file (ends with .sql)
+        if db_path.endswith(".sql"):
+            # Handle SQL file attachment
+            var attached_sqls = orc_storage.schema_manager.list_attached_sql_files()
+            if `alias` in attached_sqls:
+                return PLValue("error", "SQL file alias '" + `alias` + "' is already attached")
+            
+            # Attach the SQL file
+            if orc_storage.schema_manager.attach_sql_file(`alias`, db_path):
+                return PLValue("string", "SQL file '" + `alias` + "' attached successfully from '" + db_path + "'")
+            else:
+                return PLValue("error", "Failed to attach SQL file '" + `alias` + "' from '" + db_path + "'")
+        else:
+            # Handle database attachment
+            var attached_dbs = orc_storage.schema_manager.list_attached_databases()
+            if `alias` in attached_dbs:
+                return PLValue("error", "Database alias '" + `alias` + "' is already attached")
+            
+            # Attach the database
+            if orc_storage.schema_manager.attach_database(`alias`, db_path):
+                return PLValue("string", "Database '" + `alias` + "' attached successfully from '" + db_path + "'")
+            else:
+                return PLValue("error", "Failed to attach database '" + `alias` + "' from '" + db_path + "'")
 
-    fn eval_detach_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_detach_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate DETACH statement."""
-        var db_name = node.get_attribute("name")
-        if db_name == "":
-            return PLValue("error", "Database name is required")
+        var `alias` = node.get_attribute("name")
         
-        # TODO: Implement database detachment
-        return PLValue("string", "Database detached: " + db_name)
+        if `alias` == "":
+            return PLValue("error", "Database alias is required")
+        
+        # Check if alias exists
+        var attached_dbs = orc_storage.schema_manager.list_attached_databases()
+        if `alias` not in attached_dbs:
+            return PLValue("error", "Database alias '" + `alias` + "' is not attached")
+        
+        # Detach the database
+        if orc_storage.schema_manager.detach_database(`alias`):
+            return PLValue("string", "Database '" + `alias` + "' detached successfully")
+        else:
+            return PLValue("error", "Failed to detach database '" + `alias` + "'")
 
-    fn eval_show_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_execute_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate EXECUTE statement."""
+        var `alias` = node.get_attribute("alias")
+        
+        if `alias` == "":
+            return PLValue("error", "SQL file alias is required")
+        
+        # Check if SQL file alias exists
+        var attached_sqls = orc_storage.schema_manager.list_attached_sql_files()
+        if `alias` not in attached_sqls:
+            return PLValue("error", "SQL file alias '" + `alias` + "' is not attached")
+        
+        # Get the file path
+        var file_path = attached_sqls[`alias`]
+        
+        # Read the SQL file content using Python interop
+        try:
+            var sql_content = self._read_file_content(file_path)
+            
+            # Tokenize and parse the SQL content
+            var lexer = PLGrizzlyLexer(sql_content)
+            var tokens = lexer.tokenize()
+            var parser = PLGrizzlyParser(tokens)
+            var ast = parser.parse()
+            
+            # Execute the parsed AST
+            var result = self.evaluate(ast, env, orc_storage)
+            
+            return PLValue("string", "SQL file '" + `alias` + "' executed successfully")
+            
+        except:
+            return PLValue("error", "Failed to execute SQL file '" + `alias` + "' from '" + file_path + "'")
+
+    fn eval_show_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate SHOW statement."""
         var show_type = node.get_attribute("type")
         if show_type == "SECRETS":
-            var secrets = schema_manager.list_secrets()
+            var secrets = orc_storage.schema_manager.list_secrets()
             var result = "Available secrets:\n"
             for secret_name in secrets:
                 result += "- " + secret_name + "\n"
             return PLValue("string", result)
+        elif show_type == "ATTACHED_DATABASES":
+            var attached_dbs = orc_storage.schema_manager.list_attached_databases()
+            var result = "Attached databases:\n"
+            var aliases = List[String]()
+            for `alias` in attached_dbs.keys():
+                aliases.append(`alias`)
+            for `alias` in aliases:
+                var path = attached_dbs[`alias`]
+                result += "- " + `alias` + " -> " + path + "\n"
+            if len(aliases) == 0:
+                result += "(none)\n"
+            return PLValue("string", result)
         else:
             return PLValue("error", "Unknown SHOW type: " + show_type)
 
-    fn eval_drop_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_drop_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate DROP statement."""
         var drop_type = node.get_attribute("type")
         if drop_type == "SECRET":
-            return self.eval_drop_secret_node(node, env, orc_storage, schema_manager)
+            return self.eval_drop_secret_node(node, env, orc_storage)
         elif drop_type == "INDEX":
-            return self.eval_drop_index_node(node, env, orc_storage, schema_manager)
+            return self.eval_drop_index_node(node, env, orc_storage)
         elif drop_type == "VIEW":
-            return self.eval_drop_view_node(node, env, orc_storage, schema_manager)
+            return self.eval_drop_view_node(node, env, orc_storage)
         else:
             return PLValue("error", "Unknown DROP type: " + drop_type)
 
-    fn eval_drop_secret_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_drop_secret_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate DROP SECRET statement."""
         var secret_name = node.get_attribute("name")
         if secret_name == "":
             return PLValue("error", "Secret name is required")
         
-        var success = schema_manager.delete_secret(secret_name)
+        var success = orc_storage.schema_manager.delete_secret(secret_name)
         if success:
             return PLValue("string", "Secret '" + secret_name + "' deleted")
         else:
             return PLValue("error", "Secret '" + secret_name + "' not found")
 
-    fn eval_drop_index_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_drop_index_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate DROP INDEX statement."""
         var index_name = node.get_attribute("name")
         # TODO: Implement index dropping logic
         return PLValue("string", "Index '" + index_name + "' dropped (not yet implemented)")
 
-    fn eval_drop_view_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage, mut schema_manager: SchemaManager) raises -> PLValue:
+    fn eval_drop_view_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate DROP VIEW statement."""
         var view_name = node.get_attribute("name")
         # TODO: Implement view dropping logic
@@ -1248,3 +1331,13 @@ struct ASTEvaluator:
         """Simple decryption placeholder - TODO: Replace with proper AES decryption."""
         # This is just a placeholder - in production, use proper decryption
         return self.simple_encrypt(value)  # XOR is symmetric
+
+    fn _read_file_content(mut self, file_path: String) raises -> String:
+        """Read content from a file using Python interop."""
+        try:
+            var py_file = Python.evaluate("open('" + file_path + "', 'r')")
+            var content = py_file.read()
+            py_file.close()
+            return String(content)
+        except:
+            raise Error("Failed to read file: " + file_path)

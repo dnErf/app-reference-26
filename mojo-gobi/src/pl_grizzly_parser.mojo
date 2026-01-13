@@ -5,7 +5,7 @@ Optimized recursive descent parser with memoization and efficient AST representa
 """
 
 from collections import List, Dict
-from pl_grizzly_lexer import Token, PLGrizzlyLexer, SELECT, FROM, WHERE, CREATE, DROP, INDEX, MATERIALIZED, VIEW, REFRESH, LOAD, UPDATE, DELETE, LOGIN, LOGOUT, BEGIN, COMMIT, ROLLBACK, MACRO, JOIN, ON, ATTACH, DETACH, ALL, ARRAY, ATTACHED, AS, CACHE, CLEAR, DISTINCT, GROUP, ORDER, BY, SUM, COUNT, AVG, MIN, MAX, FUNCTION, TYPE, STRUCT, EXCEPTION, MODULE, DOUBLE_COLON, RETURNS, THROWS, IF, ELSE, MATCH, FOR, WHILE, THEN, CASE, IN, TRY, CATCH, LET, TRUE, FALSE, BREAK, CONTINUE, EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUAL, LESS_EQUAL, AND, OR, NOT, BANG, COALESCE, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, PIPE, ARROW, DOT, LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, LANGLE, RANGLE, COMMA, SEMICOLON, COLON, INSERT, INTO, VALUES, SET, SHOW, SECRET, SECRETS, DROP_SECRET, IDENTIFIER, STRING, NUMBER, VARIABLE, EOF, UNKNOWN
+from pl_grizzly_lexer import Token, PLGrizzlyLexer, SELECT, FROM, WHERE, CREATE, DROP, INDEX, MATERIALIZED, VIEW, REFRESH, LOAD, UPDATE, DELETE, LOGIN, LOGOUT, BEGIN, COMMIT, ROLLBACK, MACRO, JOIN, ON, ATTACH, DETACH, EXECUTE, ALL, ARRAY, ATTACHED, DATABASES, AS, CACHE, CLEAR, DISTINCT, GROUP, ORDER, BY, SUM, COUNT, AVG, MIN, MAX, FUNCTION, TYPE, STRUCT, EXCEPTION, MODULE, DOUBLE_COLON, RETURNS, THROWS, IF, ELSE, MATCH, FOR, WHILE, THEN, CASE, IN, TRY, CATCH, LET, TRUE, FALSE, BREAK, CONTINUE, EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUAL, LESS_EQUAL, AND, OR, NOT, BANG, COALESCE, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, PIPE, ARROW, DOT, LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, LANGLE, RANGLE, COMMA, SEMICOLON, COLON, INSERT, INTO, VALUES, SET, SHOW, SECRET, SECRETS, DROP_SECRET, IDENTIFIER, STRING, NUMBER, VARIABLE, EOF, UNKNOWN
 
 # Optimized AST Node types using enum-like constants
 alias AST_SELECT = "SELECT"
@@ -24,6 +24,7 @@ alias AST_ARRAY = "ARRAY"
 alias AST_DICT = "DICT"
 alias AST_BREAK = "BREAK"
 alias AST_CONTINUE = "CONTINUE"
+alias AST_EXECUTE = "EXECUTE"
 
 # Efficient AST Node using Dict for flexible representation
 struct ASTNode(Copyable, Movable):
@@ -168,6 +169,8 @@ struct PLGrizzlyParser:
             result = self.attach_statement()
         elif self.match(DETACH):
             result = self.detach_statement()
+        elif self.match(EXECUTE):
+            result = self.execute_statement()
         elif self.match(SHOW):
             result = self.show_statement()
         elif self.match(DROP):
@@ -946,6 +949,15 @@ struct PLGrizzlyParser:
         var node = ASTNode("ATTACH", "", self.previous().line, self.previous().column)
         var db_path = self.consume(STRING, "Expected database path").value
         node.set_attribute("path", db_path)
+        
+        # Optional AS alias
+        if self.match(AS):
+            var alias_token = self.consume(IDENTIFIER, "Expected alias after AS")
+            node.set_attribute("alias", alias_token.value)
+        else:
+            # Use the filename as default alias (without extension)
+            node.set_attribute("alias", "default_db")
+        
         return node^
 
     fn detach_statement(mut self) raises -> ASTNode:
@@ -955,14 +967,24 @@ struct PLGrizzlyParser:
         node.set_attribute("name", db_name)
         return node^
 
+    fn execute_statement(mut self) raises -> ASTNode:
+        """Parse EXECUTE statement."""
+        var node = ASTNode(AST_EXECUTE, "", self.previous().line, self.previous().column)
+        var sql_alias = self.consume(IDENTIFIER, "Expected SQL file alias").value
+        node.set_attribute("alias", sql_alias)
+        return node^
+
     fn show_statement(mut self) raises -> ASTNode:
         """Parse SHOW statement."""
         var node = ASTNode("SHOW", "", self.previous().line, self.previous().column)
         
         if self.match(SECRETS):
             node.set_attribute("type", "SECRETS")
+        elif self.match(ATTACHED):
+            _ = self.consume(DATABASES, "Expected DATABASES after ATTACHED")
+            node.set_attribute("type", "ATTACHED_DATABASES")
         else:
-            self.error("Expected SECRETS after SHOW")
+            self.error("Expected SECRETS or ATTACHED DATABASES after SHOW")
         
         return node^
 

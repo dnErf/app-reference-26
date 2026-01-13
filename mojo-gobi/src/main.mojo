@@ -127,7 +127,7 @@ fn start_repl(rich_console: PythonObject, db_path: String = ".") raises:
     var index_storage = IndexStorage(storage)
     
     # Debug: Check if schema file exists
-    var schema_content = storage.read_blob("schema/database.json")
+    var schema_content = storage.read_blob("schema/database.pkl")
     rich_console.print("[dim]Schema content length: " + String(len(schema_content)) + "[/dim]")
     
     var bloom_cols = List[String]()

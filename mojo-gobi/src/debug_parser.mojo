@@ -37,10 +37,25 @@ fn main() raises:
     print("\nTesting:", source6)
     test_parsing(source6)
     
-    # Test BREAK and CONTINUE in THEN block
-    var source7 = "FROM employees SELECT name THEN { break; continue; }"
+    # Test ATTACH with alias
+    var source6_alias = "ATTACH 'other_database.db' AS other_db"
+    print("\nTesting:", source6_alias)
+    test_parsing(source6_alias)
+    
+    # Test DETACH
+    var source7 = "DETACH other_db"
     print("\nTesting:", source7)
     test_parsing(source7)
+    
+    # Test SHOW ATTACHED DATABASES
+    var source8 = "SHOW ATTACHED DATABASES"
+    print("\nTesting:", source8)
+    test_parsing(source8)
+    
+    # Test BREAK and CONTINUE in THEN block
+    var source9 = "FROM employees SELECT name THEN { break; continue; }"
+    print("\nTesting:", source9)
+    test_parsing(source9)
 
 fn test_parsing(source: String) raises:
     var lexer = PLGrizzlyLexer(source)
