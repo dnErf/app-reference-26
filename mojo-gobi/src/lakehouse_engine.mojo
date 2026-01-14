@@ -14,6 +14,7 @@ from profiling_manager import ProfilingManager
 from query_optimizer import QueryOptimizer
 from schema_evolution_manager import SchemaEvolutionManager, SchemaChange, SchemaVersion
 from schema_migration_manager import SchemaMigrationManager
+from memory_manager import MemoryManager
 
 # Table type constants
 alias COW = 0      # Copy-on-Write: Read-optimized
@@ -61,8 +62,9 @@ struct LakehouseEngine(Movable):
     var tables: Dict[String, Int]  # table_name -> table_type (as Int)
     var profiler: ProfilingManager
     var python_time: PythonObject
+    var memory_manager: MemoryManager  # Central memory management
 
-    fn __init__(out self, storage_path: String = "./lakehouse_data") raises:
+    fn __init__(out self, storage_path: String = ".gobi") raises:
         # Initialize core components
         var blob_storage = BlobStorage(storage_path)
         var index_storage = IndexStorage(blob_storage)
@@ -111,6 +113,7 @@ struct LakehouseEngine(Movable):
         self.profiler = ProfilingManager()
         var python_time_mod = Python.import_module("time")
         self.python_time = python_time_mod
+        self.memory_manager = MemoryManager()  # Initialize central memory manager
 
     fn create_table(mut self, name: String, schema: List[Column], table_type: Int = HYBRID) raises -> Bool:
         """Create a new table with the specified schema and type."""
@@ -356,3 +359,32 @@ struct LakehouseEngine(Movable):
     fn get_materialization_stats(self) -> String:
         """Get overall materialization engine statistics."""
         return self.materializer.get_engine_stats()
+
+    # Memory Management Methods
+    fn get_memory_stats(self) raises -> Dict[String, Dict[String, Int]]:
+        """Get comprehensive memory usage statistics across all components."""
+        return self.memory_manager.get_memory_stats()
+
+    fn check_memory_pressure(self) raises -> Bool:
+        """Check if memory pressure is high across the system."""
+        return self.memory_manager.is_memory_pressure_high()
+
+    fn cleanup_memory(mut self) -> Int:
+        """Clean up stale memory allocations across all pools."""
+        return self.memory_manager.cleanup_stale_allocations()
+
+    fn detect_memory_leaks(self) -> Dict[String, List[Int64]]:
+        """Detect potential memory leaks across all pools."""
+        return self.memory_manager.check_for_leaks()
+
+    fn allocate_query_memory(mut self, size: Int) raises -> Bool:
+        """Allocate memory from the query pool for query execution."""
+        return self.memory_manager.allocate_query_memory(size)
+
+    fn allocate_cache_memory(mut self, size: Int) raises -> Bool:
+        """Allocate memory from the cache pool for caching operations."""
+        return self.memory_manager.allocate_cache_memory(size)
+
+    fn deallocate_memory(mut self, success: Bool) -> Bool:
+        """Deallocate memory from any pool."""
+        return self.memory_manager.deallocate(success)

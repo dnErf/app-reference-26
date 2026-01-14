@@ -9,6 +9,7 @@ from pl_grizzly_parser import PLGrizzlyParser, PLGrizzlyLexer
 from schema_manager import SchemaManager, Index
 from pl_grizzly_values import PLValue
 from profiling_manager import ProfilingManager
+from memory_manager import MemoryManager
 from python import Python, PythonObject
 
 # Query result cache entry
@@ -34,6 +35,12 @@ struct QueryPlan(Movable):
     var parallel_degree: Int  # Number of parallel threads for parallel operations
     var timeline_timestamp: Optional[Int64]  # For time-travel queries
     var cache_key: Optional[String]  # For result caching
+    var join_type: Optional[String]  # "nested_loop", "hash_join", "merge_join"
+    var join_condition: Optional[String]  # Join condition for multi-table queries
+    var left_table: Optional[String]  # For join operations
+    var right_table: Optional[String]  # For join operations
+    var estimated_rows: Int64  # Estimated number of rows this operation will produce
+    var execution_steps: List[String]  # Detailed execution steps for visualization
 
     fn __init__(out self, operation: String, table_name: String, conditions: Optional[List[String]], cost: Float64, parallel_degree: Int):
         self.operation = operation
@@ -43,6 +50,12 @@ struct QueryPlan(Movable):
         self.parallel_degree = parallel_degree
         self.timeline_timestamp = None
         self.cache_key = None
+        self.join_type = None
+        self.join_condition = None
+        self.left_table = None
+        self.right_table = None
+        self.estimated_rows = 0
+        self.execution_steps = List[String]()
 
     fn copy(self) -> QueryPlan:
         var new_conditions: Optional[List[String]] = None
@@ -51,23 +64,69 @@ struct QueryPlan(Movable):
         var plan = QueryPlan(self.operation, self.table_name, new_conditions, self.cost, self.parallel_degree)
         plan.timeline_timestamp = self.timeline_timestamp
         plan.cache_key = self.cache_key
+        plan.join_type = self.join_type
+        plan.join_condition = self.join_condition
+        plan.left_table = self.left_table
+        plan.right_table = self.right_table
+        plan.estimated_rows = self.estimated_rows
+        plan.execution_steps = self.execution_steps.copy()
         return plan^
+
+    fn add_execution_step(mut self, step: String):
+        """Add an execution step for plan visualization."""
+        self.execution_steps.append(step)
+
+    fn visualize_plan(self) -> String:
+        """Generate a visual representation of the query execution plan."""
+        var visualization = String("Query Execution Plan\n")
+        visualization += "=" * 50 + "\n"
+        visualization += "Operation: " + self.operation + "\n"
+        visualization += "Table: " + self.table_name + "\n"
+        visualization += "Cost: " + String(self.cost) + "\n"
+        visualization += "Estimated Rows: " + String(self.estimated_rows) + "\n"
+
+        if self.parallel_degree > 1:
+            visualization += "Parallel Degree: " + String(self.parallel_degree) + "\n"
+
+        if self.join_type:
+            visualization += "Join Type: " + self.join_type.value() + "\n"
+
+        if self.join_condition:
+            visualization += "Join Condition: " + self.join_condition.value() + "\n"
+
+        if self.left_table and self.right_table:
+            visualization += "Left Table: " + self.left_table.value() + "\n"
+            visualization += "Right Table: " + self.right_table.value() + "\n"
+
+        if self.timeline_timestamp:
+            visualization += "Timeline: " + String(self.timeline_timestamp.value()) + "\n"
+
+        if self.cache_key:
+            visualization += "Cache Key: " + self.cache_key.value() + "\n"
+
+        visualization += "\nExecution Steps:\n"
+        for i in range(len(self.execution_steps)):
+            visualization += "  " + String(i + 1) + ". " + self.execution_steps[i] + "\n"
+
+        return visualization
 
 # Query optimizer
 struct QueryOptimizer(Movable):
-    var result_cache: Dict[String, CacheEntry]
+    var result_cache: Dict[String, CacheEntry]  # Memory-efficient cache
     var cache_max_size: Int
     var cache_max_age_seconds: Int64
     var profiler: ProfilingManager
     var python_time: PythonObject
+    var memory_manager: MemoryManager  # Memory management for query execution
 
     fn __init__(out self) raises:
-        self.result_cache = Dict[String, CacheEntry]()
+        self.result_cache = Dict[String, CacheEntry]()  # Memory-efficient cache with size limit
         self.cache_max_size = 100  # Maximum cache entries
         self.cache_max_age_seconds = 3600  # 1 hour cache expiry
         self.profiler = ProfilingManager()
         var python_time_mod = Python.import_module("time")
         self.python_time = python_time_mod
+        self.memory_manager = MemoryManager()  # Initialize memory manager
 
     fn check_cache(mut self, cache_key: String, current_time: Int64) raises -> Optional[String]:
         """Check if query result is cached and not expired."""
@@ -119,9 +178,211 @@ struct QueryOptimizer(Movable):
             _ = self.result_cache.pop(oldest_key, CacheEntry("", 0))
             self.profiler.record_cache_eviction()
 
+    fn optimize_join_query(mut self, join_query: String, schema_manager: SchemaManager) raises -> QueryPlan:
+        """Optimize a JOIN query with cost-based algorithm selection."""
+        print("🔗 Optimizing JOIN query with cost-based algorithm selection")
+
+        # Parse the query to extract join information
+        var join_info = self.parse_join_query(join_query)
+        if not join_info:
+            # Fallback to basic plan
+            return self.optimize_select(join_query, schema_manager, Dict[String, String]())
+
+        var info = join_info.value().copy()
+
+        # Create join plan with algorithm selection
+        var join_plan = QueryPlan("join", info["left_table"], None, 0.0, 1)
+        join_plan.left_table = info["left_table"]
+        join_plan.right_table = info["right_table"]
+        join_plan.join_condition = info["condition"]
+        join_plan.join_type = self.select_join_algorithm(info["left_table"], info["right_table"], info["condition"], schema_manager)
+
+        # Calculate costs for different join algorithms
+        var nested_loop_cost = self.calculate_nested_loop_join_cost(info["left_table"], info["right_table"], schema_manager)
+        var hash_join_cost = self.calculate_hash_join_cost(info["left_table"], info["right_table"], schema_manager)
+        var merge_join_cost = self.calculate_merge_join_cost(info["left_table"], info["right_table"], info["condition"], schema_manager)
+
+        # Select the best algorithm
+        var best_cost = nested_loop_cost
+        var best_algorithm = "nested_loop"
+
+        if hash_join_cost < best_cost:
+            best_cost = hash_join_cost
+            best_algorithm = "hash_join"
+
+        if merge_join_cost < best_cost:
+            best_cost = merge_join_cost
+            best_algorithm = "merge_join"
+
+        join_plan.join_type = best_algorithm
+        join_plan.cost = best_cost
+
+        # Estimate result size
+        join_plan.estimated_rows = self.estimate_join_result_size(info["left_table"], info["right_table"], info["condition"], schema_manager)
+
+        # Add execution steps for visualization
+        join_plan.add_execution_step("Load left table: " + String(info["left_table"]))
+        join_plan.add_execution_step("Load right table: " + String(info["right_table"]))
+
+        if best_algorithm == "nested_loop":
+            join_plan.add_execution_step("Execute nested loop join")
+            join_plan.add_execution_step("For each left row, scan right table")
+            join_plan.add_execution_step("Apply join condition: " + String(info["condition"]))
+        elif best_algorithm == "hash_join":
+            join_plan.add_execution_step("Build hash table from smaller table")
+            join_plan.add_execution_step("Probe hash table with larger table")
+            join_plan.add_execution_step("Apply join condition during probe")
+        elif best_algorithm == "merge_join":
+            join_plan.add_execution_step("Sort both tables on join key")
+            join_plan.add_execution_step("Merge sorted tables")
+            join_plan.add_execution_step("Apply join condition during merge")
+
+        join_plan.add_execution_step("Return joined result set")
+
+        print("✓ Selected", best_algorithm, "join with cost:", String(best_cost))
+        return join_plan.copy()
+
+    fn parse_join_query(self, query: String) -> Optional[Dict[String, String]]:
+        """Parse a JOIN query to extract table names and conditions."""
+        var join_info = Dict[String, String]()
+
+        # Simple parsing for JOIN queries
+        var lower_query = query.lower()
+
+        # Find FROM clause
+        var from_pos = lower_query.find("from")
+        if from_pos == -1:
+            return None
+
+        # Extract table names (simplified - assumes format: FROM table1 JOIN table2 ON condition)
+        var from_clause = query[from_pos + 4:].strip()
+        var join_pos = lower_query.find("join", from_pos)
+        if join_pos == -1:
+            return None
+
+        var left_table = from_clause[:join_pos - from_pos - 4].strip()
+        var after_join = query[join_pos + 4:].strip()
+
+        var on_pos = lower_query.find("on", join_pos)
+        if on_pos == -1:
+            return None
+
+        var right_table = after_join[:on_pos - join_pos - 4].strip()
+        var condition = query[on_pos + 2:].strip()
+
+        join_info["left_table"] = String(left_table)
+        join_info["right_table"] = String(right_table)
+        join_info["condition"] = String(condition)
+
+        return join_info.copy()
+
+    fn select_join_algorithm(self, left_table: String, right_table: String, condition: String, schema_manager: SchemaManager) raises -> String:
+        """Select the best join algorithm based on table characteristics."""
+        var left_size = self.estimate_table_size(left_table, schema_manager)
+        var right_size = self.estimate_table_size(right_table, schema_manager)
+
+        # Check if condition is equi-join (can use hash/merge join)
+        var is_equi_join = self.is_equi_join_condition(condition)
+
+        if is_equi_join:
+            # For equi-joins, prefer merge join for sorted data, hash join otherwise
+            if left_size > 10.0 or right_size > 10.0:
+                return "hash_join"  # Hash join scales better for large tables
+            else:
+                return "merge_join"  # Merge join efficient for smaller sorted tables
+        else:
+            # Non-equi joins require nested loop
+            return "nested_loop"
+
+    fn calculate_nested_loop_join_cost(self, left_table: String, right_table: String, schema_manager: SchemaManager) raises -> Float64:
+        """Calculate cost of nested loop join."""
+        var left_size = self.estimate_table_size(left_table, schema_manager)
+        var right_size = self.estimate_table_size(right_table, schema_manager)
+
+        # Nested loop: |left| * |right| comparisons
+        var cost = left_size * right_size * 0.1  # Base comparison cost
+
+        # I/O cost for scanning right table for each left row
+        cost += left_size * right_size * 0.05
+
+        return cost
+
+    fn calculate_hash_join_cost(self, left_table: String, right_table: String, schema_manager: SchemaManager) raises -> Float64:
+        """Calculate cost of hash join."""
+        var left_size = self.estimate_table_size(left_table, schema_manager)
+        var right_size = self.estimate_table_size(right_table, schema_manager)
+
+        # Determine build and probe tables (build smaller table)
+        var build_size = min(left_size, right_size)
+        var probe_size = max(left_size, right_size)
+
+        # Hash join costs: build phase + probe phase
+        var build_cost = build_size * 1.2  # Building hash table
+        var probe_cost = probe_size * 0.8  # Probing hash table
+
+        return build_cost + probe_cost
+
+    fn calculate_merge_join_cost(self, left_table: String, right_table: String, condition: String, schema_manager: SchemaManager) raises -> Float64:
+        """Calculate cost of merge join."""
+        var left_size = self.estimate_table_size(left_table, schema_manager)
+        var right_size = self.estimate_table_size(right_table, schema_manager)
+
+        # Merge join requires sorting both tables first
+        var sort_cost = (left_size * 0.5) + (right_size * 0.5)  # Sort costs
+
+        # Merge cost (linear in combined size)
+        var merge_cost = (left_size + right_size) * 0.3
+
+        return sort_cost + merge_cost
+
+    fn is_equi_join_condition(self, condition: String) -> Bool:
+        """Check if join condition is an equi-join (uses = operator)."""
+        return condition.find("=") != -1 and condition.find("!=") == -1 and
+               condition.find(">") == -1 and condition.find("<") == -1
+
+    fn estimate_join_result_size(self, left_table: String, right_table: String, condition: String, schema_manager: SchemaManager) raises -> Int64:
+        """Estimate the number of rows produced by a join."""
+        var left_rows = self.estimate_table_row_count(left_table, schema_manager)
+        var right_rows = self.estimate_table_row_count(right_table, schema_manager)
+
+        # Simple estimation based on join type
+        if self.is_equi_join_condition(condition):
+            # For equi-joins, estimate based on foreign key relationships
+            return Int64(Float64(left_rows + right_rows) * 0.5)  # Conservative estimate
+        else:
+            # For non-equi joins, cartesian product
+            return left_rows * right_rows
+
+    fn estimate_table_row_count(self, table_name: String, schema_manager: SchemaManager) raises -> Int64:
+        """Estimate the number of rows in a table."""
+        try:
+            var schema = schema_manager.load_schema()
+            var table = schema.get_table(table_name)
+
+            if table.name == "":
+                return 1000  # Default estimate
+
+            # Estimate based on table size factor
+            var size_factor = 1.0
+            for column in table.columns:
+                if column.type == "string":
+                    size_factor *= 1.2
+
+            return Int64(Float64(1000) * size_factor)  # Base estimate of 1000 rows
+
+        except:
+            return 1000  # Default estimate
+
     fn optimize_select(mut self, select_stmt: String, schema_manager: SchemaManager, materialized_views: Dict[String, String]) raises -> QueryPlan:
         """Create an optimized query execution plan for a SELECT statement."""
         var start_time = Float64(self.python_time.time())
+
+        # Check if this is a JOIN query
+        if select_stmt.lower().find("join") != -1:
+            var join_plan = self.optimize_join_query(select_stmt, schema_manager)
+            var optimization_time = Float64(self.python_time.time()) - start_time
+            self.profiler.record_function_call("optimize_select")
+            return join_plan.copy()
 
         # Check if this is a time-travel query
         var since_timestamp = self.extract_since_timestamp(select_stmt)
@@ -163,6 +424,17 @@ struct QueryOptimizer(Movable):
 
         # Generate cache key for result caching
         best_plan.cache_key = self.generate_cache_key(select_stmt, table_name, since_timestamp)
+
+        # Add execution steps for visualization
+        best_plan.add_execution_step("Scan table: " + table_name)
+        if len(where_conditions) > 0:
+            var cond_count = len(where_conditions)
+            best_plan.add_execution_step("Apply WHERE conditions: " + String(cond_count) + " conditions")
+        if best_plan.parallel_degree > 1:
+            best_plan.add_execution_step("Execute in parallel with " + String(best_plan.parallel_degree) + " threads")
+        if is_timeline_query:
+            best_plan.add_execution_step("Apply timeline filtering for timestamp: " + String(since_timestamp))
+        best_plan.add_execution_step("Return result set")
 
         var optimization_time = Float64(self.python_time.time()) - start_time
         self.profiler.record_function_call("optimize_select")
@@ -861,3 +1133,38 @@ struct QueryOptimizer(Movable):
     fn disable_profiling(mut self):
         """Disable performance profiling."""
         self.profiler.disable_profiling()
+
+    # Memory Management Methods
+    fn get_memory_stats(self) -> Dict[String, Dict[String, Int]]:
+        """Get comprehensive memory usage statistics."""
+        return self.memory_manager.get_memory_stats()
+
+    fn check_memory_pressure(self) -> Bool:
+        """Check if memory pressure is high."""
+        return self.memory_manager.is_memory_pressure_high()
+
+    fn cleanup_memory(mut self) -> Int:
+        """Clean up stale memory allocations."""
+        return self.memory_manager.cleanup_stale_allocations()
+
+    fn detect_memory_leaks(self) -> Dict[String, List[Int64]]:
+        """Detect potential memory leaks."""
+        return self.memory_manager.check_for_leaks()
+
+    fn allocate_query_memory(mut self, size: Int) raises -> Bool:
+        """Allocate memory from the query pool."""
+        return self.memory_manager.allocate_query_memory(size)
+
+    fn deallocate_memory(mut self, success: Bool) -> Bool:
+        """Deallocate memory from any pool."""
+        return self.memory_manager.deallocate(success)
+
+    fn visualize_query_plan(mut self, query: String, schema_manager: SchemaManager, materialized_views: Dict[String, String]) raises -> String:
+        """Generate a visual representation of the query execution plan."""
+        print("📊 Generating query execution plan visualization")
+
+        var plan = self.optimize_select(query, schema_manager, materialized_views)
+        var visualization = plan.visualize_plan()
+
+        print("✓ Query plan visualization generated")
+        return visualization

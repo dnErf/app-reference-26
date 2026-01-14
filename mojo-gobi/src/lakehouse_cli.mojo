@@ -18,7 +18,7 @@ struct LakehouseCLI:
     var console: EnhancedConsole
     var lakehouse: LakehouseEngine
 
-    fn __init__(out self, console: EnhancedConsole, db_path: String = "./lakehouse_data") raises:
+    fn __init__(out self, console: EnhancedConsole, db_path: String = ".gobi") raises:
         """Initialize lakehouse CLI with console and database path."""
         self.console = console.copy()
         self.lakehouse = LakehouseEngine(db_path)
@@ -455,6 +455,6 @@ struct LakehouseCLI:
         self.console.print("  gobi perf export <format> [file] - Export metrics (json/csv)")
 
 
-fn create_lakehouse_cli(console: EnhancedConsole, db_path: String = "./lakehouse_data") raises -> LakehouseCLI:
+fn create_lakehouse_cli(console: EnhancedConsole, db_path: String = ".gobi") raises -> LakehouseCLI:
     """Factory function to create lakehouse CLI."""
     return LakehouseCLI(console, db_path)

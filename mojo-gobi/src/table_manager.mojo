@@ -9,7 +9,7 @@ struct TableManager(Movable):
     """Unified table management interface for the lakehouse."""
     var engine: LakehouseEngine
 
-    fn __init__(out self, storage_path: String = "./lakehouse_data") raises:
+    fn __init__(out self, storage_path: String = ".gobi") raises:
         """Initialize the table manager with a lakehouse engine."""
         self.engine = LakehouseEngine(storage_path)
 
