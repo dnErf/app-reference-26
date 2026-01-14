@@ -5,7 +5,7 @@ Optimized recursive descent parser with memoization and efficient AST representa
 """
 
 from collections import List, Dict
-from pl_grizzly_lexer import Token, PLGrizzlyLexer, SELECT, FROM, WHERE, CREATE, DROP, INDEX, MATERIALIZED, VIEW, REFRESH, LOAD, UPDATE, DELETE, LOGIN, LOGOUT, BEGIN, COMMIT, ROLLBACK, MACRO, JOIN, LEFT, RIGHT, FULL, INNER, ANTI, ON, ATTACH, DETACH, EXECUTE, ALL, ARRAY, ATTACHED, DATABASES, AS, CACHE, CLEAR, DISTINCT, GROUP, ORDER, BY, SUM, COUNT, AVG, MIN, MAX, FUNCTION, TYPE, STRUCT, STRUCTS, TYPEOF, EXCEPTION, MODULE, DOUBLE_COLON, RETURNS, THROWS, IF, ELSE, MATCH, FOR, WHILE, THEN, CASE, IN, TRY, CATCH, LET, TRUE, FALSE, BREAK, CONTINUE, INSTALL, HTTPFS, WITH, HTTPS, EXTENSIONS, STREAM, COPY, TO, EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUAL, LESS_EQUAL, AND, OR, NOT, BANG, COALESCE, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, PIPE, ARROW, DOT, LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, LANGLE, RANGLE, COMMA, SEMICOLON, COLON, INSERT, INTO, VALUES, SET, SHOW, SECRET, SECRETS, DROP_SECRET, IDENTIFIER, STRING, NUMBER, VARIABLE, UNDERSCORE, EOF, UNKNOWN
+from pl_grizzly_lexer import Token, PLGrizzlyLexer, SELECT, FROM, WHERE, CREATE, DROP, INDEX, MATERIALIZED, VIEW, REFRESH, LOAD, UPDATE, DELETE, LOGIN, LOGOUT, BEGIN, COMMIT, ROLLBACK, MACRO, JOIN, LEFT, RIGHT, FULL, INNER, ANTI, ON, ATTACH, DETACH, EXECUTE, ALL, ARRAY, ATTACHED, DATABASES, AS, CACHE, CLEAR, DISTINCT, GROUP, ORDER, BY, SUM, COUNT, AVG, MIN, MAX, FUNCTION, TYPE, STRUCT, STRUCTS, TYPEOF, EXCEPTION, MODULE, DOUBLE_COLON, RETURNS, IF, ELSE, MATCH, WHILE, THEN, CASE, IN, TRY, CATCH, LET, TRUE, FALSE, BREAK, CONTINUE, INSTALL, WITH, HTTPS, EXTENSIONS, STREAM, COPY, TO, EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUAL, LESS_EQUAL, AND, OR, NOT, BANG, COALESCE, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, PIPE, ARROW, DOT, LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, LANGLE, RANGLE, COMMA, SEMICOLON, COLON, INSERT, INTO, VALUES, SET, SHOW, SECRET, SECRETS, DROP_SECRET, IDENTIFIER, STRING, NUMBER, VARIABLE, UNDERSCORE, EOF, UNKNOWN
 from pl_grizzly_errors import PLGrizzlyError
 
 # Optimized AST Node types using enum-like constants
@@ -42,6 +42,7 @@ alias AST_RIGHT_JOIN = "RIGHT_JOIN"
 alias AST_FULL_JOIN = "FULL_JOIN"
 alias AST_INNER_JOIN = "INNER_JOIN"
 alias AST_ANTI_JOIN = "ANTI_JOIN"
+alias AST_LINQ_QUERY = "LINQ_QUERY"
 
 # Efficient AST Node using Dict for flexible representation
 struct ASTNode(Copyable, Movable):
@@ -123,7 +124,7 @@ struct TypeChecker:
         self.type_table["array"] = TypeInfo("array")
         self.type_table["struct"] = TypeInfo("struct")
 
-    fn define_struct(mut self, owned struct_def: StructDefinition):
+    fn define_struct(mut self, var struct_def: StructDefinition):
         """Register a user-defined struct type."""
         self.struct_definitions[struct_def.name] = struct_def^
 
@@ -523,6 +524,9 @@ struct PLGrizzlyParser:
                 )
                 error.add_suggestion("Use 'STREAM SELECT ...' or 'STREAM FROM ... SELECT ...'")
                 return ASTNode("ERROR", "Invalid STREAM syntax")
+        elif self.check(FROM) and (self.check_next(LBRACKET) or self.check_next(LPAREN) or (self.check_next(IDENTIFIER) and not self.is_keyword(self.peek_next_type()))):
+            # LINQ-style query: FROM collection (SQL-first syntax)
+            result = self.linq_query_statement()
         elif self.match(WITH):
             result = self.with_statement()
         elif self.match(SELECT) or self.match(FROM):
@@ -1280,6 +1284,8 @@ struct PLGrizzlyParser:
         if self.check(IDENTIFIER) and self.peek().value == "TABLE":
             _ = self.advance()  # consume TABLE
             return self.create_table_statement()
+        elif self.match(SECRET):
+            return self.create_secret_statement()
         elif self.match(FUNCTION):
             return self.function_statement()
         elif self.match(INDEX):
@@ -1287,7 +1293,7 @@ struct PLGrizzlyParser:
         elif self.match(VIEW):
             return self.view_statement()
         else:
-            self.error("Expected TABLE, FUNCTION, INDEX, or VIEW after CREATE")
+            self.error("Expected TABLE, SECRET, FUNCTION, INDEX, or VIEW after CREATE")
             return node^
 
     fn create_table_statement(mut self) raises -> ASTNode:
@@ -1318,7 +1324,13 @@ struct PLGrizzlyParser:
     fn parse_column_definition(mut self) raises -> ASTNode:
         """Parse a column definition: column_name column_type"""
         var col_name = self.consume(IDENTIFIER, "Expected column name").value
-        var col_type = self.consume(IDENTIFIER, "Expected column type").value
+
+        # Check for TYPE SECRET syntax
+        var col_type: String
+        if self.match(TYPE):
+            col_type = "TYPE " + self.consume(SECRET, "Expected SECRET after TYPE").value
+        else:
+            col_type = self.consume(IDENTIFIER, "Expected column type").value
 
         var col_node = ASTNode("COLUMN", "", self.previous().line, self.previous().column)
         col_node.add_child(ASTNode("COLUMN_NAME", col_name, self.previous().line, self.previous().column))
@@ -1741,6 +1753,23 @@ struct PLGrizzlyParser:
         node.set_attribute("name", secret_name)
         return node^
 
+    fn create_secret_statement(mut self) raises -> ASTNode:
+        """Parse CREATE SECRET statement."""
+        var node = ASTNode("CREATE_SECRET", "", self.previous().line, self.previous().column)
+        var secret_name = self.consume(IDENTIFIER, "Expected secret name").value
+        node.set_attribute("name", secret_name)
+
+        # Parse TYPE SECRET
+        _ = self.consume(TYPE, "Expected TYPE after secret name")
+        _ = self.consume(SECRET, "Expected SECRET after TYPE")
+
+        # Parse AS value
+        _ = self.consume(AS, "Expected AS after SECRET")
+        var secret_value = self.consume(STRING, "Expected string value after AS").value
+        node.set_attribute("value", secret_value)
+
+        return node^
+
     fn expression_statement(mut self) raises -> ASTNode:
         """Parse expression statement."""
         return self.expression()
@@ -1756,6 +1785,18 @@ struct PLGrizzlyParser:
         if self.is_at_end():
             return False
         return self.peek().type == type
+
+    fn check_next(mut self, type: String) -> Bool:
+        """Check if the next token (after current) matches the given type."""
+        if self.current + 1 >= len(self.tokens):
+            return False
+        return self.tokens[self.current + 1].type == type
+
+    fn check_next_next(mut self, type: String) -> Bool:
+        """Check if the token after next matches the given type."""
+        if self.current + 2 >= len(self.tokens):
+            return False
+        return self.tokens[self.current + 2].type == type
 
     fn advance(mut self) -> Token:
         if not self.is_at_end():
@@ -1787,6 +1828,91 @@ struct PLGrizzlyParser:
     fn error(self, message: String) raises:
         var token = self.peek()
         raise Error("Parse error at line " + String(token.line) + ", column " + String(token.column) + ": " + message)
+
+    fn linq_query_statement(mut self) raises -> ASTNode:
+        """Parse LINQ-style query expression (SQL-first syntax)."""
+        var node = ASTNode(AST_LINQ_QUERY, "", self.peek().line, self.peek().column)
+
+        # Parse FROM collection
+        _ = self.consume(FROM, "Expected FROM in LINQ query")
+        
+        # Parse collection expression
+        var collection_expr = self.expression()
+        var from_clause = ASTNode("FROM_CLAUSE", "", self.previous().line, self.previous().column)
+        from_clause.add_child(collection_expr)
+        node.add_child(from_clause)
+
+        # Parse optional WHERE clause
+        if self.match(WHERE):
+            var where_expr = self.expression()
+            var where_clause = ASTNode("WHERE_CLAUSE", "", self.previous().line, self.previous().column)
+            where_clause.add_child(where_expr)
+            node.add_child(where_clause)
+
+        # Parse optional JOIN clauses
+        while self.match(JOIN):
+            var join_type = "INNER"  # Default
+            if self.match(LEFT):
+                join_type = "LEFT"
+            elif self.match(RIGHT):
+                join_type = "RIGHT"
+            elif self.match(FULL):
+                join_type = "FULL"
+            elif self.match(INNER):
+                join_type = "INNER"
+            elif self.match(ANTI):
+                join_type = "ANTI"
+
+            _ = self.consume(JOIN, "Expected JOIN after join type")
+
+            var join_variable = self.consume(IDENTIFIER, "Expected variable name in JOIN").value
+            _ = self.consume(IN, "Expected IN after join variable")
+
+            var join_collection = self.expression()
+            _ = self.consume(ON, "Expected ON after join collection")
+
+            var join_condition = self.expression()
+
+            var join_clause = ASTNode("JOIN_CLAUSE", join_type, self.previous().line, self.previous().column)
+            join_clause.set_attribute("variable", join_variable)
+            join_clause.add_child(join_collection)
+            join_clause.add_child(join_condition)
+            node.add_child(join_clause)
+
+        # Parse optional LET clauses for intermediate computations
+        while self.match(LET):
+            var let_variable = self.consume(IDENTIFIER, "Expected variable name after LET").value
+            _ = self.consume(EQUALS, "Expected = after LET variable")
+            var let_expr = self.expression()
+
+            var let_clause = ASTNode("LET_CLAUSE", let_variable, self.previous().line, self.previous().column)
+            let_clause.add_child(let_expr)
+            node.add_child(let_clause)
+
+        # Parse optional ORDER BY clause
+        if self.match(ORDER):
+            _ = self.consume(BY, "Expected BY after ORDER")
+            var order_expr = self.expression()
+            var order_clause = ASTNode("ORDER_CLAUSE", "", self.previous().line, self.previous().column)
+            order_clause.add_child(order_expr)
+            node.add_child(order_clause)
+
+        # Parse optional GROUP BY clause
+        if self.match(GROUP):
+            _ = self.consume(BY, "Expected BY after GROUP")
+            var group_expr = self.expression()
+            var group_clause = ASTNode("GROUP_CLAUSE", "", self.previous().line, self.previous().column)
+            group_clause.add_child(group_expr)
+            node.add_child(group_clause)
+
+        # Parse SELECT clause (required for LINQ)
+        _ = self.consume(SELECT, "Expected SELECT clause in LINQ query")
+        var select_expr = self.expression()
+        var select_clause = ASTNode("SELECT_CLAUSE", "", self.previous().line, self.previous().column)
+        select_clause.add_child(select_expr)
+        node.add_child(select_clause)
+
+        return node^
 
     fn is_keyword(self, text: String) -> Bool:
         # Quick check for common keywords

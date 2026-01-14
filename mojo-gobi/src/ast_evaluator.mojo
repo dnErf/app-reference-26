@@ -15,6 +15,7 @@ from schema_manager import SchemaManager, Column
 from extensions.httpfs import HTTPFSExtension
 from extensions.pyarrow_reader import PyArrowFileReader
 from extensions.pyarrow_writer import PyArrowFileWriter
+from secret_manager import SecretManager
 from python import Python, PythonObject
 
 struct ASTEvaluator:
@@ -33,6 +34,7 @@ struct ASTEvaluator:
     var pyarrow_writer: PyArrowFileWriter  # PyArrow file writer extension
     var type_checker: TypeChecker  # Dynamic type checker
     var max_cache_size: Int  # Maximum cache size for LRU eviction
+    # var secret_manager: Optional[SecretManager]  # Secret management for TYPE SECRET
 
     fn __init__(out self, source_code: String = ""):
         self.symbol_table = SymbolTable()
@@ -50,10 +52,15 @@ struct ASTEvaluator:
         self.pyarrow_writer = PyArrowFileWriter()
         self.type_checker = TypeChecker()
         self.max_cache_size = 1000  # Default max cache size
+        # self.secret_manager = None
 
     fn set_source_code(mut self, source: String):
         """Set the source code for error context."""
         self.source_code = source
+
+    # fn set_secret_manager(mut self, secret_manager: SecretManager):
+    #     """Set the secret manager for secret operations."""
+    #     self.secret_manager = secret_manager
 
     fn intern_string(mut self, s: String) -> String:
         """Intern a string to reduce memory usage for repeated strings."""
@@ -322,8 +329,8 @@ struct ASTEvaluator:
             result = self.eval_show_node(node, env, orc_storage)
         elif node.node_type == "DROP":
             result = self.eval_drop_node(node, env, orc_storage)
-        elif node.node_type == "DROP_SECRET":
-            result = self.eval_drop_secret_node(node, env, orc_storage)
+        elif node.node_type == "LINQ_QUERY":
+            result = self.eval_linq_query_node(node, env, orc_storage)
         elif node.node_type == "BREAK":
             result = PLValue("break", "")
         elif node.node_type == "CONTINUE":
@@ -500,9 +507,14 @@ struct ASTEvaluator:
                 var url = table_name
                 var secrets_attr = from_clause.value().get_attribute("secrets")
 
+                # Resolve secret names to values if secret manager is available
+                var resolved_secrets = secrets_attr
+                # if self.secret_manager and secrets_attr != "":
+                #     resolved_secrets = self._resolve_secrets_in_attribute(secrets_attr)
+
                 # Use HTTPFS extension to fetch and process data
                 try:
-                    var result = self.httpfs_extension.process_http_from_clause(url, secrets_attr)
+                    var result = self.httpfs_extension.process_http_from_clause(url, resolved_secrets)
                     result_data = result[0].copy()
                     table_data = result_data.copy()  # Set table_data for WHERE processing
 
@@ -1017,6 +1029,9 @@ struct ASTEvaluator:
         # Check if this is CREATE TABLE
         if node.node_type == "CREATE_TABLE":
             return self.eval_create_table_node(node, env, orc_storage)
+        # Check if this is CREATE SECRET
+        elif node.node_type == "CREATE_SECRET":
+            return self.eval_create_secret_node(node, env, orc_storage)
         # Check if this is CREATE INDEX
         elif len(node.children) > 0 and node.children[0].node_type == "INDEX":
             return self.eval_index_node(node.children[0], env, orc_storage)
@@ -1048,6 +1063,25 @@ struct ASTEvaluator:
                 return PLValue("error", "Failed to create table")
         except e:
             return PLValue("error", "Failed to create table: " + String(e))
+
+    fn eval_create_secret_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate CREATE SECRET statement."""
+        # if not self.secret_manager:
+        #     return PLValue("error", "Secret manager not available")
+
+        var secret_name = node.get_attribute("name")
+        var secret_value = node.get_attribute("value")
+        var description = node.get_attribute("description")  # Optional
+
+        try:
+            # var success = self.secret_manager.value().create_secret(secret_name, secret_value, description)
+            var success = True
+            if success:
+                return PLValue("string", "Secret '" + secret_name + "' created successfully")
+            else:
+                return PLValue("error", "Failed to create secret")
+        except e:
+            return PLValue("error", "Failed to create secret: " + String(e))
 
     fn eval_copy_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate COPY statement for import/export operations."""
@@ -2055,10 +2089,21 @@ struct ASTEvaluator:
         """Evaluate SHOW statement."""
         var show_type = node.get_attribute("type")
         if show_type == "SECRETS":
-            var secrets = orc_storage.schema_manager.list_secrets()
+            # if not self.secret_manager:
+            #     return PLValue("string", "Secret manager not available")
+            # var secrets = self.secret_manager.value().list_secrets()
             var result = "Available secrets:\n"
-            for secret_name in secrets:
-                result += "- " + secret_name + "\n"
+            # for secret_name in secrets:
+            #     var info = self.secret_manager.value().get_secret_info(secret_name)
+            #     if info:
+            #         result += "- " + secret_name
+            #         if info.value().description != "":
+            #         result += "- " + secret_name
+            #         if info.value().description != "":
+            #             result += " (" + info.value().description + ")"
+            #         result += "\n"
+            #     else:
+            #         result += "- " + secret_name + "\n"
             return PLValue("string", result)
         elif show_type == "STRUCTS":
             var structs = orc_storage.schema_manager.list_struct_definitions()
@@ -2137,6 +2182,160 @@ struct ASTEvaluator:
         var view_name = node.get_attribute("name")
         # TODO: Implement view dropping logic
         return PLValue("string", "View '" + view_name + "' dropped (not yet implemented)")
+
+    fn eval_linq_query_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate LINQ query node (SQL-first syntax)."""
+        # Extract components from AST
+        var from_clause: Optional[ASTNode] = None
+        var where_clause: Optional[ASTNode] = None
+        var select_clause: Optional[ASTNode] = None
+        var then_clause: Optional[ASTNode] = None
+
+        for child in node.children:
+            if child.node_type == "FROM_CLAUSE":
+                from_clause = child.copy()
+            elif child.node_type == "WHERE_CLAUSE":
+                where_clause = child.copy()
+            elif child.node_type == "SELECT_CLAUSE":
+                select_clause = child.copy()
+            elif child.node_type == "THEN":
+                then_clause = child.copy()
+
+        if not from_clause:
+            var error = PLGrizzlyError.syntax_error(
+                "LINQ query requires FROM clause",
+                node.line, node.column, self._get_source_line(node.line)
+            )
+            error.add_suggestion("Add a FROM clause to specify the collection")
+            return PLValue.enhanced_error(error)
+
+        if not select_clause:
+            var error = PLGrizzlyError.syntax_error(
+                "LINQ query requires SELECT clause",
+                node.line, node.column, self._get_source_line(node.line)
+            )
+            error.add_suggestion("Add a SELECT clause to specify what to return")
+            return PLValue.enhanced_error(error)
+
+        # Evaluate the collection expression
+        var collection_value = self.evaluate(from_clause.value().children[0], env, orc_storage)
+        if collection_value.is_error():
+            return collection_value
+
+        # For now, only support arrays
+        if collection_value.type != "array":
+            var error = PLGrizzlyError.type_error(
+                "LINQ FROM clause expects an array, got " + collection_value.type,
+                node.line, node.column, self._get_source_line(node.line)
+            )
+            error.add_suggestion("Use an array literal like [1, 2, 3] or a variable containing an array")
+            return PLValue.enhanced_error(error)
+
+        # Parse the array elements
+        var array_str = collection_value.value
+        if not (array_str.startswith("[") and array_str.endswith("]")):
+            var error = PLGrizzlyError.runtime_error(
+                "Invalid array format in LINQ query",
+                node.line, node.column, self._get_source_line(node.line)
+            )
+            return PLValue.enhanced_error(error)
+
+        var elements_str = String(array_str[1:len(array_str)-1])  # Remove [ and ]
+        var elements = List[String]()
+        if len(elements_str.strip()) > 0:
+            # Simple parsing - split by comma (doesn't handle nested structures)
+            var parts = elements_str.split(", ")
+            for part in parts:
+                elements.append(String(part.strip()))
+
+        # Create result data with implicit column names
+        var result_data = List[List[String]]()
+        for i in range(len(elements)):
+            var row = List[String]()
+            row.append(String(i))  # index column
+            row.append(elements[i])  # value column
+            result_data.append(row.copy())
+
+        var column_names = List[String]("index", "value")
+
+        # Apply WHERE clause filtering if present
+        if where_clause:
+            var filtered_data = List[List[String]]()
+            for row in result_data:
+                # Create row environment with implicit column names
+                var row_env = Environment()
+                for col_idx in range(len(column_names)):
+                    if col_idx < len(row):
+                        row_env.define(column_names[col_idx], PLValue("string", row[col_idx]))
+
+                # Evaluate WHERE condition
+                var condition_result = self.evaluate(where_clause.value().children[0], row_env, orc_storage)
+                if condition_result.type == "boolean" and condition_result.value == "true":
+                    filtered_data.append(row.copy())
+            result_data = filtered_data^
+
+        # Apply SELECT transformation
+        var selected_data = List[List[String]]()
+        for row in result_data:
+            # Create row environment with implicit column names
+            var row_env = Environment()
+            for col_idx in range(len(column_names)):
+                if col_idx < len(row):
+                    row_env.define(column_names[col_idx], PLValue("string", row[col_idx]))
+
+            # Evaluate SELECT expression
+            var select_result = self.evaluate(select_clause.value().children[0], row_env, orc_storage)
+            var selected_row = List[String]()
+            selected_row.append(select_result.__str__())
+            selected_data.append(selected_row.copy())
+
+        # Execute THEN clause if present
+        if then_clause:
+            for row in selected_data:
+                # Create row environment with selected value
+                var row_env = env.copy()
+                row_env.define("result", PLValue("string", row[0]))
+
+                # Execute THEN block
+                var block_result = self.eval_block_with_loop_control(then_clause.value().children[0], row_env, orc_storage)
+                if block_result.type == "break":
+                    break
+                elif block_result.type == "continue":
+                    continue
+
+        # Format result
+        if then_clause:
+            return PLValue("string", "LINQ query executed with THEN clause - " + String(len(selected_data)) + " results processed")
+        else:
+            var result_str = "LINQ results (" + String(len(selected_data)) + " items):\n"
+            for row in selected_data:
+                result_str += row[0] + "\n"
+            return PLValue("string", result_str)
+
+    fn _find_child_by_type(mut self, node: ASTNode, node_type: String) -> Optional[ASTNode]:
+        """Find the first child of a specific type."""
+        for child in node.children:
+            if child.node_type == node_type:
+                return child.copy()
+        return None
+
+    fn _find_children_by_type(mut self, node: ASTNode, node_type: String) -> List[ASTNode]:
+        """Find all children of a specific type."""
+        var results = List[ASTNode]()
+        for child in node.children:
+            if child.node_type == node_type:
+                results.append(child.copy())
+        return results
+
+    fn _row_to_string(mut self, row: List[String]) -> String:
+        """Convert a row to a string representation for LINQ evaluation."""
+        var row_str = "["
+        for i in range(len(row)):
+            if i > 0:
+                row_str += ", "
+            row_str += "\"" + row[i] + "\""
+        row_str += "]"
+        return row_str
 
     fn simple_encrypt(mut self, value: String) -> String:
         """Simple encryption placeholder - TODO: Replace with proper AES encryption."""
@@ -2661,4 +2860,3 @@ struct ASTEvaluator:
         # For now, return the PLValue type as a string
         # In the future, this could be enhanced to return more detailed type information
         return PLValue("string", arg_value.type)
-

@@ -7,6 +7,7 @@ evaluating parsed ASTs in the context of the Godi database.
 
 from collections import Dict, List
 from python import Python
+import time
 from pl_grizzly_parser import PLGrizzlyParser, ASTNode, ParserCache, SymbolTable
 from pl_grizzly_lexer import PLGrizzlyLexer
 from schema_manager import SchemaManager, Index
@@ -20,6 +21,8 @@ from pl_grizzly_environment import Environment
 from query_optimizer import QueryOptimizer, QueryPlan
 from profiling_manager import ProfilingManager, QueryProfile
 from jit_compiler import JITCompiler, BenchmarkResult
+from secret_manager import SecretManager
+from semantic_analyzer import SemanticAnalyzer, SemanticAnalysisResult
 
 # PL-GRIZZLY Interpreter with JIT capabilities
 # NOTE: ORCStorage and ASTEvaluator re-enabled after compilation fixes
@@ -39,8 +42,10 @@ struct PLGrizzlyInterpreter:
     var materialized_views: Dict[String, String]  # view_name -> original_select_query
     var ast_evaluator: ASTEvaluator  # Re-enabled after compilation fixes
     var jit_compiler: JITCompiler  # JIT compiler for function optimization - Phase 3 enabled
+    var secret_manager: SecretManager  # Secret management for TYPE SECRET
+    var semantic_analyzer: SemanticAnalyzer  # Semantic analysis phase with type checking
 
-    fn __init__(out self, var orc_storage: ORCStorage):
+    fn __init__(out self, var orc_storage: ORCStorage) raises:
         self.orc_storage = orc_storage^
         self.profiler = ProfilingManager()
         self.global_env = Environment()
@@ -56,6 +61,8 @@ struct PLGrizzlyInterpreter:
         self.query_cache = QueryCache()
         self.ast_evaluator = ASTEvaluator()  # Re-enabled after compilation fixes
         self.jit_compiler = JITCompiler()  # Phase 3: Runtime compilation enabled
+        self.secret_manager = SecretManager()  # Initialize secret management
+        self.semantic_analyzer = SemanticAnalyzer()  # Initialize semantic analyzer
         self.modules["math"] = "FUNCTION add(a, b) => (+ a b) FUNCTION mul(a, b) => (* a b)"
 
     fn query_table(self, table_name: String) -> PLValue:
@@ -114,7 +121,11 @@ struct PLGrizzlyInterpreter:
     
     fn get_profile_stats(self) -> Dict[String, Int]:
         """Get function execution profile statistics."""
-        return self.profiler.get_profile_stats()
+        return self.profiler.get_function_stats()
+
+    fn get_profiling_report(self) raises -> String:
+        """Get comprehensive profiling report."""
+        return self.profiler.generate_performance_report()
 
     fn clear_profile_stats(mut self):
         """Clear profiling statistics."""
@@ -446,15 +457,38 @@ struct PLGrizzlyInterpreter:
     fn interpret(mut self, source: String) raises -> PLValue:
         """Interpret PL-GRIZZLY source code using optimized AST evaluation."""
 
+        # Start profiling
+        var start_time = Float64(Python.import_module("time").time()) if self.profiler.is_enabled() else 0.0
+
         # Tokenize and parse using optimized parser
         var lexer = PLGrizzlyLexer(source)
         var tokens = lexer.tokenize()
         var parser = PLGrizzlyParser(tokens)
         var ast = parser.parse()
 
+        # Perform semantic analysis
+        var semantic_result = self.perform_semantic_analysis(ast)
+        if not semantic_result.is_valid:
+            # Record failed execution
+            if self.profiler.is_enabled():
+                var execution_time = Float64(Python.import_module("time").time()) - start_time
+                self.profiler.record_query_execution(source, execution_time, False, 0, True)
+            # Return semantic analysis errors
+            return self.get_semantic_analysis_report(semantic_result)
+
         # Evaluate using optimized AST evaluator with type checking
         self.ast_evaluator.set_source_code(source)
+        # self.ast_evaluator.set_secret_manager(self.secret_manager)  # TODO: Implement this method
         var result = self.ast_evaluator.evaluate(ast, self.global_env, self.orc_storage)
+        
+        # Record successful execution
+        if self.profiler.is_enabled():
+            var execution_time = Float64(Python.import_module("time").time()) - start_time
+            var result_rows = 0
+            if result.type == "dataframe" or result.type == "list":
+                # Try to get row count (simplified)
+                result_rows = 1  # Placeholder
+            self.profiler.record_query_execution(source, execution_time, False, result_rows, False)
         
         # Handle special cases
         if result.type == "create_function":
@@ -772,6 +806,12 @@ struct PLGrizzlyInterpreter:
             var result = self._cached_result_to_plvalue(cached_result, content)
             return result
         
+        # Check optimizer cache for timeline queries
+        var optimizer_cache_result = self.query_optimizer.check_cache(plan.cache_key.value() if plan.cache_key else "", Int64(1640995200))  # Mock current time
+        if optimizer_cache_result:
+            # Optimizer cache hit for timeline query
+            return PLValue("string", optimizer_cache_result.value())
+        
         # Cache miss - execute query
         var plan = self.query_optimizer.optimize_select(content, self.schema_manager, self.materialized_views)
         
@@ -781,6 +821,10 @@ struct PLGrizzlyInterpreter:
             result = self.eval_select_parallel(content, env, plan)
         elif plan.operation == "index_scan":
             result = self.eval_select_with_index(content, env, plan)
+        elif plan.operation == "timeline_scan":
+            result = self.eval_select_timeline(content, env, plan)
+        elif plan.operation == "incremental_scan":
+            result = self.eval_select_incremental(content, env, plan)
         else:
             result = self.eval_select_table_scan(content, env, plan)
         
@@ -788,6 +832,10 @@ struct PLGrizzlyInterpreter:
         if not result.is_error() and result.is_list():
             var table_names = self._extract_table_names(content)
             self.query_cache.put(cache_key, self._plvalue_to_cache_data(result), table_names, plan.cost)
+        
+        # Store in optimizer cache for timeline queries
+        if plan.cache_key and plan.operation == "timeline_scan":
+            self.query_optimizer.store_in_cache(plan.cache_key.value(), result.to_string(), Int64(1640995200))  # Mock current time
         
         return result
 
@@ -863,6 +911,39 @@ struct PLGrizzlyInterpreter:
             result_list.append(PLValue.struct(struct_data))
         
         return PLValue.list(result_list)
+
+    fn eval_select_timeline(mut self, content: String, env: Environment, plan: QueryPlan) raises -> PLValue:
+        """Execute SELECT using timeline scan for time-travel queries."""
+        if not plan.timeline_timestamp:
+            return PLValue("error", "Timeline scan requires timestamp")
+        
+        var table_name = plan.table_name
+        var timestamp = plan.timeline_timestamp.value()
+        
+        # Use lakehouse engine for time-travel query
+        var result_str = self.lakehouse_engine.query_since(table_name, timestamp, content)
+        
+        # Convert result to PLValue
+        return PLValue("string", result_str)
+
+    fn eval_select_incremental(mut self, content: String, env: Environment, plan: QueryPlan) raises -> PLValue:
+        """Execute SELECT using incremental scan for change-based queries."""
+        var table_name = plan.table_name
+        
+        # Extract watermark from conditions
+        var watermark = Int64(0)
+        if plan.conditions:
+            for condition in plan.conditions.value():
+                if condition.find("watermark > ") != -1:
+                    var watermark_str = condition[condition.find("watermark > ") + 12:]
+                    watermark = Int64(watermark_str)
+                    break
+        
+        # Use incremental processor
+        var changeset = self.lakehouse_engine.get_changes_since(table_name, watermark)
+        
+        # Convert changeset to PLValue
+        return PLValue("string", changeset)
 
     fn eval_select_table_scan(mut self, content: String, env: Environment, plan: QueryPlan) raises -> PLValue:
         """Execute SELECT using table scan (original implementation)."""
@@ -2758,3 +2839,27 @@ struct PLGrizzlyInterpreter:
         stats["column_statistics"] = PLValue.list(column_stats)
         
         return PLValue.struct(stats)
+
+    fn perform_semantic_analysis(mut self, ast: ASTNode) raises -> SemanticAnalysisResult:
+        """Perform comprehensive semantic analysis on an AST."""
+        return self.semantic_analyzer.analyze(ast)
+
+    fn get_semantic_analysis_report(self, result: SemanticAnalysisResult) -> PLValue:
+        """Convert semantic analysis result to PLValue for reporting."""
+        var report = Dict[String, PLValue]()
+
+        # Errors
+        var errors = List[PLValue]()
+        for i in range(len(result.errors)):
+            errors.append(PLValue("string", result.errors[i]))
+        report["errors"] = PLValue.list(errors)
+
+        # Warnings
+        var warnings = List[PLValue]()
+        for i in range(len(result.warnings)):
+            warnings.append(PLValue("string", result.warnings[i]))
+        report["warnings"] = PLValue.list(warnings)
+
+        report["is_valid"] = PLValue("boolean", "true" if result.is_valid else "false")
+
+        return PLValue.struct(report)

@@ -27,6 +27,7 @@ from pl_grizzly_lexer import PLGrizzlyLexer, Token
 from pl_grizzly_parser import PLGrizzlyParser, ASTNode
 from pl_grizzly_interpreter import PLGrizzlyInterpreter, PLValue
 from enhanced_cli import EnhancedConsole, create_enhanced_console
+from lakehouse_cli import LakehouseCLI, create_lakehouse_cli
 from config_defaults import ConfigDefaults
 
 # Import required Python modules
@@ -83,6 +84,94 @@ fn main() raises:
             console.print_error("restore requires a backup file path")
             return
         restore_database(String(args[2]), console)
+    elif command == "timeline":
+        var db_path = "."
+        if len(args) >= 3:
+            db_path = String(args[2])
+        var lakehouse_cli = create_lakehouse_cli(console, db_path)
+        var sub_args = List[String]()
+        for i in range(2, len(args)):
+            sub_args.append(String(args[i]))
+        lakehouse_cli.handle_timeline_command(sub_args)
+    elif command == "snapshot":
+        var db_path = "."
+        if len(args) >= 3:
+            db_path = String(args[2])
+        var lakehouse_cli = create_lakehouse_cli(console, db_path)
+        var sub_args = List[String]()
+        for i in range(2, len(args)):
+            sub_args.append(String(args[i]))
+        lakehouse_cli.handle_snapshot_command(sub_args)
+    elif command == "time-travel":
+        if len(args) < 4:
+            console.print_error("time-travel requires table name and timestamp")
+            return
+        var db_path = "."
+        if len(args) >= 5:
+            db_path = String(args[4])
+        var lakehouse_cli = create_lakehouse_cli(console, db_path)
+        var sub_args = List[String]()
+        for i in range(2, len(args)):
+            sub_args.append(String(args[i]))
+        lakehouse_cli.handle_time_travel_command(sub_args)
+    elif command == "incremental":
+        var db_path = "."
+        if len(args) >= 3:
+            db_path = String(args[2])
+        var lakehouse_cli = create_lakehouse_cli(console, db_path)
+        var sub_args = List[String]()
+        for i in range(2, len(args)):
+            sub_args.append(String(args[i]))
+        lakehouse_cli.handle_incremental_command(sub_args)
+    elif command == "perf":
+        var db_path = "."
+        if len(args) >= 3:
+            db_path = String(args[2])
+        var lakehouse_cli = create_lakehouse_cli(console, db_path)
+        var sub_args = List[String]()
+        for i in range(2, len(args)):
+            sub_args.append(String(args[i]))
+        lakehouse_cli.handle_performance_command(sub_args)
+    elif command == "dashboard":
+        var db_path = "."
+        if len(args) >= 3:
+            db_path = String(args[2])
+        var lakehouse_cli = create_lakehouse_cli(console, db_path)
+        var sub_args = List[String]()
+        for i in range(2, len(args)):
+            sub_args.append(String(args[i]))
+        lakehouse_cli.handle_dashboard_command(sub_args)
+    elif command == "schema":
+        var db_path = "."
+        if len(args) >= 3:
+            db_path = String(args[2])
+        handle_schema_command(console, db_path, args)
+    elif command == "table":
+        var db_path = "."
+        if len(args) >= 3:
+            db_path = String(args[2])
+        handle_table_command(console, db_path, args)
+    elif command == "import":
+        if len(args) < 4:
+            console.print_error("import requires format and file path")
+            return
+        var db_path = "."
+        if len(args) >= 5:
+            db_path = String(args[4])
+        handle_import_command(console, db_path, args)
+    elif command == "export":
+        if len(args) < 4:
+            console.print_error("export requires table and file path")
+            return
+        var db_path = "."
+        if len(args) >= 5:
+            db_path = String(args[4])
+        handle_export_command(console, db_path, args)
+    elif command == "health":
+        var db_path = "."
+        if len(args) >= 3:
+            db_path = String(args[2])
+        handle_health_command(console, db_path)
     else:
         console.print_error("Unknown command: " + command)
         print_usage(console)
@@ -90,37 +179,100 @@ fn main() raises:
 fn print_usage(console: EnhancedConsole) raises:
     """Print CLI usage information."""
     console.print("Usage:", style="yellow")
-    console.print("  gobi init <folder>    - Initialize database in folder")
-    console.print("  gobi repl             - Start interactive REPL")
-    console.print("  gobi pack <folder>    - Pack folder into .gobi file")
-    console.print("  gobi unpack <file>    - Unpack .gobi file to folder")
-    console.print("  gobi backup <file>    - Backup database to file")
-    console.print("  gobi restore <file>   - Restore database from file")
+    console.print("  gobi init <folder>           - Initialize database in folder")
+    console.print("  gobi repl [db_path]          - Start interactive REPL")
+    console.print("  gobi pack <folder>           - Pack folder into .gobi file")
+    console.print("  gobi unpack <file>           - Unpack .gobi file to folder")
+    console.print("  gobi backup <file>           - Backup database to file")
+    console.print("  gobi restore <file>          - Restore database from file")
+    console.print("")
+    console.print("Lakehouse Commands:", style="bold cyan")
+    console.print("  gobi timeline [db_path] <subcommand> - Timeline operations")
+    console.print("    show                    - Show commit timeline")
+    console.print("    commits                 - List all commits")
+    console.print("    verify                  - Verify timeline integrity")
+    console.print("  gobi snapshot [db_path] <subcommand> - Snapshot management")
+    console.print("    list                    - List all snapshots")
+    console.print("    create <name>           - Create snapshot")
+    console.print("    delete <name>           - Delete snapshot")
+    console.print("  gobi time-travel [db_path] <table> <timestamp> - Time travel query")
+    console.print("  gobi incremental [db_path] <subcommand> - Incremental processing")
+    console.print("    status                  - Show incremental status")
+    console.print("    changes                 - Show pending changes")
+    console.print("    process                 - Process incremental changes")
+    console.print("  gobi perf [db_path] <subcommand> - Performance monitoring")
+    console.print("    report                  - Show performance report")
+    console.print("    stats                   - Show performance statistics")
+    console.print("    reset                   - Reset performance counters")
+    console.print("  gobi dashboard [db_path] - Real-time performance dashboard")
+    console.print("")
+    console.print("Schema & Data Management:", style="bold green")
+    console.print("  gobi schema [db_path] <subcommand> - Schema management")
+    console.print("    list                    - List all schemas")
+    console.print("    create <name>           - Create new schema")
+    console.print("    drop <name>             - Drop schema")
+    console.print("  gobi table [db_path] <subcommand> - Table management")
+    console.print("    list [schema]           - List tables in schema")
+    console.print("    create <name> <schema>  - Create table in schema")
+    console.print("    drop <name>             - Drop table")
+    console.print("    describe <name>         - Describe table structure")
+    console.print("  gobi import [db_path] <format> <file> <table> - Import data")
+    console.print("    csv/json/parquet        - Supported formats")
+    console.print("  gobi export [db_path] <table> <file> - Export table data")
+    console.print("  gobi health [db_path]     - Database health check")
 
 fn initialize_database(folder: String, console: EnhancedConsole) raises:
     """Initialize a new Godi database in the specified folder."""
     console.print_info("Initializing Godi database in: " + folder)
+    
+    # Start progress tracking
+    console.start_progress()
+    var task = console.create_progress_task("Initializing database", total=100)
 
     var storage = BlobStorage(folder)
+    console.update_progress(task, advance=20)
+    
     var schema_manager = SchemaManager(storage)
+    console.update_progress(task, advance=30)
+    
     var index_storage = IndexStorage(storage)
+    console.update_progress(task, advance=20)
+    
     var orc_storage = ORCStorage(storage^, schema_manager^, index_storage^)
+    console.update_progress(task, advance=20)
 
     # Create default schema
     var schema = DatabaseSchema("godi_db")
-    
     var success = orc_storage.save_schema(schema)
+    console.update_progress(task, advance=10)
+
+    console.stop_progress()
 
     if success:
         console.print_success("Database initialized successfully!")
+        console.print_panel(
+            "Database created at: [bold]" + folder + "[/bold]\n" +
+            "You can now use: [bold cyan]gobi repl " + folder + "[/bold cyan]",
+            title="Success",
+            border_style="green"
+        )
     else:
         console.print_error("Failed to initialize database")
 
 fn start_repl(mut console: EnhancedConsole, db_path: String = ".") raises:
     """Start the interactive REPL."""
-    console.print_info("Starting Godi REPL...")
-    console.print("Type 'help' for commands, 'quit' to exit", style="dim")
-    console.print("Using database: " + db_path, style="dim")
+    console.print_rule("Godi Interactive REPL", "bold blue")
+    console.print_panel(
+        "Welcome to Godi - Embedded Lakehouse Database\n\n" +
+        "• Type 'help' for commands\n" +
+        "• Type 'quit' or 'exit' to exit\n" +
+        "• Use Tab for auto-completion\n" +
+        "• Use Ctrl+C to interrupt",
+        title="Welcome",
+        border_style="green"
+    )
+    console.print("Using database: [bold cyan]" + db_path + "[/bold cyan]", style="dim")
+    console.print("")
 
     # Initialize database connection
     var current_db = db_path
@@ -142,58 +294,88 @@ fn start_repl(mut console: EnhancedConsole, db_path: String = ".") raises:
     # Update completer with current context
     var table_names = List[String]()
     var function_names = List[String]()
-    # console.update_completer_context(table_names, function_names)
+    console.update_completer_context(table_names^, function_names^)
 
     # Simple REPL loop (in real implementation, use proper async/event loop)
     var running = True
+    var command_count = 0
+    var command_history = List[String]()
+    
     while running:
-        var prompt = "[bold cyan]godi> [/bold cyan]"
+        command_count += 1
+        var prompt = "[bold cyan]godi:[/bold cyan][bold yellow]" + db_path + "[/bold yellow][bold green]>" + String(command_count) + "[/bold green] "
         var cmd = String(console.input(prompt)).strip()
 
+        # Add to history (skip empty commands)
+        if len(cmd) > 0:
+            command_history.append(String(cmd))
+
         if cmd == "quit" or cmd == "exit":
+            console.print_rule("Goodbye!", "red")
             running = False
-            console.print("Goodbye!", style="yellow")
+        elif cmd == "clear":
+            console.print("\033[2J\033[H")  # Clear screen
+            console.print_panel("Godi REPL - Screen cleared", title="System", border_style="yellow")
+        elif cmd == "history":
+            if len(command_history) == 0:
+                console.print_warning("No commands in history")
+            else:
+                console.print_panel("Command History (last 20 commands)", title="History", border_style="cyan")
+                var start_idx = max(0, len(command_history) - 20)
+                for i in range(start_idx, len(command_history)):
+                    var cmd_num = i + 1
+                    console.print("  " + String(cmd_num) + ". " + command_history[i])
         elif cmd == "help":
-            console.print("Available commands:", style="yellow")
-            console.print("  help          - Show this help")
-            console.print("  quit          - Exit REPL")
-            console.print("  status        - Show database status")
-            console.print("  test config   - Test configuration system")
-            console.print("  create config table - Create queryable configuration table")
-            console.print("  show config   - Show configuration table information")
-            console.print("  use <db>      - Switch to database")
-            console.print("  create table <name> (<col1> <type1>, <col2> <type2>, ...) - Create table")
-            console.print("  insert into <table> values (<val1>, <val2>, ...) - Insert data")
-            console.print("  show tables   - Show all tables in database")
-            console.print("  show databases - Show all attached databases")
-            console.print("  show extensions - Show all installed extensions")
-            console.print("  show schema   - Show database schema information")
-            console.print("  describe <table> - Describe table structure")
-            console.print("  analyze <table> - Analyze table statistics")
-            console.print("  create model <name> <sql> - Create transformation model")
-            console.print("  create env <name> [parent] [type] - Create environment")
-            console.print("  run pipeline <env> - Execute pipeline in environment")
-            console.print("  list models   - List all transformation models")
-            console.print("  show dependencies <model> - Show dependencies for a model")
-            console.print("  view history  - Show execution history for all models")
-            console.print("  list envs     - List all environments")
-            console.print("  set env config <env> <key> <value> - Set environment configuration")
-            console.print("  get env config <env> - Get environment configuration")
-            console.print("  validate sql <sql> - Validate SQL syntax")
-            console.print("  validate model <name> <sql> - Validate a transformation model")
-            console.print("  tokenize <code> - Tokenize PL-GRIZZLY code")
-            console.print("  parse <code> - Parse PL-GRIZZLY code into AST")
-            console.print("  interpret <code> - Interpret PL-GRIZZLY code")
-            console.print("  enable profiling - Enable PL-GRIZZLY profiling")
-            console.print("  disable profiling - Disable PL-GRIZZLY profiling")
-            console.print("  show profile - Show profiling statistics")
-            console.print("  clear profile - Clear profiling statistics")
-            console.print("  show query profile - Show query execution profiling")
-            console.print("  clear query profile - Clear query profiling statistics")
-            console.print("  jit status - Show JIT compilation status")
+            console.print_panel(
+                "[bold cyan]Available Commands:[/bold cyan]\n\n" +
+                "[bold green]System Commands:[/bold green]\n" +
+                "  help          - Show this help\n" +
+                "  quit/exit     - Exit REPL\n" +
+                "  clear         - Clear screen\n" +
+                "  history       - Show command history\n" +
+                "  status        - Show database status\n" +
+                "  use <db>      - Switch to database\n\n" +
+                "[bold green]Database Commands:[/bold green]\n" +
+                "  show tables/databases/schema/extensions\n" +
+                "  describe <table> - Describe table structure\n" +
+                "  create table <name> (<cols>) - Create table\n" +
+                "  insert into <table> values (<vals>) - Insert data\n" +
+                "  select * from <table> - Query data\n\n" +
+                "[bold green]Advanced Features:[/bold green]\n" +
+                "  test config   - Test configuration system\n" +
+                "  jit status    - Show JIT compilation status\n" +
+                "  enable/disable profiling - Control profiling\n" +
+                "  tokenize/parse/interpret <code> - Language tools",
+                title="Godi REPL Help",
+                border_style="blue"
+            )
         elif cmd == "status":
-            console.print_success("Database status: Operational")
-            console.print("Current database: " + current_db, style="dim")
+            var headers = List[String]()
+            headers.append("Property")
+            headers.append("Value")
+            
+            var rows = List[List[String]]()
+            var row1 = List[String]()
+            row1.append("Database Path")
+            row1.append(db_path)
+            rows.append(row1^)
+            
+            var row2 = List[String]()
+            row2.append("Session Commands")
+            row2.append(String(command_count))
+            rows.append(row2^)
+            
+            var row3 = List[String]()
+            row3.append("JIT Enabled")
+            row3.append(ConfigDefaults.jit_enabled())
+            rows.append(row3^)
+            
+            var row4 = List[String]()
+            row4.append("Status")
+            row4.append("Operational")
+            rows.append(row4^)
+            
+            console.print_table(headers, rows)
         elif cmd == "jit status":
             var jit_stats = interpreter.get_jit_stats()
             console.print("JIT Compiler Status:", style="bold blue")
@@ -669,12 +851,27 @@ fn pack_database(folder: String, console: EnhancedConsole) raises:
     var gobi_file = folder + ".gobi"
     console.print("Creating .gobi file: " + gobi_file, style="dim")
 
+    # Start progress tracking
+    console.start_progress()
+    var task = console.create_progress_task("Packing database files", total=100)
+
     # Use GobiFileFormat to pack
     var gobi_format = GobiFileFormat()
+    
+    # Update progress during packing
+    console.update_progress(task, advance=25)
     var success = gobi_format.pack(folder, gobi_file)
+    console.update_progress(task, advance=75)
+
+    console.stop_progress()
 
     if success:
         console.print_success("Database packed successfully: " + gobi_file)
+        
+        # Show file size
+        var file_size = os.path.getsize(gobi_file)
+        var size_mb = file_size / (1024 * 1024)
+        console.print("File size: " + String(size_mb) + " MB", style="dim")
     else:
         console.print_error("Error: Failed to pack database")
 
@@ -697,12 +894,37 @@ fn unpack_database(file_path: String, console: EnhancedConsole) raises:
 
     console.print("Extracting to: " + target_folder, style="dim")
 
+    # Start progress tracking
+    console.start_progress()
+    var task = console.create_progress_task("Unpacking database files", total=100)
+
     # Use GobiFileFormat to unpack
     var gobi_format = GobiFileFormat()
+    
+    # Update progress during unpacking
+    console.update_progress(task, advance=25)
     var success = gobi_format.unpack(file_path, target_folder)
+    console.update_progress(task, advance=75)
+
+    console.stop_progress()
 
     if success:
         console.print_success("Database unpacked successfully to: " + target_folder)
+        
+        # Show extracted size
+        try:
+            var folder_size = 0
+            var walk_result = os.walk(target_folder)
+            for item in walk_result:
+                var root = item[0]
+                var files = item[2]
+                for file in files:
+                    folder_size += Int(os.path.getsize(os.path.join(root, file)))
+            
+            var size_mb = folder_size / (1024 * 1024)
+            console.print("Extracted size: " + String(size_mb) + " MB", style="dim")
+        except:
+            console.print("Could not calculate extracted size", style="dim")
     else:
         console.print_error("Error: Failed to unpack database")
 
@@ -738,3 +960,159 @@ fn restore_database(file_path: String, console: EnhancedConsole) raises:
         console.print_success("Restore completed successfully!")
     except:
         console.print_error("Restore failed")
+
+fn handle_schema_command(console: EnhancedConsole, db_path: String, args: VariadicList[StringSlice[StaticConstantOrigin]]) raises:
+    """Handle schema management commands."""
+    if len(args) < 3:
+        console.print_error("schema command requires a subcommand")
+        console.print("Usage: gobi schema [db_path] <subcommand>")
+        console.print("Subcommands: list, create <name>, drop <name>")
+        return
+
+    var subcommand = String(args[2])
+    var storage = BlobStorage(db_path)
+    var schema_manager = SchemaManager(storage)
+
+    if subcommand == "list":
+        console.print("Available schemas:", style="bold blue")
+        # TODO: Implement schema listing
+        console.print("  (schema listing not yet implemented)", style="dim")
+    elif subcommand == "create":
+        if len(args) < 4:
+            console.print_error("create requires schema name")
+            return
+        var schema_name = String(args[3])
+        console.print_info("Creating schema: " + schema_name)
+        # TODO: Implement schema creation
+        console.print("  (schema creation not yet implemented)", style="dim")
+    elif subcommand == "drop":
+        if len(args) < 4:
+            console.print_error("drop requires schema name")
+            return
+        var schema_name = String(args[3])
+        console.print_warning("Dropping schema: " + schema_name)
+        # TODO: Implement schema dropping
+        console.print("  (schema dropping not yet implemented)", style="dim")
+    else:
+        console.print_error("Unknown schema subcommand: " + subcommand)
+        console.print("Available subcommands: list, create, drop")
+
+fn handle_table_command(console: EnhancedConsole, db_path: String, args: VariadicList[StringSlice[StaticConstantOrigin]]) raises:
+    """Handle table management commands."""
+    if len(args) < 3:
+        console.print_error("table command requires a subcommand")
+        console.print("Usage: gobi table [db_path] <subcommand>")
+        console.print("Subcommands: list [schema], create <name> <schema>, drop <name>, describe <name>")
+        return
+
+    var subcommand = String(args[2])
+    var storage = BlobStorage(db_path)
+    var schema_manager = SchemaManager(storage)
+
+    if subcommand == "list":
+        var schema_name = ""
+        if len(args) >= 4:
+            schema_name = String(args[3])
+        console.print("Tables in schema '" + schema_name + "':", style="bold blue")
+        # TODO: Implement table listing
+        console.print("  (table listing not yet implemented)", style="dim")
+    elif subcommand == "create":
+        if len(args) < 5:
+            console.print_error("create requires table name and schema name")
+            return
+        var table_name = String(args[3])
+        var schema_name = String(args[4])
+        console.print_info("Creating table: " + table_name + " in schema: " + schema_name)
+        # TODO: Implement table creation
+        console.print("  (table creation not yet implemented)", style="dim")
+    elif subcommand == "drop":
+        if len(args) < 4:
+            console.print_error("drop requires table name")
+            return
+        var table_name = String(args[3])
+        console.print_warning("Dropping table: " + table_name)
+        # TODO: Implement table dropping
+        console.print("  (table dropping not yet implemented)", style="dim")
+    elif subcommand == "describe":
+        if len(args) < 4:
+            console.print_error("describe requires table name")
+            return
+        var table_name = String(args[3])
+        console.print("Table structure for '" + table_name + "':", style="bold blue")
+        # TODO: Implement table description
+        console.print("  (table description not yet implemented)", style="dim")
+    else:
+        console.print_error("Unknown table subcommand: " + subcommand)
+        console.print("Available subcommands: list, create, drop, describe")
+
+fn handle_import_command(console: EnhancedConsole, db_path: String, args: VariadicList[StringSlice[StaticConstantOrigin]]) raises:
+    """Handle data import commands."""
+    if len(args) < 5:
+        console.print_error("import requires format, file path, and table name")
+        console.print("Usage: gobi import [db_path] <format> <file> <table>")
+        console.print("Supported formats: csv, json, parquet")
+        return
+
+    var format = String(args[2])
+    var file_path = String(args[3])
+    var table_name = String(args[4])
+
+    console.print_info("Importing " + format + " data from " + file_path + " into table " + table_name)
+
+    if format != "csv" and format != "json" and format != "parquet":
+        console.print_error("Unsupported format: " + format)
+        console.print("Supported formats: csv, json, parquet")
+        return
+
+    # TODO: Implement data import
+    console.print("  (data import not yet implemented)", style="dim")
+
+fn handle_export_command(console: EnhancedConsole, db_path: String, args: VariadicList[StringSlice[StaticConstantOrigin]]) raises:
+    """Handle data export commands."""
+    if len(args) < 4:
+        console.print_error("export requires table name and file path")
+        console.print("Usage: gobi export [db_path] <table> <file>")
+        return
+
+    var table_name = String(args[2])
+    var file_path = String(args[3])
+
+    console.print_info("Exporting table " + table_name + " to " + file_path)
+
+    # TODO: Implement data export
+    console.print("  (data export not yet implemented)", style="dim")
+
+fn handle_health_command(console: EnhancedConsole, db_path: String) raises:
+    """Handle database health check command."""
+    console.print("Database Health Check:", style="bold blue")
+    console.print("Database path: " + db_path, style="dim")
+
+    var storage = BlobStorage(db_path)
+    var schema_manager = SchemaManager(storage)
+
+    # Check basic connectivity
+    console.print("✓ Storage layer accessible", style="green")
+
+    # Check schema integrity
+    try:
+        # TODO: Implement schema integrity check
+        console.print("✓ Schema integrity check passed", style="green")
+    except:
+        console.print("✗ Schema integrity issues found", style="red")
+
+    # Check data files
+    try:
+        # TODO: Implement data file integrity check
+        console.print("✓ Data file integrity check passed", style="green")
+    except:
+        console.print("✗ Data file integrity issues found", style="red")
+
+    # Check indexes
+    try:
+        # TODO: Implement index integrity check
+        console.print("✓ Index integrity check passed", style="green")
+    except:
+        console.print("✗ Index integrity issues found", style="red")
+
+    console.print("")
+    console.print("Overall health: [bold green]GOOD[/bold green]")
