@@ -18,6 +18,10 @@ from extensions.pyarrow_writer import PyArrowFileWriter
 from query_optimizer import QueryOptimizer
 from memory_manager import MemoryManager
 from python import Python, PythonObject
+from root_storage import RootStorage
+from procedure_execution_engine import ProcedureExecutionEngine
+from trigger_execution_engine import TriggerExecutionEngine, TriggerExecutionContext
+from profiling_manager import ProfilingManager
 
 struct ASTEvaluator:
     var symbol_table: SymbolTable
@@ -36,9 +40,12 @@ struct ASTEvaluator:
     var pyarrow_writer: PyArrowFileWriter  # PyArrow file writer extension
     var type_checker: TypeChecker  # Dynamic type checker
     var memory_manager: MemoryManager  # Advanced memory management
-    # var secret_manager: Optional[SecretManager]  # Secret management for TYPE SECRET
+    var procedure_storage: RootStorage  # Procedure storage system
+    var procedure_execution_engine: ProcedureExecutionEngine  # Procedure execution engine
+    var trigger_execution_engine: TriggerExecutionEngine  # Trigger execution engine
 
-    fn __init__(out self, source_code: String = ""):
+
+    fn __init__(out self, source_code: String = "") raises:
         self.symbol_table = SymbolTable()
         self.eval_cache = Dict[String, PLValue]()  # Memory-efficient cache with size limit
         self.query_result_cache = Dict[String, PLValue]()  # Memory-efficient query cache
@@ -55,15 +62,42 @@ struct ASTEvaluator:
         self.pyarrow_writer = PyArrowFileWriter()
         self.type_checker = TypeChecker()
         self.memory_manager = MemoryManager()  # Initialize memory manager
-        # self.secret_manager = None
+        self.procedure_storage = RootStorage(".dummy")  # Initialize with dummy path
+        self.procedure_execution_engine = ProcedureExecutionEngine()
+        # var dummy_profiler = ProfilingManager()
+        # self.procedure_execution_engine = ProcedureExecutionEngine()
+        # self.procedure_execution_engine.set_procedure_storage(self.procedure_storage ^)
+        # Don't set circular reference to self
+        # self.procedure_execution_engine.set_profiler(dummy_profiler ^)
+
+        # Initialize trigger execution engine
+        var dummy_profiler = ProfilingManager()
+        self.trigger_execution_engine = TriggerExecutionEngine()
 
     fn set_source_code(mut self, source: String):
         """Set the source code for error context."""
         self.source_code = source
 
-    # fn set_secret_manager(mut self, secret_manager: SecretManager):
-    #     """Set the secret manager for secret operations."""
-    #     self.secret_manager = secret_manager
+    fn set_procedure_storage(mut self, var procedure_storage: RootStorage):
+        """Set the procedure storage system."""
+        self.procedure_storage = procedure_storage ^
+
+    fn set_procedure_execution_engine(mut self, var engine: ProcedureExecutionEngine, evaluator: ASTEvaluator):
+        """Set the procedure execution engine."""
+        self.procedure_execution_engine = engine^
+        # self.set_evaluator_pointer()
+
+    fn set_trigger_execution_engine(mut self, var engine: TriggerExecutionEngine):
+        """Set the trigger execution engine."""
+        self.trigger_execution_engine = engine^
+
+    fn set_trigger_evaluator_pointer(mut self):
+        """Set the evaluator pointer in the trigger execution engine."""
+        # TODO: Set evaluator pointer when trigger execution is enabled
+        # self.trigger_execution_engine.set_evaluator(Pointer.address_of(self).raw_pointer)
+        pass
+
+
 
     fn intern_string(mut self, s: String) -> String:
         """Intern a string to reduce memory usage for repeated strings."""
@@ -251,6 +285,16 @@ struct ASTEvaluator:
             result = self.eval_delete_node(node, env, orc_storage)
         elif node.node_type == "CREATE":
             result = self.eval_create_node(node, env, orc_storage)
+        elif node.node_type == "UPSERT_PROCEDURE":
+            result = self.eval_upsert_procedure_node(node, env, orc_storage)
+        elif node.node_type == "UPSERT_TRIGGER":
+            result = self.eval_upsert_trigger_node(node, env, orc_storage)
+        elif node.node_type == "UPSERT_SCHEDULE":
+            result = self.eval_upsert_schedule_node(node, env, orc_storage)
+        elif node.node_type == "ENABLE_TRIGGER":
+            result = self.eval_enable_trigger_node(node, env, orc_storage)
+        elif node.node_type == "DISABLE_TRIGGER":
+            result = self.eval_disable_trigger_node(node, env, orc_storage)
         elif node.node_type == "COPY":
             result = self.eval_copy_node(node, env, orc_storage)
         elif node.node_type == "CREATE_TABLE":
@@ -1023,6 +1067,7 @@ struct ASTEvaluator:
         else:
             return PLValue("string", "CREATE statement acknowledged")
 
+
     fn eval_create_table_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate CREATE TABLE statement."""
         if len(node.children) < 2:
@@ -1163,6 +1208,15 @@ struct ASTEvaluator:
         if table_name == "":
             return PLValue("error", "INSERT requires table name")
 
+        # Execute BEFORE INSERT triggers
+        var before_procedures = self.trigger_execution_engine.execute_before_triggers(self.procedure_storage, table_name, "INSERT")
+        for procedure_name in before_procedures:
+            var call_node = ASTNode("PROCEDURE_CALL", "")
+            call_node.set_attribute("name", procedure_name)
+            var result = self.eval_procedure_call(call_node, env, orc_storage)
+            if result.type == "error":
+                return PLValue("error", "BEFORE INSERT trigger '" + procedure_name + "' failed - operation cancelled")
+
         # Find the VALUES node
         var values_node: Optional[ASTNode] = None
         for child in node.children:
@@ -1192,7 +1246,18 @@ struct ASTEvaluator:
             # Write back
             var success = orc_storage.save_table(table_name, table_data)
             if success:
-                return PLValue("number", String(len(table_data) - 1))  # Return row ID
+                var row_id = len(table_data) - 1
+
+                # Execute AFTER INSERT triggers
+                var after_procedures = self.trigger_execution_engine.execute_after_triggers(self.procedure_storage, table_name, "INSERT")
+                for procedure_name in after_procedures:
+                    var call_node = ASTNode("PROCEDURE_CALL", "")
+                    call_node.set_attribute("name", procedure_name)
+                    var result = self.eval_procedure_call(call_node, env, orc_storage)
+                    if result.type == "error":
+                        print("Warning: AFTER INSERT trigger '" + procedure_name + "' failed, but INSERT operation completed")
+
+                return PLValue("number", String(row_id))  # Return row ID
             else:
                 return PLValue("error", "Failed to save table after insert")
         except e:
@@ -1204,6 +1269,16 @@ struct ASTEvaluator:
             return PLValue("error", "UPDATE requires table name, SET clause, and WHERE clause")
 
         var table_name = node.children[0].value
+
+        # Execute BEFORE UPDATE triggers
+        var before_procedures = self.trigger_execution_engine.execute_before_triggers(self.procedure_storage, table_name, "UPDATE")
+        for procedure_name in before_procedures:
+            var call_node = ASTNode("PROCEDURE_CALL", "")
+            call_node.set_attribute("name", procedure_name)
+            var result = self.eval_procedure_call(call_node, env, orc_storage)
+            if result.type == "error":
+                return PLValue("error", "BEFORE UPDATE trigger '" + procedure_name + "' failed - operation cancelled")
+
         var set_clause = node.children[1].copy()
         var where_clause = node.children[2].copy()
 
@@ -1247,6 +1322,15 @@ struct ASTEvaluator:
             # Write back updated data
             var success = orc_storage.save_table(table_name, table_data)
             if success:
+                # Execute AFTER UPDATE triggers
+                var after_procedures = self.trigger_execution_engine.execute_after_triggers(self.procedure_storage, table_name, "UPDATE")
+                for procedure_name in after_procedures:
+                    var call_node = ASTNode("PROCEDURE_CALL", "")
+                    call_node.set_attribute("name", procedure_name)
+                    var result = self.eval_procedure_call(call_node, env, orc_storage)
+                    if result.type == "error":
+                        print("Warning: AFTER UPDATE trigger '" + procedure_name + "' failed, but UPDATE operation completed")
+
                 return PLValue("number", String(updated_count))
             else:
                 return PLValue("error", "Failed to save table after update")
@@ -1259,6 +1343,16 @@ struct ASTEvaluator:
             return PLValue("error", "DELETE requires table name and WHERE clause")
 
         var table_name = node.children[0].value
+
+        # Execute BEFORE DELETE triggers
+        var before_procedures = self.trigger_execution_engine.execute_before_triggers(self.procedure_storage, table_name, "DELETE")
+        for procedure_name in before_procedures:
+            var call_node = ASTNode("PROCEDURE_CALL", "")
+            call_node.set_attribute("name", procedure_name)
+            var result = self.eval_procedure_call(call_node, env, orc_storage)
+            if result.type == "error":
+                return PLValue("error", "BEFORE DELETE trigger '" + procedure_name + "' failed - operation cancelled")
+
         var where_clause = node.children[1].copy()
 
         try:
@@ -1275,6 +1369,15 @@ struct ASTEvaluator:
             # Write back empty table
             var success = orc_storage.save_table(table_name, empty_data)
             if success:
+                # Execute AFTER DELETE triggers
+                var after_procedures = self.trigger_execution_engine.execute_after_triggers(self.procedure_storage, table_name, "DELETE")
+                for procedure_name in after_procedures:
+                    var call_node = ASTNode("PROCEDURE_CALL", "")
+                    call_node.set_attribute("name", procedure_name)
+                    var result = self.eval_procedure_call(call_node, env, orc_storage)
+                    if result.type == "error":
+                        print("Warning: AFTER DELETE trigger '" + procedure_name + "' failed, but DELETE operation completed")
+
                 return PLValue("number", String(deleted_count))
             else:
                 return PLValue("error", "Failed to save table after delete")
@@ -1758,6 +1861,11 @@ struct ASTEvaluator:
         elif func_name == "sqrt":
             return self.eval_builtin_sqrt(node, env, orc_storage)
 
+        # Check for stored procedures
+        if self.procedure_storage.procedure_exists(func_name):
+            # For now, return a placeholder - full execution engine integration pending
+            return PLValue("string", "procedure " + func_name + " called (execution engine pending)")
+
         # Get function definition from environment
         var func_def = env.get(func_name)
         if func_def.type != "function":
@@ -1768,6 +1876,47 @@ struct ASTEvaluator:
         # We need to parse this back or store it differently
         # For now, return a placeholder
         return PLValue("string", "function " + func_name + " called with " + String(len(node.children)) + " arguments")
+
+    fn eval_procedure_call(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate stored procedure call."""
+        var procedure_name = node.get_attribute("name")
+        if procedure_name == "":
+            return PLValue("error", "Procedure call requires name")
+
+        if not self.procedure_storage.procedure_exists(procedure_name):
+            return PLValue("error", "Procedure '" + procedure_name + "' does not exist")
+
+        # Extract parameters from call arguments
+        var parameters = Dict[String, PLValue]()
+        for i in range(len(node.children)):
+            var arg_value = self.evaluate(node.children[i], env, orc_storage)
+            var param_name = "arg" + String(i)  # Default parameter names
+            parameters[param_name] = arg_value
+
+        # Get the procedure definition
+        var procedure_entity = self.procedure_storage.get_entity("procedure", procedure_name)
+        if not procedure_entity:
+            return PLValue("error", "Procedure '" + procedure_name + "' not found")
+
+        var procedure_record = procedure_entity.value().copy()
+        var procedure_body = procedure_record.get_value("body")
+
+        if procedure_body == "":
+            return PLValue("error", "Procedure '" + procedure_name + "' has no body")
+
+        # Parse and execute the procedure body
+        var lexer = PLGrizzlyLexer(procedure_body)
+        var tokens = lexer.tokenize()
+        var parser = PLGrizzlyParser(tokens)
+        var ast = parser.parse()
+
+        # Create procedure environment with parameters
+        var procedure_env = Environment()
+        # TODO: Add parameters to environment
+
+        # Execute the procedure
+        var result = self.evaluate(ast, procedure_env, orc_storage)
+        return result
 
     fn eval_index_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
         """Evaluate indexing operation: list[index]."""
@@ -2310,7 +2459,7 @@ struct ASTEvaluator:
         for child in node.children:
             if child.node_type == node_type:
                 results.append(child.copy())
-        return results
+        return results^
 
     fn _row_to_string(mut self, row: List[String]) -> String:
         """Convert a row to a string representation for LINQ evaluation."""
@@ -3050,11 +3199,11 @@ struct ASTEvaluator:
         return PLValue("string", arg_value.type)
 
     # Memory Management Methods
-    fn get_memory_stats(self) -> Dict[String, Dict[String, Int]]:
+    fn get_memory_stats(self) raises -> Dict[String, Dict[String, Int]]:
         """Get comprehensive memory usage statistics."""
         return self.memory_manager.get_memory_stats()
 
-    fn check_memory_pressure(self) -> Bool:
+    fn check_memory_pressure(self) raises -> Bool:
         """Check if memory pressure is high and cleanup may be needed."""
         return self.memory_manager.is_memory_pressure_high()
 
@@ -3077,3 +3226,136 @@ struct ASTEvaluator:
     fn deallocate_memory(mut self, success: Bool) -> Bool:
         """Deallocate memory from any pool."""
         return self.memory_manager.deallocate(success)
+
+    fn eval_upsert_procedure_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate UPSERT_PROCEDURE statement."""
+        # Extract procedure name
+        var procedure_name = node.get_attribute("name")
+        if procedure_name == "":
+            return PLValue("error", "Procedure name is required")
+
+        # Perform enhanced type checking for the procedure
+        try:
+            self.type_checker.perform_procedure_type_checking(node, self.symbol_table)
+        except e:
+            return PLValue("error", "Type checking failed for procedure '" + procedure_name + "': " + String(e))
+
+        # Extract metadata from first child
+        var metadata_str = "{}"  # Default empty metadata
+        var kind = "default"
+        if len(node.children) > 0:
+            var metadata_node = node.children[0].copy()
+            if metadata_node.node_type == "METADATA":
+                # Extract kind from metadata
+                kind = metadata_node.get_attribute("kind")
+                if kind == "":
+                    kind = "default"
+                # Convert metadata to JSON-like string
+                metadata_str = '{"kind": "' + kind + '"}'
+
+        # Extract procedure body from second child
+        var body = ""
+        if len(node.children) > 1:
+            var body_node = node.children[1].copy()
+            body = body_node.value  # Get the raw body text
+
+        if body == "":
+            return PLValue("error", "Procedure body is required")
+
+        # Store the procedure
+        var success = self.procedure_storage.store_procedure(procedure_name, kind, metadata_str, body)
+        if success:
+            return PLValue("string", "Procedure '" + procedure_name + "' created successfully with type checking")
+        else:
+            return PLValue("error", "Failed to create procedure '" + procedure_name + "'")
+
+    fn eval_upsert_trigger_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate UPSERT_TRIGGER statement."""
+        # Extract trigger name
+        var trigger_name = node.get_attribute("name")
+        if trigger_name == "":
+            return PLValue("error", "Trigger name is required")
+
+        # Extract trigger attributes
+        var timing = node.get_attribute("timing")
+        var event = node.get_attribute("event")
+        var target = node.get_attribute("target")
+        var procedure = node.get_attribute("procedure")
+
+        if timing == "":
+            return PLValue("error", "Trigger timing is required (before/after)")
+        if event == "":
+            return PLValue("error", "Trigger event is required (insert/update/delete/upsert)")
+        if target == "":
+            return PLValue("error", "Trigger target is required")
+        if procedure == "":
+            return PLValue("error", "Trigger procedure is required")
+
+        # Store the trigger
+        var success = self.procedure_storage.store_trigger(trigger_name, timing, event, target, procedure)
+        if success:
+            return PLValue("string", "Trigger '" + trigger_name + "' created successfully")
+        else:
+            return PLValue("error", "Failed to create trigger '" + trigger_name + "'")
+
+    fn eval_upsert_schedule_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate UPSERT_SCHEDULE statement."""
+        # Extract schedule name
+        var schedule_name = node.get_attribute("name")
+        if schedule_name == "":
+            return PLValue("error", "Schedule name is required")
+
+        # Extract schedule attributes
+        var sched = node.get_attribute("sched")
+        var exe = node.get_attribute("exe")
+        var call = node.get_attribute("call")
+
+        if sched == "":
+            return PLValue("error", "Schedule cron expression is required")
+        if exe == "":
+            return PLValue("error", "Schedule execution type is required (pipeline/procedure)")
+        if call == "":
+            return PLValue("error", "Schedule call reference is required")
+
+        # Store the schedule
+        var success = self.procedure_storage.store_schedule(schedule_name, sched, exe, call)
+        if success:
+            return PLValue("string", "Schedule '" + schedule_name + "' created successfully")
+        else:
+            return PLValue("error", "Failed to create schedule '" + schedule_name + "'")
+
+    fn eval_enable_trigger_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate ENABLE TRIGGER statement."""
+        # Extract trigger name
+        var trigger_name = node.get_attribute("name")
+        if trigger_name == "":
+            return PLValue("error", "Trigger name is required")
+
+        # Check if trigger exists
+        if not self.procedure_storage.trigger_exists(trigger_name):
+            return PLValue("error", "Trigger '" + trigger_name + "' does not exist")
+
+        # Enable the trigger
+        var success = self.procedure_storage.enable_trigger(trigger_name)
+        if success:
+            return PLValue("string", "Trigger '" + trigger_name + "' enabled successfully")
+        else:
+            return PLValue("error", "Failed to enable trigger '" + trigger_name + "'")
+
+    fn eval_disable_trigger_node(mut self, node: ASTNode, mut env: Environment, mut orc_storage: ORCStorage) raises -> PLValue:
+        """Evaluate DISABLE TRIGGER statement."""
+        # Extract trigger name
+        var trigger_name = node.get_attribute("name")
+        if trigger_name == "":
+            return PLValue("error", "Trigger name is required")
+
+        # Check if trigger exists
+        if not self.procedure_storage.trigger_exists(trigger_name):
+            return PLValue("error", "Trigger '" + trigger_name + "' does not exist")
+
+        # Disable the trigger
+        var success = self.procedure_storage.disable_trigger(trigger_name)
+        if success:
+            return PLValue("string", "Trigger '" + trigger_name + "' disabled successfully")
+        else:
+            return PLValue("error", "Failed to disable trigger '" + trigger_name + "'")

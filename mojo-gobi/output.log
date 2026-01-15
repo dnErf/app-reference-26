@@ -1,0 +1,294 @@
+<unknown>:0:0: warning: unreachable code after infinite loop
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:31:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/query_optimizer.mojo:374:20: warning: 'except' logic is unreachable, try doesn't raise an exception
+            return 1000  # Default estimate
+                   ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:31:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/query_optimizer.mojo:679:20: warning: 'except' logic is unreachable, try doesn't raise an exception
+            return 1.0  # Default if estimation fails
+                   ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:31:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/query_optimizer.mojo:778:20: warning: 'except' logic is unreachable, try doesn't raise an exception
+            return False
+                   ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:32:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/lakehouse_engine.mojo:15:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/schema_evolution_manager.mojo:281:13: warning: try body doesn't raise an exception
+            try:
+            ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1050:73: warning: 'except' logic is unreachable, try doesn't raise an exception
+            return PLValue("error", "Failed to create table: " + String(e))
+                                                                        ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1069:74: warning: 'except' logic is unreachable, try doesn't raise an exception
+            return PLValue("error", "Failed to create secret: " + String(e))
+                                                                         ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1199:71: warning: 'except' logic is unreachable, try doesn't raise an exception
+            return PLValue("error", "Failed to insert row: " + String(e))
+                                                                      ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1282:72: warning: 'except' logic is unreachable, try doesn't raise an exception
+            return PLValue("error", "Failed to delete rows: " + String(e))
+                                                                       ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1304:73: warning: 'except' logic is unreachable, try doesn't raise an exception
+            return PLValue("error", "Failed to create index: " + String(e))
+                                                                        ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:2707:17: warning: 'except' logic is unreachable, try doesn't raise an exception
+                if len(table_data) > 0 and len(table_data[0]) > 0:
+                ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:23:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/jit_compiler.mojo:450:20: warning: 'except' logic is unreachable, try doesn't raise an exception
+            return False
+                   ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:815:33: warning: assignment to 'sql' was never used; assign to '_' instead?
+                var sql = String(parts[1])
+                                ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:814:40: warning: assignment to 'model_name' was never used; assign to '_' instead?
+                var model_name = String(parts[0])
+                                       ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:806:29: warning: assignment to 'sql' was never used; assign to '_' instead?
+            var sql = String(cmd[13:].strip())
+                            ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:794:34: warning: assignment to 'env_name' was never used; assign to '_' instead?
+            var env_name = String(cmd[13:].strip())
+                                 ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:767:35: warning: assignment to 'value' was never used; assign to '_' instead?
+                var value = String(" ".join(parts[2:]))  # Join remaining parts for value
+                                  ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:711:67: warning: assignment to 'env_type' was never used; assign to '_' instead?
+                var env_type = "dev" if len(parts) < 3 else String(parts[2])
+                                                                  ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:711:67: warning: assignment to 'env_type' was never used; assign to '_' instead?
+                var env_type = "dev" if len(parts) < 3 else String(parts[2])
+                                                                  ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:710:62: warning: assignment to 'parent' was never used; assign to '_' instead?
+                var parent = "" if len(parts) < 2 else String(parts[1])
+                                                             ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:710:62: warning: assignment to 'parent' was never used; assign to '_' instead?
+                var parent = "" if len(parts) < 2 else String(parts[1])
+                                                             ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:696:48: warning: assignment to 'dependencies' was never used; assign to '_' instead?
+                var dependencies = List[String]()
+                                               ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:695:33: warning: assignment to 'sql' was never used; assign to '_' instead?
+                var sql = String(parts[1])
+                                ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:1051:21: warning: assignment to 'arg_start' was never used; assign to '_' instead?
+    var arg_start = 2
+                    ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:1053:22: warning: assignment to 'subcommand' was never used; assign to '_' instead?
+    var subcommand = ""
+                     ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:1064:25: warning: assignment to 'arg_start' was never used; assign to '_' instead?
+            arg_start = 3
+                        ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:1255:42: warning: assignment to 'test_data' was never used; assign to '_' instead?
+        var test_data = storage.read_blob("test")
+                                         ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:1263:41: warning: assignment to 'index_storage' was never used; assign to '_' instead?
+        var index_storage = IndexStorage(storage)
+                                        ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:1679:34: warning: assignment to 'addr' was never used; assign to '_' instead?
+            var addr = connection[1]
+                                 ^
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:1649:33: warning: assignment to 'daemon' was never used; assign to '_' instead?
+    var daemon = LakehouseDaemon(folder_path)
+                                ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:23:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/index_storage.mojo:120:31: warning: assignment to 'i' was never used; assign to '_' instead?
+                for i in range(len(bitmap), row_id + 1):
+                              ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:23:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/index_storage.mojo:113:31: warning: assignment to 'i' was never used; assign to '_' instead?
+                for i in range(self.max_row_id):
+                              ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:25:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/gobi_file_format.mojo:277:27: warning: assignment to 'i' was never used; assign to '_' instead?
+            for i in range(num_entries):
+                          ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:27:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_parser.mojo:386:67: warning: assignment to 'result_type' was never used; assign to '_' instead?
+            var result_type = self.resolve_binary_op_type_enhanced(left_type, right_type, node.value)
+                                                                  ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:27:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_parser.mojo:894:42: warning: assignment to 'col' was never used; assign to '_' instead?
+            var col: Optional[ASTNode] = None
+                                         ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:2762:13: warning: ref 'child' was never used, remove it?
+        for child in node.children:
+            ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:2790:27: warning: assignment to 'i' was never used; assign to '_' instead?
+            for i in range(len(node.children)):
+                          ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:31:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/query_optimizer.mojo:383:70: warning: assignment to 'optimization_time' was never used; assign to '_' instead?
+            var optimization_time = Float64(self.python_time.time()) - start_time
+                                                                     ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:31:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/query_optimizer.mojo:439:66: warning: assignment to 'optimization_time' was never used; assign to '_' instead?
+        var optimization_time = Float64(self.python_time.time()) - start_time
+                                                                 ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:31:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/query_optimizer.mojo:550:29: warning: assignment to 'best_cost' was never used; assign to '_' instead?
+                best_cost = parallel_cost
+                            ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:31:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/query_optimizer.mojo:556:29: warning: assignment to 'base_cost' was never used; assign to '_' instead?
+        var base_cost = plan.cost
+                            ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:31:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/query_optimizer.mojo:753:30: warning: assignment to 'optimal_degree' was never used; assign to '_' instead?
+        var optimal_degree = 1
+                             ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:32:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/lakehouse_engine.mojo:15:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/schema_evolution_manager.mojo:283:41: warning: assignment to 'version_key' was never used; assign to '_' instead?
+                var version_key = String(version)
+                                        ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:214:37: warning: assignment to 'expected_type' was never used; assign to '_' instead?
+            var expected_type = node.inferred_type
+                                    ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:607:68: warning: assignment to 'array_aggregation_node' was never used; assign to '_' instead?
+                                array_aggregation_node = child.copy()
+                                                                   ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:605:57: warning: assignment to 'has_array_aggregation' was never used; assign to '_' instead?
+                                has_array_aggregation = True
+                                                        ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:362:42: warning: assignment to 'group_clause' was never used; assign to '_' instead?
+                group_clause = child.copy()
+                                         ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:350:47: warning: assignment to 'group_clause' was never used; assign to '_' instead?
+        var group_clause: Optional[ASTNode] = None
+                                              ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:595:41: warning: assignment to 'has_array_aggregation' was never used; assign to '_' instead?
+            var has_array_aggregation = False
+                                        ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:596:61: warning: assignment to 'array_aggregation_node' was never used; assign to '_' instead?
+            var array_aggregation_node: Optional[ASTNode] = None
+                                                            ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:633:53: warning: assignment to 'selected_columns' was never used; assign to '_' instead?
+                selected_columns = column_names.copy()
+                                                    ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:694:47: warning: assignment to 'array_aggregation_result' was never used; assign to '_' instead?
+        var array_aggregation_result = PLValue("array", "[]")
+                                              ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1049:16: warning: variable 'e' was never used, remove it?
+        except e:
+               ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1058:46: warning: assignment to 'secret_value' was never used; assign to '_' instead?
+        var secret_value = node.get_attribute("value")
+                                             ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1059:45: warning: assignment to 'description' was never used; assign to '_' instead?
+        var description = node.get_attribute("description")  # Optional
+                                            ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1068:16: warning: variable 'e' was never used, remove it?
+        except e:
+               ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1074:45: warning: assignment to 'source_type' was never used; assign to '_' instead?
+        var source_type = node.get_attribute("source_type")
+                                            ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1076:50: warning: assignment to 'destination_type' was never used; assign to '_' instead?
+        var destination_type = node.get_attribute("destination_type")
+                                                 ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1198:16: warning: variable 'e' was never used, remove it?
+        except e:
+               ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1208:49: warning: assignment to 'where_clause' was never used; assign to '_' instead?
+        var where_clause = node.children[2].copy()
+                                                ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1262:49: warning: assignment to 'where_clause' was never used; assign to '_' instead?
+        var where_clause = node.children[1].copy()
+                                                ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1281:16: warning: variable 'e' was never used, remove it?
+        except e:
+               ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:1303:16: warning: variable 'e' was never used, remove it?
+        except e:
+               ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:2019:39: warning: assignment to 'result' was never used; assign to '_' instead?
+            var result = self.evaluate(ast, env, orc_storage)
+                                      ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:2690:51: warning: assignment to 'table_alias' was never used; assign to '_' instead?
+        var table_alias = table_node.get_attribute("alias")
+                                                  ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:18:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/ast_evaluator.mojo:15:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/extensions/httpfs.mojo:66:50: warning: assignment to 'json_data' was never used; assign to '_' instead?
+                var json_data = json_module.loads(response_text)
+                                                 ^
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/main.mojo:28:
+Included from /home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo:23:
+/home/lnx/Dev/app-reference-26/mojo-gobi/src/jit_compiler.mojo:299:35: warning: assignment to 'original_indent' was never used; assign to '_' instead?
+        var original_indent = self.indent_level
+                                  ^
+Godi - Embedded Lakehouse Database
+==================================================
+Starting daemon main loop for folder: /tmp/test-daemon
+Imported modules successfully
+Created daemon instance
+Socket path: .gobi/daemon.sock
+Removing existing socket file
+Creating server socket...
+Socket created, binding to path...
+Socket bound successfully
+Socket listening on port 5
+Daemon started with PID: 95537
+Listening on socket: .gobi/daemon.sock

@@ -58,13 +58,50 @@ Expand integration capabilities:
 - Cloud storage integrations
 - Third-party tool integrations
 
-### **Option E: Advanced Analytics** (3-4 weeks)
-Add advanced analytical capabilities:
-- Machine learning integration
-- Advanced statistical functions
-- Time series analysis
-- Geospatial operations
-- Graph processing capabilities
+### **Option F: Database Automation & Services** (4-6 weeks)
+Transform PL-GRIZZLY into a full database server with automation capabilities, inspired by SQLMesh architecture:
+
+- **🔄 Global Lakehouse Daemon**
+  - `gobi mount <folder>` starts daemon with specific folder as global instance
+  - `gobi daemon status/stop` commands for lifecycle management
+  - Persistent lakehouse instance across sessions
+  - Apache Arrow IPC for efficient communication
+
+- **📝 SQLMesh-Inspired Stored Procedures**
+  - `upsert procedure` syntax with model-like declarations
+  - Kind and schedule properties for transformation staging
+  - Parameter inference and type safety
+  - Async/sync execution modes
+
+- **⚡ Triggers & Event-Driven Execution**
+  - `upsert TRIGGER` with timing, event, target, exe parameters
+  - BEFORE/AFTER execution on INSERT/UPDATE/DELETE/UPSERT
+  - Pipeline and procedure execution support
+  - Simplified but powerful trigger system
+
+- **⏰ Cron Scheduler & Automation**
+  - `upsert SCHEDULE` with cron expressions
+  - Execute pipelines, procedures, or functions
+  - Job queue management and monitoring
+  - Integration with SQLMesh scheduling
+
+- **� Pipeline Orchestration** (RESERVED)
+  - `upsert Pipeline as pipeline_name ( ... )` grouping mechanism
+  - Automatic membership for referenced procedures/schedules
+  - Isolated configurations and resources for pipeline components
+  - Future: Resource management, execution environments, dependency handling
+
+- **�🖥️ Text-Based User Interface**
+  - DuckDB-style TUI using Textual library
+  - Visual management of procedures, triggers, schedules
+  - Real-time monitoring and debugging
+  - Alternative to CLI for complex operations
+
+- **🔗 Direct Global Access**
+  - Mounted folder becomes the global lakehouse instance
+  - No separate ATTACH command needed
+  - Direct access to mounted lakehouse from any session
+  - Shared state and automation across all connections
 
 ## 📋 **Implementation Guidelines**
 

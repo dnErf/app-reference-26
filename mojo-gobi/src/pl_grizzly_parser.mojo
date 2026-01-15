@@ -5,7 +5,7 @@ Optimized recursive descent parser with memoization and efficient AST representa
 """
 
 from collections import List, Dict
-from pl_grizzly_lexer import Token, PLGrizzlyLexer, SELECT, FROM, WHERE, CREATE, DROP, INDEX, MATERIALIZED, VIEW, REFRESH, LOAD, UPDATE, DELETE, LOGIN, LOGOUT, BEGIN, COMMIT, ROLLBACK, MACRO, JOIN, LEFT, RIGHT, FULL, INNER, ANTI, ON, ATTACH, DETACH, EXECUTE, ALL, ARRAY, ATTACHED, DATABASES, AS, CACHE, CLEAR, DISTINCT, GROUP, ORDER, BY, SUM, COUNT, AVG, MIN, MAX, FUNCTION, TYPE, STRUCT, STRUCTS, TYPEOF, EXCEPTION, MODULE, DOUBLE_COLON, RETURNS, IF, ELSE, MATCH, WHILE, THEN, CASE, IN, TRY, CATCH, LET, TRUE, FALSE, BREAK, CONTINUE, INSTALL, WITH, HTTPS, EXTENSIONS, STREAM, COPY, TO, EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUAL, LESS_EQUAL, AND, OR, NOT, BANG, COALESCE, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, PIPE, ARROW, DOT, LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, LANGLE, RANGLE, COMMA, SEMICOLON, COLON, INSERT, INTO, VALUES, SET, SHOW, SECRET, SECRETS, DROP_SECRET, IDENTIFIER, STRING, NUMBER, VARIABLE, UNDERSCORE, EOF, UNKNOWN
+from pl_grizzly_lexer import Token, PLGrizzlyLexer, SELECT, FROM, WHERE, CREATE, DROP, INDEX, MATERIALIZED, VIEW, REFRESH, LOAD, UPDATE, UPSERT, DELETE, LOGIN, LOGOUT, BEGIN, COMMIT, ROLLBACK, MACRO, JOIN, LEFT, RIGHT, FULL, INNER, ANTI, ON, ATTACH, DETACH, EXECUTE, ALL, ARRAY, ATTACHED, DATABASES, AS, CACHE, CLEAR, DISTINCT, GROUP, ORDER, BY, SUM, COUNT, AVG, MIN, MAX, FUNCTION, TYPE, STRUCT, STRUCTS, TYPEOF, EXCEPTION, MODULE, DOUBLE_COLON, RETURNS, IF, ELSE, MATCH, WHILE, THEN, CASE, IN, TRY, CATCH, LET, TRUE, FALSE, BREAK, CONTINUE, INSTALL, WITH, HTTPS, EXTENSIONS, STREAM, COPY, TO, EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUAL, LESS_EQUAL, AND, OR, NOT, BANG, COALESCE, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, PIPE, PROCEDURE, TRIGGER, SCHEDULE, CALL, ASYNC, SYNC, ENABLE_TOKEN, DISABLE_TOKEN, ARROW, DOT, LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, LANGLE, RANGLE, COMMA, SEMICOLON, COLON, INSERT, INTO, VALUES, SET, SHOW, SECRET, SECRETS, DROP_SECRET, IDENTIFIER, STRING, NUMBER, VARIABLE, UNDERSCORE, EOF, UNKNOWN
 from pl_grizzly_errors import PLGrizzlyError
 
 # Optimized AST Node types using enum-like constants
@@ -42,6 +42,13 @@ alias AST_RIGHT_JOIN = "RIGHT_JOIN"
 alias AST_FULL_JOIN = "FULL_JOIN"
 alias AST_INNER_JOIN = "INNER_JOIN"
 alias AST_ANTI_JOIN = "ANTI_JOIN"
+alias AST_PROCEDURE = "PROCEDURE"
+alias AST_UPSERT_PROCEDURE = "UPSERT_PROCEDURE"
+alias AST_TRIGGER = "TRIGGER"
+alias AST_UPSERT_TRIGGER = "UPSERT_TRIGGER"
+alias AST_UPSERT_SCHEDULE = "UPSERT_SCHEDULE"
+alias AST_ENABLE_TRIGGER = "ENABLE_TRIGGER"
+alias AST_DISABLE_TRIGGER = "DISABLE_TRIGGER"
 alias AST_LINQ_QUERY = "LINQ_QUERY"
 
 # Efficient AST Node using Dict for flexible representation
@@ -398,6 +405,100 @@ struct TypeChecker:
         for i in range(len(node.children)):
             self.perform_semantic_analysis(node.children[i], symbol_table)
 
+    fn try_to_infer_type(self, node: ASTNode, symbol_table: SymbolTable) -> String:
+        """Try to infer the type of an expression, returning 'unknown' if inference fails."""
+        try:
+            return self.infer_type(node, symbol_table)
+        except:
+            return "unknown"
+
+    fn validate_procedure_parameters(self, procedure_node: ASTNode, symbol_table: SymbolTable) raises:
+        """Validate procedure parameters with enhanced type checking."""
+        var parameters = procedure_node.get_attribute("parameters")
+        if parameters != "":
+            # Parse parameter list and validate each parameter
+            var param_list = parameters.split(",")
+            for i in range(len(param_list)):
+                var param = param_list[i]
+                var param_parts = param.strip().split(":")
+                if len(param_parts) == 2:
+                    var param_name = param_parts[0].strip()
+                    var param_type = param_parts[1].strip()
+                    
+                    # Check if type is explicitly declared
+                    if param_type == "auto":
+                        # Try to infer type from usage in procedure body
+                        var inferred_type = self.try_to_infer_type_from_procedure_body(procedure_node, String(param_name), symbol_table)
+                        if inferred_type != "unknown":
+                            print("Inferred parameter type for", param_name, ":", inferred_type)
+                        else:
+                            raise Error("Cannot infer type for parameter '" + String(param_name) + "' - please specify explicit type")
+                    else:
+                        # Validate explicit type declaration
+                        if not self.is_valid_type(String(param_type)):
+                            raise Error("Invalid parameter type '" + String(param_type) + "' for parameter '" + String(param_name) + "'")
+
+    fn try_to_infer_type_from_procedure_body(self, procedure_node: ASTNode, param_name: String, symbol_table: SymbolTable) -> String:
+        """Try to infer parameter type from its usage in the procedure body."""
+        # Look through the procedure body for usage of the parameter
+        for i in range(len(procedure_node.children)):
+            var child = procedure_node.children[i].copy()
+            if child.node_type == "BLOCK" or child.node_type == "BODY":
+                var inferred = self.infer_type_from_block(child, param_name, symbol_table)
+                if inferred != "unknown":
+                    return inferred
+        return "unknown"
+
+    fn infer_type_from_block(self, block_node: ASTNode, param_name: String, symbol_table: SymbolTable) -> String:
+        """Infer parameter type from expressions in a block."""
+        for i in range(len(block_node.children)):
+            var child = block_node.children[i].copy()
+            if child.node_type == AST_IDENTIFIER and child.value == param_name:
+                # Found usage - try to infer from context
+                # This is a simplified version; in practice, we'd need more context
+                return "unknown"  # Placeholder for more sophisticated inference
+            elif child.node_type == AST_BINARY_OP:
+                # Check if parameter is used in binary operation
+                var left_type = self.try_to_infer_type(child.children[0].copy(), symbol_table)
+                var right_type = self.try_to_infer_type(child.children[1].copy(), symbol_table)
+                if left_type == param_name or right_type == param_name:
+                    # Parameter is used in operation - infer from other operand
+                    var other_type = left_type if right_type == param_name else right_type
+                    if other_type != "unknown":
+                        return other_type
+        return "unknown"
+
+    fn validate_procedure_return_type(self, procedure_node: ASTNode, symbol_table: SymbolTable) raises:
+        """Validate procedure return type."""
+        var return_type = procedure_node.get_attribute("return_type")
+        if return_type != "" and return_type != "void":
+            if not self.is_valid_type(return_type):
+                raise Error("Invalid return type '" + return_type + "' for procedure")
+
+    fn is_valid_type(self, type_name: String) -> Bool:
+        """Check if a type name is valid."""
+        var valid_types = List[String]("int", "float", "string", "bool", "array", "struct", "void", "unknown")
+        return type_name in valid_types
+
+    fn perform_procedure_type_checking(mut self, procedure_node: ASTNode, mut symbol_table: SymbolTable) raises:
+        """Perform comprehensive type checking for procedures."""
+        # Validate parameters
+        self.validate_procedure_parameters(procedure_node, symbol_table)
+        
+        # Validate return type
+        self.validate_procedure_return_type(procedure_node, symbol_table)
+        
+        # Check body for type consistency
+        self.check_procedure_body_types(procedure_node, symbol_table)
+
+    fn check_procedure_body_types(mut self, procedure_node: ASTNode, mut symbol_table: SymbolTable) raises:
+        """Check types in procedure body for consistency."""
+        for i in range(len(procedure_node.children)):
+            var child = procedure_node.children[i].copy()
+            if child.node_type == "BLOCK" or child.node_type == "BODY":
+                self.perform_semantic_analysis(child, symbol_table)
+
+
 # Memoization cache for parser expressions - simplified for non-copyable ASTNode
 struct ParserCache:
     var memo: Dict[String, Bool]  # Just track if we've seen this key
@@ -533,6 +634,40 @@ struct PLGrizzlyParser:
             result = self.select_from_statement(False)  # No STREAM
         elif self.match(CREATE):
             result = self.create_statement()
+        elif self.match(ENABLE_TOKEN):
+            if self.match(TRIGGER):
+                result = self.enable_trigger_statement()
+            else:
+                var error = PLGrizzlyError.syntax_error(
+                    "Expected TRIGGER after ENABLE",
+                    self.previous().line, self.previous().column, ""
+                )
+                error.add_suggestion("Use 'ENABLE TRIGGER trigger_name'")
+                return ASTNode("ERROR", "Invalid ENABLE syntax")
+        elif self.match(DISABLE_TOKEN):
+            if self.match(TRIGGER):
+                result = self.disable_trigger_statement()
+            else:
+                var error = PLGrizzlyError.syntax_error(
+                    "Expected TRIGGER after DISABLE",
+                    self.previous().line, self.previous().column, ""
+                )
+                error.add_suggestion("Use 'DISABLE TRIGGER trigger_name'")
+                return ASTNode("ERROR", "Invalid DISABLE syntax")
+        elif self.match(UPSERT):
+            if self.match(PROCEDURE):
+                result = self.upsert_procedure_statement()
+            elif self.match(TRIGGER):
+                result = self.upsert_trigger_statement()
+            elif self.match(SCHEDULE):
+                result = self.upsert_schedule_statement()
+            else:
+                var error = PLGrizzlyError.syntax_error(
+                    "Expected PROCEDURE, TRIGGER, or SCHEDULE after UPSERT",
+                    self.previous().line, self.previous().column, ""
+                )
+                error.add_suggestion("Use 'UPSERT PROCEDURE ...', 'UPSERT TRIGGER ...', or 'UPSERT SCHEDULE ...'")
+                return ASTNode("ERROR", "Invalid UPSERT syntax")
         elif self.match(COPY):
             result = self.copy_statement()
         elif self.match(DROP):
@@ -1339,33 +1474,285 @@ struct PLGrizzlyParser:
         return col_node^
 
     fn function_statement(mut self) raises -> ASTNode:
-        """Parse function definition."""
+        """Parse function definition with extended syntax support."""
         var node = ASTNode(AST_FUNCTION, "", self.previous().line, self.previous().column)
+
+        # Check for receiver syntax: <ReceiverType>
+        var receiver_type: String = ""
+        if self.match(LANGLE):
+            receiver_type = self.consume(IDENTIFIER, "Expected receiver type").value
+            _ = self.consume(RANGLE, "Expected '>' after receiver type")
+            node.set_attribute("receiver_type", receiver_type)
 
         var func_name = self.consume(IDENTIFIER, "Expected function name").value
         node.set_attribute("name", func_name)
 
         _ = self.consume(LPAREN, "Expected '(' after function name")
 
-        # Parse parameters
+        # Parse parameters with optional type annotations
         if not self.check(RPAREN):
             while True:
                 var param_name = self.consume(IDENTIFIER, "Expected parameter name").value
                 var param_node = ASTNode("PARAMETER", param_name, self.previous().line, self.previous().column)
+
+                # Optional type annotation
+                if self.match(COLON):
+                    var param_type = self.consume(IDENTIFIER, "Expected parameter type").value
+                    param_node.set_attribute("type", param_type)
+
                 node.add_child(param_node)
                 if not self.match(COMMA):
                     break
 
         _ = self.consume(RPAREN, "Expected ')' after parameters")
-        _ = self.consume(RETURNS, "Expected RETURNS")
-        var return_type = self.consume(IDENTIFIER, "Expected return type").value
-        node.set_attribute("return_type", return_type)
+
+        # Optional raises clause
+        if self.check(IDENTIFIER) and self.peek().value == "raises":
+            _ = self.consume(IDENTIFIER, "Expected 'raises'")  # This will consume "raises"
+            var exception_type = self.consume(IDENTIFIER, "Expected exception type").value
+            node.set_attribute("raises", exception_type)
+
+        # Optional execution mode: as async|sync
+        if self.match(AS):
+            if self.match(ASYNC):
+                node.set_attribute("execution_mode", "async")
+            elif self.match(SYNC):
+                node.set_attribute("execution_mode", "sync")
+            else:
+                self.error("Expected 'async' or 'sync' after 'as'")
+
+        # Optional returns clause
+        if self.match(RETURNS):
+            var return_type = self.consume(IDENTIFIER, "Expected return type").value
+            node.set_attribute("return_type", return_type)
 
         _ = self.consume(LBRACE, "Expected '{' before function body")
-        var body = self.expression()
+        var block_node = ASTNode("BLOCK", "", self.previous().line, self.previous().column)
+        while not self.check(RBRACE) and not self.is_at_end():
+            var stmt = self.statement()
+            block_node.add_child(stmt)
         _ = self.consume(RBRACE, "Expected '}' after function body")
 
-        node.add_child(body)
+        node.add_child(block_node)
+
+        return node^
+
+    fn upsert_procedure_statement(mut self) raises -> ASTNode:
+        """Parse UPSERT PROCEDURE statement."""
+        var node = ASTNode(AST_UPSERT_PROCEDURE, "", self.previous().line, self.previous().column)
+
+        # Check for receiver syntax: <ReceiverType>
+        var receiver_type: String = ""
+        if self.match(LANGLE) and not self.check(LBRACE):  # Make sure it's not the metadata block
+            receiver_type = self.consume(IDENTIFIER, "Expected receiver type").value
+            _ = self.consume(RANGLE, "Expected '>' after receiver type")
+            node.set_attribute("receiver_type", receiver_type)
+            # After receiver, expect 'as'
+            _ = self.consume(AS, "Expected AS after receiver type")
+        else:
+            # Expect 'as'
+            _ = self.consume(AS, "Expected AS after PROCEDURE")
+
+        # Parse procedure name
+        var proc_name = self.consume(IDENTIFIER, "Expected procedure name").value
+        node.set_attribute("name", proc_name)
+
+        # Parse metadata block <{ ... }>
+        _ = self.consume(LANGLE, "Expected '<' before procedure metadata")
+        _ = self.consume(LBRACE, "Expected '{' after '<'")
+
+        # Parse metadata key-value pairs
+        var metadata = ASTNode("METADATA", "")
+        while not self.check(RBRACE):
+            var key = self.consume(IDENTIFIER, "Expected metadata key").value
+            _ = self.consume(COLON, "Expected ':' after metadata key")
+            var value = self.consume(STRING, "Expected string value for metadata").value
+            metadata.set_attribute(key, value)
+
+            # Allow comma-separated metadata
+            if not self.match(COMMA):
+                break
+
+        _ = self.consume(RBRACE, "Expected '}' after metadata")
+        _ = self.consume(RANGLE, "Expected '>' after metadata block")
+
+        node.add_child(metadata)
+
+        # Parse parameters ()
+        _ = self.consume(LPAREN, "Expected '(' after procedure metadata")
+
+        # Parse parameters (optional) and collect them as a string
+        var param_list = List[String]()
+        if not self.check(RPAREN):
+            while True:
+                var param_name = self.consume(IDENTIFIER, "Expected parameter name").value
+                var param_type = "auto"  # Default to auto-inference
+
+                # Optional type annotation
+                if self.match(COLON):
+                    param_type = self.consume(IDENTIFIER, "Expected parameter type").value
+
+                param_list.append(param_name + ":" + param_type)
+                if not self.match(COMMA):
+                    break
+
+        _ = self.consume(RPAREN, "Expected ')' after parameters")
+
+        # Set parameters as a comma-separated string attribute
+        if len(param_list) > 0:
+            var param_str = ""
+            for i in range(len(param_list)):
+                if i > 0:
+                    param_str += ","
+                param_str += param_list[i]
+            node.set_attribute("parameters", param_str)
+
+        # Optional raises clause
+        if self.check(IDENTIFIER) and self.peek().value == "raises":
+            _ = self.consume(IDENTIFIER, "Expected 'raises'")  # This will consume "raises"
+            var exception_type = self.consume(IDENTIFIER, "Expected exception type").value
+            node.set_attribute("raises", exception_type)
+
+        # Optional execution mode: as async|sync
+        if self.match(AS):
+            if self.match(ASYNC):
+                node.set_attribute("execution_mode", "async")
+            elif self.match(SYNC):
+                node.set_attribute("execution_mode", "sync")
+            else:
+                self.error("Expected 'async' or 'sync' after 'as'")
+
+        # Optional returns clause
+        if self.match(RETURNS):
+            var return_type = self.consume(IDENTIFIER, "Expected return type").value
+            node.set_attribute("return_type", return_type)
+
+        # Parse procedure body
+        _ = self.consume(LBRACE, "Expected '{' before procedure body")
+        var block_node = ASTNode("BLOCK", "", self.previous().line, self.previous().column)
+        while not self.check(RBRACE) and not self.is_at_end():
+            var stmt = self.statement()
+            block_node.add_child(stmt)
+        _ = self.consume(RBRACE, "Expected '}' after procedure body")
+
+        node.add_child(block_node)
+
+        return node^
+
+    fn upsert_trigger_statement(mut self) raises -> ASTNode:
+        """Parse UPSERT TRIGGER statement."""
+        var node = ASTNode(AST_UPSERT_TRIGGER, "", self.previous().line, self.previous().column)
+
+        # Expect 'as'
+        _ = self.consume(AS, "Expected AS after TRIGGER")
+
+        # Parse trigger name
+        var trigger_name = self.consume(IDENTIFIER, "Expected trigger name").value
+        node.set_attribute("name", trigger_name)
+
+        # Parse parameters ()
+        _ = self.consume(LPAREN, "Expected '(' after trigger name")
+
+        # Parse trigger parameters: timing, event, target
+        while not self.check(RPAREN):
+            if self.match(IDENTIFIER):
+                var param_name = self.previous().value
+                if param_name == "timing":
+                    _ = self.consume(COLON, "Expected ':' after timing")
+                    if self.match(IDENTIFIER):
+                        var timing = self.previous().value
+                        if timing == "before" or timing == "after":
+                            node.set_attribute("timing", timing)
+                        else:
+                            self.error("Expected 'before' or 'after' for timing")
+                elif param_name == "event":
+                    _ = self.consume(COLON, "Expected ':' after event")
+                    if self.match(IDENTIFIER):
+                        var event = self.previous().value
+                        if event == "insert" or event == "update" or event == "delete" or event == "upsert":
+                            node.set_attribute("event", event)
+                        else:
+                            self.error("Expected 'insert', 'update', 'delete', or 'upsert' for event")
+                elif param_name == "target":
+                    _ = self.consume(COLON, "Expected ':' after target")
+                    var target = self.consume(STRING, "Expected target collection name").value
+                    node.set_attribute("target", target)
+                else:
+                    self.error("Unknown trigger parameter: " + param_name)
+
+            if not self.match(COMMA):
+                break
+
+        _ = self.consume(RPAREN, "Expected ')' after trigger parameters")
+
+        # Parse CALL procedure_name
+        _ = self.consume(CALL, "Expected CALL after trigger parameters")
+        var procedure_name = self.consume(IDENTIFIER, "Expected procedure name after CALL").value
+        node.set_attribute("procedure", procedure_name)
+
+        return node^
+
+    fn upsert_schedule_statement(mut self) raises -> ASTNode:
+        """Parse UPSERT SCHEDULE statement."""
+        var node = ASTNode(AST_UPSERT_SCHEDULE, "", self.previous().line, self.previous().column)
+
+        # Expect 'as'
+        _ = self.consume(AS, "Expected AS after SCHEDULE")
+
+        # Parse schedule name
+        var schedule_name = self.consume(IDENTIFIER, "Expected schedule name").value
+        node.set_attribute("name", schedule_name)
+
+        # Parse parameters ()
+        _ = self.consume(LPAREN, "Expected '(' after schedule name")
+
+        # Parse schedule parameters: sched, exe, call
+        while not self.check(RPAREN):
+            if self.match(IDENTIFIER):
+                var param_name = self.previous().value
+                if param_name == "sched":
+                    _ = self.consume(COLON, "Expected ':' after sched")
+                    var cron_expr = self.consume(STRING, "Expected cron expression").value
+                    node.set_attribute("sched", cron_expr)
+                elif param_name == "exe":
+                    _ = self.consume(COLON, "Expected ':' after exe")
+                    if self.match(IDENTIFIER):
+                        var exe_type = self.previous().value
+                        if exe_type == "pipeline" or exe_type == "procedure":
+                            node.set_attribute("exe", exe_type)
+                        else:
+                            self.error("Expected 'pipeline' or 'procedure' for exe")
+                elif param_name == "call":
+                    _ = self.consume(COLON, "Expected ':' after call")
+                    var call_ref = self.consume(IDENTIFIER, "Expected function/procedure reference").value
+                    node.set_attribute("call", call_ref)
+                else:
+                    self.error("Unknown schedule parameter: " + param_name)
+
+            if not self.match(COMMA):
+                break
+
+        _ = self.consume(RPAREN, "Expected ')' after schedule parameters")
+
+        return node^
+
+    fn enable_trigger_statement(mut self) raises -> ASTNode:
+        """Parse ENABLE TRIGGER statement."""
+        var node = ASTNode(AST_ENABLE_TRIGGER, "", self.previous().line, self.previous().column)
+
+        # Parse trigger name
+        var trigger_name = self.consume(IDENTIFIER, "Expected trigger name").value
+        node.set_attribute("name", trigger_name)
+
+        return node^
+
+    fn disable_trigger_statement(mut self) raises -> ASTNode:
+        """Parse DISABLE TRIGGER statement."""
+        var node = ASTNode(AST_DISABLE_TRIGGER, "", self.previous().line, self.previous().column)
+
+        # Parse trigger name
+        var trigger_name = self.consume(IDENTIFIER, "Expected trigger name").value
+        node.set_attribute("name", trigger_name)
 
         return node^
 

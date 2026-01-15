@@ -3,11 +3,12 @@ Merkle B+ Tree with SHA-256 and Universal Compaction
 ====================================================
 
 Enhanced Merkle B+ Tree using SHA-256 for cryptographic integrity
-and universal compaction strategy for optimization.
+and universal compaction strategy for optimization with thread-safety.
 """
 
 from collections import List
 from python import Python, PythonObject
+from thread_safe_memory import AtomicInt, SpinLock, ThreadSafeCounter
 
 # SHA-256 Hash function using Python interop
 struct SHA256Hash:
@@ -44,7 +45,7 @@ struct MerkleBPlusNode(Movable, Copyable):
         self.is_leaf = other.is_leaf
         self.merkle_hash = other.merkle_hash
 
-    fn compute_hash(mut self):
+    fn compute_hash(mut self) raises:
         """Compute SHA-256 Merkle hash for this node."""
         var hash_data = String("")
         hash_data += String(self.is_leaf) + "|"
@@ -91,11 +92,8 @@ struct UniversalCompactionStrategy(Movable, Copyable):
         self.min_threshold = existing.min_threshold
         self.max_threshold = existing.max_threshold
 
-    fn should_compact(self, tree: MerkleBPlusTree) -> Bool:
+    fn should_compact(self, total_nodes: Int, underutilized_nodes: Int) -> Bool:
         """Determine if tree needs universal compaction with adaptive thresholds."""
-        var total_nodes = tree.count_nodes()
-        var underutilized_nodes = tree.count_underutilized_nodes()
-
         if total_nodes == 0:
             return False
 
@@ -112,34 +110,43 @@ struct UniversalCompactionStrategy(Movable, Copyable):
                 # If we haven't compacted much, can be more aggressive
                 self.compaction_threshold = min(self.max_threshold, self.compaction_threshold + 0.05)
 
-    fn compact(mut self, tree: MerkleBPlusTree):
-        """Perform compaction on the given tree."""
-        tree.perform_compaction()
-
 # Merkle B+ Tree with SHA-256
 struct MerkleBPlusTree(Movable, Copyable):
     var keys: List[Int]
     var values: List[String]
     var merkle_hash: String
     var compaction_strategy: UniversalCompactionStrategy
+    var node_count: ThreadSafeCounter
+    var operation_count: ThreadSafeCounter
+    var tree_lock: SpinLock
 
     fn __init__(out self):
         self.keys = List[Int]()
         self.values = List[String]()
         self.merkle_hash = ""
         self.compaction_strategy = UniversalCompactionStrategy()
+        self.node_count = ThreadSafeCounter(1)  # Root node
+        self.operation_count = ThreadSafeCounter()
+        self.tree_lock = SpinLock()
 
     fn __copyinit__(out self, other: Self):
         self.keys = other.keys.copy()
         self.values = other.values.copy()
         self.merkle_hash = other.merkle_hash
         self.compaction_strategy = other.compaction_strategy.copy()
+        # Create new counters (can't copy values from other due to mut requirements)
+        self.node_count = ThreadSafeCounter(1)
+        self.operation_count = ThreadSafeCounter()
+        self.tree_lock = SpinLock()
 
     fn __moveinit__(out self, deinit existing: Self):
         self.keys = existing.keys^
         self.values = existing.values^
         self.merkle_hash = existing.merkle_hash^
         self.compaction_strategy = existing.compaction_strategy^
+        self.node_count = existing.node_count^
+        self.operation_count = existing.operation_count^
+        self.tree_lock = existing.tree_lock^
 
     fn compute_hash(mut self) raises:
         """Compute SHA-256 Merkle hash for the tree."""
@@ -193,12 +200,12 @@ struct MerkleBPlusTree(Movable, Copyable):
 
         return i + 1
 
-    fn get_performance_stats(self) -> String:
+    fn get_performance_stats(mut self) -> String:
         """Get performance statistics for the tree."""
         var stats = "Merkle B+ Tree Performance Stats:\n"
         stats += "  Total Keys: " + String(len(self.keys)) + "\n"
         stats += "  Memory Usage: ~" + String((len(self.keys) * 8 + len(self.values) * 16)) + " bytes\n"
-        stats += "  " + self.compaction_strategy.get_performance_metrics()
+        stats += "  Compaction reorganizations: " + String(self.compaction_strategy.reorganization_count) + "\n"
         return stats
 
     fn optimize_space_usage(mut self):
@@ -209,8 +216,13 @@ struct MerkleBPlusTree(Movable, Copyable):
 
     fn insert(mut self, key: Int, value: String) raises -> String:
         """Insert key-value pair with SHA-256 hash updates. Returns the computed hash."""
+        self.tree_lock.acquire()
+        _ = self.operation_count.increment()
+        
         # Check if universal compaction is needed
-        if self.compaction_strategy.should_compact(self):
+        var total_nodes = self.node_count.get()
+        var underutilized_nodes = self.count_underutilized_nodes()
+        if self.compaction_strategy.should_compact(total_nodes, underutilized_nodes):
             self.perform_compaction()
 
         # Find insertion point
@@ -223,17 +235,24 @@ struct MerkleBPlusTree(Movable, Copyable):
 
         # Update Merkle hash
         self.compute_hash()
+        self.tree_lock.release()
         return self.merkle_hash
 
-    fn search(self, key: Int) -> String:
+    fn search(mut self, key: Int) -> String:
         """Search for a key and return its value."""
+        self.tree_lock.acquire()
         for i in range(len(self.keys)):
             if self.keys[i] == key:
+                self.tree_lock.release()
                 return self.values[i]
+        self.tree_lock.release()
         return ""
 
     fn delete(mut self, key: Int) raises -> Bool:
         """Delete a key from the tree."""
+        self.tree_lock.acquire()
+        _ = self.operation_count.increment()
+        
         for i in range(len(self.keys)):
             if self.keys[i] == key:
                 _ = self.keys.pop(i)
@@ -241,18 +260,25 @@ struct MerkleBPlusTree(Movable, Copyable):
                 self.compute_hash()
 
                 # Check if universal compaction is needed
-                if self.compaction_strategy.should_compact(self):
-                    self.compaction_strategy.compact(self)
+                var total_nodes = self.node_count.get()
+                var underutilized_nodes = self.count_underutilized_nodes()
+                if self.compaction_strategy.should_compact(total_nodes, underutilized_nodes):
+                    # Perform compaction directly instead of using compact method
+                    self.perform_compaction()
 
+                self.tree_lock.release()
                 return True
+        self.tree_lock.release()
         return False
 
-    fn range_query(self, start_key: Int, end_key: Int) -> List[String]:
+    fn range_query(mut self, start_key: Int, end_key: Int) -> List[String]:
         """Perform range query."""
+        self.tree_lock.acquire()
         var results = List[String]()
         for i in range(len(self.keys)):
             if self.keys[i] >= start_key and self.keys[i] <= end_key:
                 results.append(self.values[i])
+        self.tree_lock.release()
         return results.copy()
 
     fn verify_integrity(mut self) raises -> Bool:
@@ -261,9 +287,9 @@ struct MerkleBPlusTree(Movable, Copyable):
         self.compute_hash()
         return self.merkle_hash == expected_hash
 
-    fn count_nodes(self) -> Int:
-        """Count total nodes (always 1 in this simplified version)."""
-        return 1
+    fn count_nodes(mut self) -> Int:
+        """Count total nodes."""
+        return self.node_count.get()
 
     fn count_underutilized_nodes(self) -> Int:
         """Count underutilized nodes."""
@@ -273,10 +299,12 @@ struct MerkleBPlusTree(Movable, Copyable):
         """Get the current root Merkle hash."""
         return self.merkle_hash
 
-    fn get_stats(mut self) -> String:
+    fn get_stats(mut self) raises -> String:
         """Get tree statistics."""
-        var stats = "Merkle B+ Tree Statistics (SHA-256):\n"
+        var stats = "Merkle B+ Tree Statistics (SHA-256, Thread-Safe):\n"
         stats += "  Keys stored: " + String(len(self.keys)) + "\n"
+        stats += "  Total nodes: " + String(self.node_count.get()) + "\n"
+        stats += "  Total operations: " + String(self.operation_count.get()) + "\n"
         stats += "  Integrity verified: " + String(self.verify_integrity()) + "\n"
         stats += "  Compaction reorganizations: " + String(self.compaction_strategy.reorganization_count) + "\n"
         stats += "  Merkle Root Hash: " + self.merkle_hash + "\n"

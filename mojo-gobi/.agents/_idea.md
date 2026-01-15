@@ -218,3 +218,81 @@ SELECT zip_code
 FROM addresses
 ORDER BY ASC 
 ```
+
+- global Lakehouse Daemon
+    - `gobi mount <folder>`
+
+- IPC Communication Layer
+    - https://arrow.apache.org/docs/python/ipc.html
+
+
+- function declaration
+```
+-- aync by default
+function name <ReceiverType> () 
+raises Exception
+returns void|type
+as async|sync
+{
+
+}
+
+-- `as` is optional
+function name <ReceiverType> () 
+raises Exception
+returns void|type
+{
+
+}
+```
+
+- Stored Procedures Engine
+```
+upsert procedure procedure_name as 
+-- procedure type
+<{
+    -- to to have a basic kind and applicable from https://sqlmesh.readthedocs.io/en/stable/concepts/models/overview/
+    kind: ''
+    sched: ['procedure_can_declare_schedule_using_its_name','and_also_refence_a_shedule']
+}> 
+(param1 TryToInferType, param2 type)
+raises SomeException 
+returns void|type
+{
+
+}
+```
+
+- Triggers System
+```sql
+-- fix behaviour `FOR EACH ROW`
+upsert TRIGGER as trigger_name (
+    timing: 'before|after',
+    event: 'insert|update|delete|upsert',
+    target: 'collections',
+    -- can only execute pipeline or procedure
+    exe: 'pipeline|procedure' 
+)
+```
+
+- Cron Scheduler
+```sql
+-- cron syntax
+upsert SCHEDULE as schedule_name (
+    -- can be pre-configured word or cron
+    sched: '0 0 * * *',
+    exe: 'pipeline|procedure',
+    call: 'function',
+)
+```
+
+- Pipeline
+```sql
+-- pipeline syntax
+-- all schedule or procedure mention the name are automatically belongs to the pipeline
+-- for now Pipeline will provide isolated configurations and resources
+upsert Pipeline as pipeline_name ( ... )
+```
+
+- text based user interface
+    - simillar to https://duckdb.org/2025/03/12/duckdb-ui

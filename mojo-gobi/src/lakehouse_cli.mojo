@@ -152,6 +152,73 @@ struct LakehouseCLI:
         # For now, show a simple dashboard
         self.show_dashboard()
 
+    fn handle_procedures_command(mut self, args: List[String]) raises:
+        """Handle stored procedure management commands."""
+        if len(args) < 1:
+            self.print_procedures_help()
+            return
+
+        var subcommand = args[0]
+
+        if subcommand == "list":
+            self.list_procedures()
+        elif subcommand == "drop":
+            if len(args) < 2:
+                self.console.print_error("drop requires procedure name")
+                return
+            self.drop_procedure(args[1])
+        else:
+            self.console.print_error("Unknown procedures subcommand: " + subcommand)
+            self.print_procedures_help()
+
+    fn handle_triggers_command(mut self, args: List[String]) raises:
+        """Handle stored trigger management commands."""
+        if len(args) < 1:
+            self.print_triggers_help()
+            return
+
+        var subcommand = args[0]
+
+        if subcommand == "list":
+            self.list_triggers()
+        elif subcommand == "drop":
+            if len(args) < 2:
+                self.console.print_error("drop requires trigger name")
+                return
+            self.drop_trigger(args[1])
+        else:
+            self.console.print_error("Unknown triggers subcommand: " + subcommand)
+            self.print_triggers_help()
+
+    fn handle_schedules_command(mut self, args: List[String]) raises:
+        """Handle scheduled job management commands."""
+        if len(args) < 1:
+            self.print_schedules_help()
+            return
+
+        var subcommand = args[0]
+
+        if subcommand == "list":
+            self.list_schedules()
+        elif subcommand == "drop":
+            if len(args) < 2:
+                self.console.print_error("drop requires schedule name")
+                return
+            self.drop_schedule(args[1])
+        elif subcommand == "run":
+            if len(args) < 2:
+                self.console.print_error("run requires schedule name")
+                return
+            self.run_schedule(args[1])
+        elif subcommand == "history":
+            if len(args) < 2:
+                self.console.print_error("history requires schedule name")
+                return
+            self.show_schedule_history(args[1])
+        else:
+            self.console.print_error("Unknown schedules subcommand: " + subcommand)
+            self.print_schedules_help()
+
     # Implementation methods
 
     fn show_timeline(mut self) raises:
@@ -418,6 +485,71 @@ struct LakehouseCLI:
         csv += "cache_requests," + String(cache_metrics.total_requests) + "\n"
         return csv
 
+    fn list_procedures(mut self) raises:
+        """List all stored procedures."""
+        self.console.print("Stored Procedures", style="bold blue")
+        self.console.print("-" * 20)
+
+        var procedures = self.lakehouse.root_storage.list_procedures()
+        if len(procedures) == 0:
+            self.console.print_info("No procedures found")
+            return
+
+        self.console.print("Name".ljust(20) + "Kind".ljust(10) + "Description")
+        self.console.print("-" * 50)
+        for procedure in procedures:
+            var name = procedure.get_value("procedure_name")
+            var kind = procedure.get_value("kind")
+            var description = procedure.get_value("description")
+            self.console.print(name.ljust(20) + kind.ljust(10) + description)
+
+    fn drop_procedure(mut self, name: String) raises:
+        """Drop a stored procedure."""
+        self.console.print("Dropping procedure: " + name, style="bold blue")
+
+        if not self.lakehouse.root_storage.procedure_exists(name):
+            self.console.print_error("Procedure '" + name + "' does not exist")
+            return
+
+        var success = self.lakehouse.root_storage.delete_procedure(name)
+        if success:
+            self.console.print_success("Procedure '" + name + "' dropped successfully")
+        else:
+            self.console.print_error("Failed to drop procedure '" + name + "'")
+
+    fn list_triggers(mut self) raises:
+        """List all stored triggers."""
+        self.console.print("Stored Triggers", style="bold blue")
+        self.console.print("-" * 20)
+
+        var triggers = self.lakehouse.root_storage.list_triggers()
+        if len(triggers) == 0:
+            self.console.print_info("No triggers found")
+            return
+
+        self.console.print("Name".ljust(20) + "Timing".ljust(10) + "Event".ljust(10) + "Target")
+        self.console.print("-" * 60)
+        for trigger in triggers:
+            var name = trigger.get_value("trigger_name")
+            var timing = trigger.get_value("timing")
+            var event = trigger.get_value("event")
+            var target = trigger.get_value("target")
+            self.console.print(name.ljust(20) + timing.ljust(10) + event.ljust(10) + target)
+
+    fn drop_trigger(mut self, name: String) raises:
+        """Drop a stored trigger."""
+        self.console.print("Dropping trigger: " + name, style="bold blue")
+
+        if not self.lakehouse.root_storage.trigger_exists(name):
+            self.console.print_error("Trigger '" + name + "' does not exist")
+            return
+
+        var success = self.lakehouse.root_storage.delete_trigger(name)
+        if success:
+            self.console.print_success("Trigger '" + name + "' dropped successfully")
+        else:
+            self.console.print_error("Failed to drop trigger '" + name + "'")
+
     # Help methods
 
     fn print_timeline_help(mut self) raises:
@@ -453,6 +585,71 @@ struct LakehouseCLI:
         self.console.print("  gobi perf stats               - Show performance statistics")
         self.console.print("  gobi perf reset               - Reset performance statistics")
         self.console.print("  gobi perf export <format> [file] - Export metrics (json/csv)")
+
+    fn print_procedures_help(mut self) raises:
+        """Print procedures command help."""
+        self.console.print("Procedure Commands:", style="yellow")
+        self.console.print("  gobi procedures list          - List all stored procedures")
+        self.console.print("  gobi procedures drop <name>   - Drop a stored procedure")
+
+    fn print_triggers_help(mut self) raises:
+        """Print triggers command help."""
+        self.console.print("Trigger Commands:", style="yellow")
+        self.console.print("  gobi triggers list            - List all stored triggers")
+        self.console.print("  gobi triggers drop <name>     - Drop a stored trigger")
+
+    fn list_schedules(mut self) raises:
+        """List all scheduled jobs."""
+        self.console.print("Scheduled Jobs:", style="bold blue")
+        self.console.print("-" * 40)
+
+        var job_names = self.lakehouse.job_scheduler.list_jobs()
+        if len(job_names) == 0:
+            self.console.print("No scheduled jobs found.")
+            return
+
+        for i in range(len(job_names)):
+            var job_name = job_names[i]
+            var status = self.lakehouse.job_scheduler.get_job_status(job_name)
+            self.console.print("  " + job_name + " - " + status)
+
+    fn drop_schedule(mut self, schedule_name: String) raises:
+        """Drop a scheduled job."""
+        # For now, just disable it (full drop would require storage changes)
+        if self.lakehouse.job_scheduler.disable_job(schedule_name):
+            self.console.print("✓ Disabled schedule: " + schedule_name)
+        else:
+            self.console.print_error("Schedule not found: " + schedule_name)
+
+    fn run_schedule(mut self, schedule_name: String) raises:
+        """Manually run a scheduled job."""
+        if self.lakehouse.job_scheduler.manual_execute_job(schedule_name):
+            self.console.print("✓ Manually executed schedule: " + schedule_name)
+        else:
+            self.console.print_error("Failed to execute schedule: " + schedule_name + " (not found or disabled)")
+
+    fn show_schedule_history(mut self, schedule_name: String) raises:
+        """Show execution history for a scheduled job."""
+        self.console.print("Execution History for: " + schedule_name, style="bold blue")
+        self.console.print("-" * 50)
+
+        var history = self.lakehouse.job_scheduler.get_execution_history(schedule_name)
+        if len(history) == 0:
+            self.console.print("No execution history found.")
+            return
+
+        for i in range(len(history)):
+            ref result = history[i]
+            var status = "✓" if result.success else "✗"
+            self.console.print("  " + status + " " + String(result.timestamp) + " - " + result.error_message)
+
+    fn print_schedules_help(mut self) raises:
+        """Print schedules command help."""
+        self.console.print("Schedule Commands:", style="yellow")
+        self.console.print("  gobi schedules list                    - List all scheduled jobs")
+        self.console.print("  gobi schedules drop <name>             - Drop a scheduled job")
+        self.console.print("  gobi schedules run <name>              - Manually run a scheduled job")
+        self.console.print("  gobi schedules history <name>          - Show execution history for a job")
 
 
 fn create_lakehouse_cli(console: EnhancedConsole, db_path: String = ".gobi") raises -> LakehouseCLI:

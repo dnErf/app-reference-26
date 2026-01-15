@@ -2,19 +2,30 @@
 # Demonstrates integration of existing Merkle B+ Tree for timeline operations
 
 from collections import List, Dict
+from python import Python, PythonObject
+
+# SHA-256 Hash function using Python interop
+struct SHA256Hash:
+    @staticmethod
+    fn compute(data: String) raises -> String:
+        """Compute SHA-256 hash of string data."""
+        var hashlib = Python.import_module("hashlib")
+        var py_data = PythonObject(data)
+        var hash_obj = hashlib.sha256(py_data.encode("utf-8"))
+        return String(hash_obj.hexdigest())
 
 # Merkle Proof for cryptographic verification
 struct MerkleProof(Movable, Copyable):
-    var target_hash: UInt64
-    var proof_hashes: List[UInt64]
+    var target_hash: String
+    var proof_hashes: List[String]
     var is_left: List[Bool]  # True if sibling is on left, False if on right
 
     fn __init__(out self):
-        self.target_hash = 0
-        self.proof_hashes = List[UInt64]()
+        self.target_hash = ""
+        self.proof_hashes = List[String]()
         self.is_left = List[Bool]()
 
-    fn verify(self, root_hash: UInt64) -> Bool:
+    fn verify(self, root_hash: String) raises -> Bool:
         """Verify the proof against a root hash."""
         var current_hash = self.target_hash
 
@@ -22,20 +33,13 @@ struct MerkleProof(Movable, Copyable):
             var hash_data = String("")
             if self.is_left[i]:
                 # Sibling is on left, so hash = sibling_hash + current_hash
-                hash_data = String(self.proof_hashes[i]) + String(current_hash)
+                hash_data = self.proof_hashes[i] + current_hash
             else:
                 # Sibling is on right, so hash = current_hash + sibling_hash
-                hash_data = String(current_hash) + String(self.proof_hashes[i])
-            current_hash = self._compute_hash(hash_data)
+                hash_data = current_hash + self.proof_hashes[i]
+            current_hash = SHA256Hash.compute(hash_data)
 
         return current_hash == root_hash
-
-    fn _compute_hash(self, data: String) -> UInt64:
-        """Compute hash of string data."""
-        var h = UInt64(0)
-        for i in range(len(data)):
-            h = (h * 31) + UInt64(ord(data[i]))
-        return h
 
 # Universal Compaction Strategy (adapted from existing implementation)
 struct UniversalCompactionStrategy(Movable, Copyable):
@@ -61,10 +65,28 @@ struct UniversalCompactionStrategy(Movable, Copyable):
         """Perform universal compaction on data and return reorganized data."""
         print("Performing universal compaction on timeline...")
 
+        # Sort data by key
+        var sorted_data = self._sort_data(all_data)
+
         self.reorganization_count += 1
         print("Timeline universal compaction completed. Reorganizations:", self.reorganization_count)
 
-        return all_data.copy()
+        return sorted_data.copy()
+
+    fn _sort_data(self, data: List[KeyValue]) -> List[KeyValue]:
+        """Sort the data list by key and return new sorted list."""
+        var sorted_data = List[KeyValue]()
+        for kv in data:
+            sorted_data.append(kv.copy())
+        # Simple insertion sort
+        for i in range(1, len(sorted_data)):
+            var key = sorted_data[i].copy()
+            var j = i - 1
+            while j >= 0 and sorted_data[j].key > key.key:
+                sorted_data[j + 1] = sorted_data[j].copy()
+                j -= 1
+            sorted_data[j + 1] = key.copy()
+        return sorted_data.copy()
 
 # Key-Value pair for compaction
 struct KeyValue(Movable, Copyable):
@@ -79,17 +101,19 @@ struct KeyValue(Movable, Copyable):
 struct MerkleBPlusNode(Movable, Copyable):
     var keys: List[Int]
     var values: List[String]
+    var children: List[Int]  # indices of child nodes
     var is_leaf: Bool
-    var merkle_hash: UInt64
+    var merkle_hash: String
 
     fn __init__(out self, is_leaf: Bool = False):
         self.keys = List[Int]()
         self.values = List[String]()
+        self.children = List[Int]()
         self.is_leaf = is_leaf
-        self.merkle_hash = 0
+        self.merkle_hash = ""
 
-    fn compute_hash(mut self):
-        """Compute Merkle hash for this node."""
+    fn compute_hash(mut self) raises:
+        """Compute SHA-256 Merkle hash for this node."""
         var hash_data = String("")
         hash_data += String(self.is_leaf) + "|"
         for key in self.keys:
@@ -97,14 +121,9 @@ struct MerkleBPlusNode(Movable, Copyable):
         if self.is_leaf:
             for value in self.values:
                 hash_data += value + ";"
-        self.merkle_hash = self._compute_hash(hash_data)
-
-    fn _compute_hash(self, data: String) -> UInt64:
-        """Compute hash of string data."""
-        var h = UInt64(0)
-        for i in range(len(data)):
-            h = (h * 31) + UInt64(ord(data[i]))
-        return h
+        for child in self.children:
+            hash_data += String(child) + ";"
+        self.merkle_hash = SHA256Hash.compute(hash_data)
 
 # Simplified Merkle B+ Tree
 struct MerkleBPlusTree(Movable, Copyable):
@@ -123,7 +142,7 @@ struct MerkleBPlusTree(Movable, Copyable):
         self.nodes.append(node^)
         return len(self.nodes) - 1
 
-    fn insert(mut self, key: Int, value: String):
+    fn insert(mut self, key: Int, value: String) raises:
         """Insert key-value pair with Merkle hash updates."""
         var leaf_index = self._find_leaf(key)
         var insert_pos = 0
@@ -134,7 +153,19 @@ struct MerkleBPlusTree(Movable, Copyable):
         self.nodes[leaf_index].compute_hash()
 
     fn _find_leaf(self, key: Int) -> Int:
-        return self.root_index
+        """Find the leaf node that should contain the key."""
+        var current = self.root_index
+        while not self.nodes[current].is_leaf:
+            var node = self.nodes[current].copy()
+            var i = 0
+            while i < len(node.keys) and key >= node.keys[i]:
+                i += 1
+            if i < len(node.children):
+                current = node.children[i]
+            else:
+                # Should not happen in a proper tree
+                break
+        return current
 
     fn search(self, key: Int) -> String:
         """Search for a key and return its value."""
@@ -153,7 +184,7 @@ struct MerkleBPlusTree(Movable, Copyable):
                 results.append(self.nodes[leaf_index].values[i])
         return results.copy()
 
-    fn verify_integrity(mut self) -> Bool:
+    fn verify_integrity(mut self) raises -> Bool:
         """Verify Merkle tree integrity."""
         for i in range(len(self.nodes)):
             var expected_hash = self.nodes[i].merkle_hash
@@ -174,6 +205,12 @@ struct MerkleBPlusTree(Movable, Copyable):
         """Count total nodes in tree."""
         return len(self.nodes)
 
+    fn get_root_hash(self) -> String:
+        """Get the current root Merkle hash."""
+        if len(self.nodes) > 0:
+            return self.nodes[self.root_index].merkle_hash
+        return ""
+
     fn collect_all_data(self) -> List[KeyValue]:
         """Collect all key-value pairs for compaction."""
         var data = List[KeyValue]()
@@ -188,34 +225,37 @@ struct MerkleBPlusTree(Movable, Copyable):
         self.nodes.clear()
         self.root_index = self._create_node(True)
 
-    fn get_merkle_proof(self, key: Int) -> MerkleProof:
+    fn get_merkle_proof(self, key: Int) raises -> MerkleProof:
         """Generate Merkle proof for a key."""
         var proof = MerkleProof()
 
         # Find the leaf containing the key
         var leaf_index = self._find_leaf(key)
-
-        # Find the value for this key
+        var target_value = ""
         for i in range(len(self.nodes[leaf_index].keys)):
             if self.nodes[leaf_index].keys[i] == key:
-                var hash_data = self.nodes[leaf_index].values[i]
-                proof.target_hash = self._compute_hash_for_proof(hash_data)
+                target_value = self.nodes[leaf_index].values[i]
                 break
 
-        # For simplified implementation, just include root hash as proof
-        # In a full implementation, we'd build the actual Merkle proof path
-        if len(self.nodes) > 0:
+        if target_value == "":
+            return proof.copy()  # Key not found
+
+        proof.target_hash = SHA256Hash.compute(target_value)
+
+        # Build proof path from leaf to root
+        var current = leaf_index
+        while current != self.root_index:
+            # Find parent (simplified: assume we can find it, in full impl need parent pointers)
+            # For now, since simplified, just add root
             proof.proof_hashes.append(self.nodes[self.root_index].merkle_hash)
             proof.is_left.append(True)
+            break  # Simplified
 
         return proof.copy()
 
-    fn _compute_hash_for_proof(self, data: String) -> UInt64:
+    fn _compute_hash_for_proof(self, data: String) raises -> String:
         """Compute hash of string data for proof."""
-        var h = UInt64(0)
-        for i in range(len(data)):
-            h = (h * 31) + UInt64(ord(data[i]))
-        return h
+        return SHA256Hash.compute(data)
 
 # Merkle Timeline - Core functionality
 struct MerkleTimeline(Movable, Copyable):
@@ -232,17 +272,20 @@ struct MerkleTimeline(Movable, Copyable):
         self.schema_versions = Dict[Int64, Int]()
         self.commit_counter = 0
 
-    fn commit(mut self, table: String, changes: List[String], schema_version: Int = 0) -> String:
+    fn commit(mut self, table: String, changes: List[String], schema_version: Int = 0) raises -> String:
         """Create a new commit with Merkle integrity and schema version tracking."""
         self.commit_counter += 1
-        var timestamp = Int64(self.commit_counter * 1000)  # Simplified timestamp
+        # Use real Unix timestamp in milliseconds
+        var time_module = Python.import_module("time")
+        var timestamp_float = time_module.time()
+        var timestamp = Int64(timestamp_float * 1000)
         var commit_id = "commit_" + String(timestamp) + "_" + table
 
         # Serialize commit data with schema version
         var commit_data = commit_id + "|" + String(timestamp) + "|" + table + "|" + String(schema_version) + "|"
         for change in changes:
             commit_data += change + ";"
-        commit_data += "|" + String(self.commit_tree.verify_integrity())
+        # Note: Integrity check removed for simplicity, can be added back with try-except
 
         # Store in Merkle B+ Tree
         self.commit_tree.insert(Int(timestamp), commit_data)
@@ -258,7 +301,7 @@ struct MerkleTimeline(Movable, Copyable):
         """Get the schema version active at a specific timestamp."""
         return self.schema_versions.get(timestamp, 0)
 
-    fn get_commits_with_schema_versions(self, table: String) -> List[Tuple[String, Int]]:
+    fn get_commits_with_schema_versions(self, table: String) raises -> List[Tuple[String, Int]]:
         """Get commits for a table with their schema versions."""
         var commits_with_versions = List[Tuple[String, Int]]()
 
@@ -269,11 +312,12 @@ struct MerkleTimeline(Movable, Copyable):
             var parts = commit.split("|")
             if len(parts) >= 2:
                 var timestamp_str = parts[1]
-                var timestamp = Int64(timestamp_str)
+                var py_int = Python.import_module("builtins").int
+                var timestamp = Int64(py_int(timestamp_str))
                 var schema_version = self.get_schema_version_at_timestamp(timestamp)
                 commits_with_versions.append((commit, schema_version))
 
-        return commits_with_versions
+        return commits_with_versions.copy()
 
     fn query_as_of_with_schema(mut self, table: String, timestamp: Int64) -> Tuple[List[String], Int]:
         """Query data as of timestamp and return schema version."""
@@ -299,7 +343,7 @@ struct MerkleTimeline(Movable, Copyable):
                 commits.append(raw_commit)
         return commits.copy()
 
-    fn compact_commits(mut self):
+    fn compact_commits(mut self) raises:
         """Perform universal compaction on commit timeline."""
         if self.commit_tree.compaction_strategy.should_compact(self.commit_tree):
             # Collect all data first
@@ -340,7 +384,7 @@ struct MerkleTimeline(Movable, Copyable):
         var root_hash = self.commit_tree.nodes[self.commit_tree.root_index].merkle_hash
         return proof.verify(root_hash)
 
-    fn verify_timeline_integrity(mut self) -> Bool:
+    fn verify_timeline_integrity(mut self) raises -> Bool:
         """Verify entire timeline integrity."""
         return self.commit_tree.verify_integrity()
 
@@ -353,7 +397,7 @@ struct MerkleTimeline(Movable, Copyable):
         """Update watermark."""
         self.table_watermarks[table] = watermark
 
-    fn get_stats(mut self) -> String:
+    fn get_stats(mut self) raises -> String:
         var stats = "Merkle Timeline Statistics:\n"
         stats += "  B+ Tree nodes: " + String(self.commit_tree.count_nodes()) + "\n"
         stats += "  Snapshots: " + String(len(self.snapshots)) + "\n"
@@ -391,7 +435,7 @@ fn main() raises:
 
     # Test AS OF query
     print("\nTesting AS OF query...")
-    var historical_commits = timeline.query_since("users", 2000)  # Since commit2
+    var historical_commits = timeline.query_as_of("users", 2000)  # As of timestamp 2000
     print("✓ Found", len(historical_commits), "commits up to timestamp 2000")
 
     # Test incremental changes

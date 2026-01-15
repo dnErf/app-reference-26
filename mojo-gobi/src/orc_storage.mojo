@@ -3,15 +3,16 @@ PyArrow ORC Data Storage
 ========================
 
 Handles columnar data storage using PyArrow ORC format.
-Provides efficient storage and retrieval of table data.
+Provides efficient storage and retrieval of table data with thread-safety.
 """
 
 from python import Python, PythonObject
 from collections import List
 from blob_storage import BlobStorage
-from merkle_tree import MerkleBPlusTree, SHA256Hash
+from merkle_timeline import MerkleBPlusTree, SHA256Hash
 from index_storage import IndexStorage
 from schema_manager import SchemaManager, DatabaseSchema, Index, Column
+from thread_safe_memory import AtomicInt, SpinLock, ThreadSafeCounter
 
 struct ORCStorage(Movable):
     var storage: BlobStorage
@@ -23,6 +24,10 @@ struct ORCStorage(Movable):
     var bloom_filter_columns: List[String]
     var index_storage: IndexStorage
     var schema_manager: SchemaManager
+    var operation_count: ThreadSafeCounter
+    var active_readers: ThreadSafeCounter
+    var active_writers: ThreadSafeCounter
+    var storage_lock: SpinLock
 
     fn __init__(out self, var storage: BlobStorage, var schema_manager: SchemaManager, var index_storage: IndexStorage, compression: String = "none", use_dictionary_encoding: Bool = True, row_index_stride: Int = 10000, compression_block_size: Int = 65536, var bloom_filter_columns: List[String] = List[String]()):
         # Use copy() but ensure no recursive copy loops by avoiding __copyinit__
@@ -35,6 +40,10 @@ struct ORCStorage(Movable):
         self.bloom_filter_columns = bloom_filter_columns^
         self.index_storage = index_storage^
         self.schema_manager = schema_manager^
+        self.operation_count = ThreadSafeCounter()
+        self.active_readers = ThreadSafeCounter()
+        self.active_writers = ThreadSafeCounter()
+        self.storage_lock = SpinLock()
 
     # Remove __copyinit__ to avoid compilation loops from complex object copying
     # ORCStorage instances should be passed by reference, not copied
@@ -49,9 +58,18 @@ struct ORCStorage(Movable):
         self.bloom_filter_columns = existing.bloom_filter_columns^
         self.index_storage = existing.index_storage^
         self.schema_manager = existing.schema_manager^
+        self.operation_count = existing.operation_count^
+        self.active_readers = existing.active_readers^
+        self.active_writers = existing.active_writers^
+        self.storage_lock = existing.storage_lock^
 
     fn write_table(mut self, table_name: String, data: List[List[String]]) -> Bool:
         """Write table data with integrity verification using PyArrow ORC format."""
+        _ = self.operation_count.increment()
+        _ = self.active_writers.increment()
+        
+        self.storage_lock.acquire()
+        var success = False
         try:
             print("Writing table:", table_name, "with", len(data), "rows")
 
@@ -72,8 +90,20 @@ struct ORCStorage(Movable):
             print("Total data rows:", len(all_data))
 
             if len(all_data) == 0:
-                return True
+                success = True
+            else:
+                success = self._write_orc_data(table_name, all_data)
+        except:
+            print("Error in write_table for", table_name)
+            success = False
+        
+        self.storage_lock.release()
+        _ = self.active_writers.decrement()
+        return success
 
+    fn _write_orc_data(mut self, table_name: String, all_data: List[List[String]]) -> Bool:
+        """Internal method to write ORC data."""
+        try:
             # Import PyArrow
             var pyarrow = Python.import_module("pyarrow")
             var pyarrow_orc = Python.import_module("pyarrow.orc")
@@ -121,128 +151,39 @@ struct ORCStorage(Movable):
 
             print("Writing ORC...")
 
-            try:
-                # Convert List[String] to Python list for bloom filters
-                var bloom_filters_py = Python.list()
-                for col in self.bloom_filter_columns:
-                    bloom_filters_py.append(col)
-                
-                # Write ORC data to a temporary file
-                var temp_filename = table_name + ".orc"
-                print("Writing to temp file:", temp_filename, "with compression:", self.compression)
-                if self.compression == "none":
-                    pyarrow_orc.write_table(arrow_table, temp_filename)
-                else:
-                    pyarrow_orc.write_table(
-                        arrow_table, 
-                        temp_filename,
-                        compression=self.compression
-                    )
-                print("PyArrow ORC write to file completed with compression")
-                
-                # Read the file back as bytes
-                var builtins = Python.import_module("builtins")
-                var orc_file = builtins.open(temp_filename, "rb")
-                var orc_bytes = orc_file.read()
-                orc_file.close()
-                print("Read ORC file back, size:", len(orc_bytes))
-                
-                # Remove temp file
-                var os = Python.import_module("os")
-                os.remove(temp_filename)
-                print("Removed temp file")
-                
-                print("ORC data size:", len(orc_bytes))
-
-                # Encode binary data as base64 for storage
-                var base64 = Python.import_module("base64")
-                var encoded_data = base64.b64encode(orc_bytes)
-                var encoded_str = String(encoded_data.decode("ascii"))
-                
-                # Store the encoded ORC data
-                print("Attempting to store encoded ORC data...")
-                var data_success = self.storage.write_blob("tables/" + table_name + ".orc", encoded_str)
-                print("Encoded write result:", data_success)
-
-                # Store Merkle tree state for this table
-                var tree_state = self.merkle_tree.get_root_hash()
-                var tree_success = self.storage.write_blob("integrity/" + table_name + ".merkle", tree_state)
-
-                print("Write success:", data_success and tree_success)
-                return data_success and tree_success
-            except:
-                print("Failed to write ORC table - unknown error")
-                return False
-        except:
-            print("Error in write_table for", table_name)
-            return False
-
-    fn save_table(mut self, table_name: String, data: List[List[String]]) -> Bool:
-        """Save table data (overwrite) with integrity verification using PyArrow ORC format."""
-        try:
-            print("Saving table:", table_name, "with", len(data), "rows")
-
-            if len(data) == 0:
-                # Delete the table files
-                _ = self.storage.delete_blob("tables/" + table_name + ".orc")
-                _ = self.storage.delete_blob("integrity/" + table_name + ".merkle")
-                return True
-
-            # Import PyArrow
-            var pyarrow = Python.import_module("pyarrow")
-            var pyarrow_orc = Python.import_module("pyarrow.orc")
-            _ = Python.import_module("io")
-            _ = Python.import_module("builtins")
-
-            var num_columns = len(data[0])
-
-            print("Number of columns:", num_columns)
-
-            print("Creating PyArrow table...")
-
-            # Create PyArrow arrays for each column
-            var arrays = Python.list()
-            var column_names = Python.list()
+            # Convert List[String] to Python list for bloom filters
+            var bloom_filters_py = Python.list()
+            for col in self.bloom_filter_columns:
+                bloom_filters_py.append(col)
             
-            for col_idx in range(num_columns):
-                var col_name = "col_" + String(col_idx)
-                column_names.append(col_name)
-                var col_data = Python.list()
-                for row_idx in range(len(data)):
-                    var row = data[row_idx].copy()
-                    col_data.append(String(row[col_idx] if len(row) > col_idx else ""))
-                arrays.append(pyarrow.array(col_data))
+            # Write ORC data to a temporary file
+            var temp_filename = table_name + ".orc"
+            print("Writing to temp file:", temp_filename, "with compression:", self.compression)
+            if self.compression == "none":
+                pyarrow_orc.write_table(arrow_table, temp_filename)
+            else:
+                pyarrow_orc.write_table(
+                    arrow_table, 
+                    temp_filename,
+                    compression=self.compression
+                )
+            print("PyArrow ORC write to file completed with compression")
             
-            # Add integrity hash column
-            column_names.append("__integrity_hash__")
-            var hash_data = Python.list()
-            for row_idx in range(len(data)):
-                var row_hash = table_name + ":"
-                for col_idx in range(num_columns):
-                    if col_idx > 0:
-                        row_hash += "|"
-                    row_hash += data[row_idx][col_idx]
-                var hash_obj = SHA256Hash.compute(row_hash)
-                hash_data.append(hash_obj)
+            # Read the file back as bytes
+            var builtins = Python.import_module("builtins")
+            var orc_file = builtins.open(temp_filename, "rb")
+            var orc_bytes = orc_file.read()
+            orc_file.close()
+            print("Read ORC file back, size:", len(orc_bytes))
             
-            arrays.append(pyarrow.array(hash_data))
+            # Remove temp file
+            var os = Python.import_module("os")
+            os.remove(temp_filename)
+            print("Removed temp file")
             
-            # Create PyArrow table
-            var table = pyarrow.Table.from_arrays(arrays, names=column_names)
-            
-            print("Converting to ORC...")
-            
-            # Convert to ORC format using BytesIO
-            var io = Python.import_module("io")
-            var buffer = io.BytesIO()
-            var writer = pyarrow_orc.ORCWriter(buffer)
-            writer.write(table)
-            writer.close()
-            var orc_bytes = buffer.getvalue()
-            
-            print("Encoding ORC data...")
-            
-            # Encode as base64 for storage
+            print("ORC data size:", len(orc_bytes))
+
+            # Encode binary data as base64 for storage
             var base64 = Python.import_module("base64")
             var encoded_data = base64.b64encode(orc_bytes)
             var encoded_str = String(encoded_data.decode("ascii"))
@@ -256,11 +197,110 @@ struct ORCStorage(Movable):
             var tree_state = self.merkle_tree.get_root_hash()
             var tree_success = self.storage.write_blob("integrity/" + table_name + ".merkle", tree_state)
 
-            print("Save success:", data_success and tree_success)
+            print("Write success:", data_success and tree_success)
             return data_success and tree_success
         except:
-            print("Error in save_table for", table_name)
+            print("Failed to write ORC table - unknown error")
             return False
+
+    fn save_table(mut self, table_name: String, data: List[List[String]]) -> Bool:
+        """Save table data (overwrite) with integrity verification using PyArrow ORC format."""
+        _ = self.operation_count.increment()
+        _ = self.active_writers.increment()
+        
+        self.storage_lock.acquire()
+        var success = False
+        
+        try:
+            print("Saving table:", table_name, "with", len(data), "rows")
+
+            if len(data) == 0:
+                # Delete the table files
+                _ = self.storage.delete_blob("tables/" + table_name + ".orc")
+                _ = self.storage.delete_blob("integrity/" + table_name + ".merkle")
+                success = True
+            else:
+                try:
+                    # Import PyArrow
+                    var pyarrow = Python.import_module("pyarrow")
+                    var pyarrow_orc = Python.import_module("pyarrow.orc")
+                    _ = Python.import_module("io")
+                    _ = Python.import_module("builtins")
+
+                    var num_columns = len(data[0])
+
+                    print("Number of columns:", num_columns)
+
+                    print("Creating PyArrow table...")
+
+                    # Create PyArrow arrays for each column
+                    var arrays = Python.list()
+                    var column_names = Python.list()
+                    
+                    for col_idx in range(num_columns):
+                        var col_name = "col_" + String(col_idx)
+                        column_names.append(col_name)
+                        var col_data = Python.list()
+                        for row_idx in range(len(data)):
+                            var row = data[row_idx].copy()
+                            col_data.append(String(row[col_idx] if len(row) > col_idx else ""))
+                        arrays.append(pyarrow.array(col_data))
+                    
+                    # Add integrity hash column
+                    column_names.append("__integrity_hash__")
+                    var hash_data = Python.list()
+                    for row_idx in range(len(data)):
+                        var row_hash = table_name + ":"
+                        for col_idx in range(num_columns):
+                            if col_idx > 0:
+                                row_hash += "|"
+                            row_hash += data[row_idx][col_idx]
+                        var hash_obj = SHA256Hash.compute(row_hash)
+                        hash_data.append(hash_obj)
+                    
+                    arrays.append(pyarrow.array(hash_data))
+                    
+                    # Create PyArrow table
+                    var table = pyarrow.Table.from_arrays(arrays, names=column_names)
+                    
+                    print("Converting to ORC...")
+                    
+                    # Convert to ORC format using BytesIO
+                    var io = Python.import_module("io")
+                    var buffer = io.BytesIO()
+                    var writer = pyarrow_orc.ORCWriter(buffer)
+                    writer.write(table)
+                    writer.close()
+                    var orc_bytes = buffer.getvalue()
+                    
+                    print("Encoding ORC data...")
+                    
+                    # Encode as base64 for storage
+                    var base64 = Python.import_module("base64")
+                    var encoded_data = base64.b64encode(orc_bytes)
+                    var encoded_str = String(encoded_data.decode("ascii"))
+                    
+                    # Store the encoded ORC data
+                    print("Attempting to store encoded ORC data...")
+                    var data_success = self.storage.write_blob("tables/" + table_name + ".orc", encoded_str)
+                    print("Encoded write result:", data_success)
+
+                    # Store Merkle tree state for this table
+                    var tree_state = self.merkle_tree.get_root_hash()
+                    var tree_success = self.storage.write_blob("integrity/" + table_name + ".merkle", tree_state)
+
+                    print("Save success:", data_success and tree_success)
+                    success = data_success and tree_success
+                except:
+                    print("Failed to save ORC table - PyArrow error")
+                    success = False
+        except:
+            print("Error in save_table for", table_name)
+            success = False
+        
+        self.storage_lock.release()
+        _ = self.active_writers.decrement()
+        return success
 
     fn read_table(self, table_name: String) -> List[List[String]]:
         """Read table data with integrity verification from PyArrow ORC format."""
@@ -269,7 +309,7 @@ struct ORCStorage(Movable):
         try:
             var encoded_data = self.storage.read_blob("tables/" + table_name + ".orc")
             if encoded_data == "":
-                return results.copy()
+                return results^
 
             # Decode base64 data back to bytes
             var base64 = Python.import_module("base64")
@@ -302,7 +342,7 @@ struct ORCStorage(Movable):
                 # Cleanup and return empty
                 var os = Python.import_module("os")
                 os.remove(temp_filename)
-                return results.copy()
+                return results^
 
             # Convert PyArrow table to Python lists for processing
             var num_rows = arrow_table.num_rows
@@ -346,7 +386,7 @@ struct ORCStorage(Movable):
             print("Error reading ORC table:", table_name)
             pass
 
-        return results.copy()
+        return results^
 
     fn create_index(mut self, index_name: String, table_name: String, columns: List[String], index_type: String = "btree", unique: Bool = False) -> Bool:
         """Create an index on a table."""
@@ -412,7 +452,7 @@ struct ORCStorage(Movable):
             if row_id < len(table_data):
                 results.append(table_data[row_id].copy())
 
-        return results.copy()
+        return results^
 
     fn save_schema(mut self, schema: DatabaseSchema) -> Bool:
         """Save database schema."""
@@ -420,7 +460,18 @@ struct ORCStorage(Movable):
 
     fn create_table(mut self, table_name: String, columns: List[Column]) -> Bool:
         """Create a table in the schema."""
+        self.operation_count.increment()
         return self.schema_manager.create_table(table_name, columns)
+
+    fn get_thread_safety_stats(self) -> String:
+        """Get thread-safety statistics for the storage."""
+        var stats = "ORC Storage Thread-Safety Statistics:\n"
+        stats += "  Total operations: " + String(self.operation_count.get()) + "\n"
+        stats += "  Active readers: " + String(self.active_readers.get()) + "\n"
+        stats += "  Active writers: " + String(self.active_writers.get()) + "\n"
+        stats += "  Compression: " + self.compression + "\n"
+        stats += "  Dictionary encoding: " + String(self.use_dictionary_encoding) + "\n"
+        return stats
 
 fn pack_database_zstd(folder: String, rich_console: PythonObject) raises:
     """Pack database folder into a .gobi file using ZSTD ORC compression."""

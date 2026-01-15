@@ -1,0 +1,24 @@
+nohup: ignoring input
+<unknown>:0:0: warning: unreachable code after infinite loop
+/home/lnx/Dev/app-reference-26/mojo-gobi/./daemon.mojo:83:33: warning: assignment to 'daemon' was never used; assign to '_' instead?
+    var daemon = LakehouseDaemon(folder_path)
+                                ^
+Daemon starting...
+Number of args: 2
+Arg 0 : ./daemon.mojo
+Arg 1 : /tmp/test-daemon
+Folder path: /tmp/test-daemon
+Starting daemon main loop...
+Starting daemon main loop for folder: /tmp/test-daemon
+Imported modules successfully
+Created daemon instance
+Socket path: .gobi/daemon.sock
+Removing existing socket file
+Creating server socket...
+Socket created, binding to path...
+Socket bound successfully
+Socket listening on port 5
+Daemon started with PID: 108529
+Listening on socket: .gobi/daemon.sock
+Client connected
+Client connected

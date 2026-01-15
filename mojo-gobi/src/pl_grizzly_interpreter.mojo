@@ -16,8 +16,11 @@ from blob_storage import BlobStorage
 from orc_storage import ORCStorage  # Re-enabling ORCStorage - compilation issues should be resolved
 from query_cache import QueryCache
 from ast_evaluator import ASTEvaluator  # Re-enabling ASTEvaluator - compilation issues should be resolved
+from procedure_execution_engine import ProcedureExecutionEngine
 from pl_grizzly_values import PLValue, add_op, sub_op, mul_op, div_op, eq_op, neq_op, gt_op, lt_op, gte_op, lte_op
 from pl_grizzly_environment import Environment
+from root_storage import RootStorage
+from lakehouse_engine import Record
 from query_optimizer import QueryOptimizer, QueryPlan
 from profiling_manager import ProfilingManager, QueryProfile
 from jit_compiler import JITCompiler, BenchmarkResult
@@ -44,6 +47,8 @@ struct PLGrizzlyInterpreter:
     var jit_compiler: JITCompiler  # JIT compiler for function optimization - Phase 3 enabled
     var secret_manager: SecretManager  # Secret management for TYPE SECRET
     var semantic_analyzer: SemanticAnalyzer  # Semantic analysis phase with type checking
+    var procedure_storage: RootStorage  # Procedure storage system
+    var procedure_execution_engine: ProcedureExecutionEngine  # Procedure execution engine
 
     fn __init__(out self, var orc_storage: ORCStorage) raises:
         self.orc_storage = orc_storage^
@@ -63,7 +68,33 @@ struct PLGrizzlyInterpreter:
         self.jit_compiler = JITCompiler()  # Phase 3: Runtime compilation enabled
         self.secret_manager = SecretManager()  # Initialize secret management
         self.semantic_analyzer = SemanticAnalyzer()  # Initialize semantic analyzer
+        self.procedure_storage = RootStorage(".procedures")  # Initialize with default path
+        # self.procedure_execution_engine = ProcedureExecutionEngine()
+        # self.ast_evaluator.set_procedure_execution_engine(self.procedure_execution_engine)
         self.modules["math"] = "FUNCTION add(a, b) => (+ a b) FUNCTION mul(a, b) => (* a b)"
+
+    fn set_procedure_storage(mut self, var procedure_storage: RootStorage) raises:
+        """Set the procedure storage for the interpreter."""
+        self.procedure_storage = procedure_storage ^
+
+    fn get_procedure_storage(ref self) -> RootStorage:
+        """Get the procedure storage (borrowed)."""
+        return self.procedure_storage
+
+    fn list_procedures(self) raises -> List[Record]:
+        """List all stored procedures."""
+        return self.procedure_storage.list_procedures()
+
+    fn procedure_exists(self, name: String) raises -> Bool:
+        """Check if a procedure exists."""
+        return self.procedure_storage.procedure_exists(name)
+
+    fn delete_procedure(mut self, name: String) raises -> Bool:
+        """Delete a procedure by name."""
+        return self.procedure_storage.delete_procedure(name)
+        # Create a copy for the evaluator (this is a simplified approach)
+        var evaluator_storage = RootStorage(".procedures")
+        self.ast_evaluator.set_procedure_storage(evaluator_storage ^)
 
     fn query_table(self, table_name: String) -> PLValue:
         """Query table data and return as list of structs."""

@@ -3,6 +3,7 @@
 
 from collections import List, Dict
 from merkle_timeline import MerkleTimeline, MerkleProof
+from python import Python
 
 # Individual change record with Merkle verification
 struct Change(Movable, Copyable):
@@ -112,7 +113,9 @@ struct IncrementalProcessor(Movable, Copyable):
         if len(commits) > 0:
             var last_commit_parts = commits[len(commits) - 1].split("|")
             changeset.commit_proof = self.timeline.get_commit_proof(String(last_commit_parts[0]))
-            changeset.merkle_root = self.timeline.commit_tree.nodes[self.timeline.commit_tree.root_index].merkle_hash
+            var hash_str = self.timeline.commit_tree.nodes[self.timeline.commit_tree.root_index].merkle_hash
+            var int_mod = Python.import_module("builtins")
+            changeset.merkle_root = UInt64(int_mod.int(hash_str, 16))
 
         # Store in change log
         if not table in self.change_log:
