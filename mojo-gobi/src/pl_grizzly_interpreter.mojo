@@ -5,32 +5,29 @@ This module provides interpretation and execution capabilities for the PL-GRIZZL
 evaluating parsed ASTs in the context of the Godi database.
 """
 
+import time
 from collections import Dict, List
 from python import Python
-import time
+
 from pl_grizzly_parser import PLGrizzlyParser, ASTNode, ParserCache, SymbolTable
-from pl_grizzly_lexer import PLGrizzlyLexer
-from schema_manager import SchemaManager, Index
-from index_storage import IndexStorage
-from blob_storage import BlobStorage
-from orc_storage import ORCStorage  # Re-enabling ORCStorage - compilation issues should be resolved
+from pl_grizzly_lexer import PLGrizzlyLexer, Token
+
 from query_cache import QueryCache
 from ast_evaluator import ASTEvaluator  # Re-enabling ASTEvaluator - compilation issues should be resolved
-from procedure_execution_engine import ProcedureExecutionEngine
 from pl_grizzly_values import PLValue, add_op, sub_op, mul_op, div_op, eq_op, neq_op, gt_op, lt_op, gte_op, lte_op
 from pl_grizzly_environment import Environment
-from root_storage import RootStorage
-from lakehouse_engine import Record
+from lakehouse_engine import LakehouseEngine, Record
 from query_optimizer import QueryOptimizer, QueryPlan
 from profiling_manager import ProfilingManager, QueryProfile
 from jit_compiler import JITCompiler, BenchmarkResult
 from secret_manager import SecretManager
 from semantic_analyzer import SemanticAnalyzer, SemanticAnalysisResult
 
+from blob_storage import BlobStorage
+
 # PL-GRIZZLY Interpreter with JIT capabilities
 # NOTE: ORCStorage and ASTEvaluator re-enabled after compilation fixes
 struct PLGrizzlyInterpreter:
-    var orc_storage: ORCStorage  # Main database engine
     var profiler: ProfilingManager
     var global_env: Environment
     var modules: Dict[String, String]
@@ -47,11 +44,12 @@ struct PLGrizzlyInterpreter:
     var jit_compiler: JITCompiler  # JIT compiler for function optimization - Phase 3 enabled
     var secret_manager: SecretManager  # Secret management for TYPE SECRET
     var semantic_analyzer: SemanticAnalyzer  # Semantic analysis phase with type checking
-    var procedure_storage: RootStorage  # Procedure storage system
-    var procedure_execution_engine: ProcedureExecutionEngine  # Procedure execution engine
+    var lakehouse: LakehouseEngine
+    var pl_lexer: PLGrizzlyLexer
+    var pl_parser: PLGrizzlyParser
 
-    fn __init__(out self, var orc_storage: ORCStorage) raises:
-        self.orc_storage = orc_storage^
+    fn __init__(out self, root_path: String) raises:
+        self.lakehouse = LakehouseEngine(root_path)
         self.profiler = ProfilingManager()
         self.global_env = Environment()
         self.modules = Dict[String, String]()
@@ -68,42 +66,55 @@ struct PLGrizzlyInterpreter:
         self.jit_compiler = JITCompiler()  # Phase 3: Runtime compilation enabled
         self.secret_manager = SecretManager()  # Initialize secret management
         self.semantic_analyzer = SemanticAnalyzer()  # Initialize semantic analyzer
-        self.procedure_storage = RootStorage(".procedures")  # Initialize with default path
-        # self.procedure_execution_engine = ProcedureExecutionEngine()
-        # self.ast_evaluator.set_procedure_execution_engine(self.procedure_execution_engine)
         self.modules["math"] = "FUNCTION add(a, b) => (+ a b) FUNCTION mul(a, b) => (* a b)"
+        self.pl_lexer = PLGrizzlyLexer("")
+        self.pl_parser = PLGrizzlyParser(List[Token]())
 
-    fn set_procedure_storage(mut self, var procedure_storage: RootStorage) raises:
-        """Set the procedure storage for the interpreter."""
-        self.procedure_storage = procedure_storage ^
+    fn set_lexer_source(mut self, source: String):
+        self.pl_lexer.source = source
 
-    fn get_procedure_storage(ref self) -> RootStorage:
-        """Get the procedure storage (borrowed)."""
-        return self.procedure_storage
+    fn get_parsed_expression(mut self, source: String) raises -> ASTNode:
+        self.set_lexer_source(source)
+        var tokenz = self.pl_lexer.tokenize()
+        self.pl_parser.set_tokens(tokenz^)
+        return self.pl_parser.parse()
 
-    fn list_procedures(self) raises -> List[Record]:
-        """List all stored procedures."""
-        return self.procedure_storage.list_procedures()
+    # TODO: remove
+    # fn set_procedure_storage(mut self, var procedure_storage: RootStorage) raises:
+    #     """Set the procedure storage for the interpreter."""
+    #     self.procedure_storage = procedure_storage ^
 
-    fn procedure_exists(self, name: String) raises -> Bool:
-        """Check if a procedure exists."""
-        return self.procedure_storage.procedure_exists(name)
+    # TODO: remove
+    # fn get_procedure_storage(ref self) -> RootStorage:
+    #     """Get the procedure storage (borrowed)."""
+    #     return self.procedure_storage
 
-    fn delete_procedure(mut self, name: String) raises -> Bool:
-        """Delete a procedure by name."""
-        return self.procedure_storage.delete_procedure(name)
-        # Create a copy for the evaluator (this is a simplified approach)
-        var evaluator_storage = RootStorage(".procedures")
-        self.ast_evaluator.set_procedure_storage(evaluator_storage ^)
+    # TODO: remove
+    # fn list_procedures(self) raises -> List[Record]:
+    #     """List all stored procedures."""
+    #     return self.procedure_storage.list_procedures()
+
+    # TODO: remove
+    # fn procedure_exists(self, name: String) raises -> Bool:
+    #     """Check if a procedure exists."""
+    #     return self.procedure_storage.procedure_exists(name)
+
+    # TODO: remove
+    # fn delete_procedure(mut self, name: String) raises -> Bool:
+    #     """Delete a procedure by name."""
+    #     return self.procedure_storage.delete_procedure(name)
+    #     # Create a copy for the evaluator (this is a simplified approach)
+    #     var evaluator_storage = RootStorage(".procedures")
+    #     self.ast_evaluator.set_procedure_storage(evaluator_storage ^)
 
     fn query_table(self, table_name: String) -> PLValue:
         """Query table data and return as list of structs."""
-        var schema = self.orc_storage.schema_manager.load_schema()
+        var schema = self.lakehouse.storage.schema_manager.load_schema()
         var table_schema = schema.get_table(table_name)
         if table_schema.name == "":
             return PLValue.error("table not found: " + table_name)
         
-        var data = self.orc_storage.read_table(table_name)
+        var data = self.lakehouse.storage.read_table(table_name)
         if len(data) == 0:
             return PLValue("list", "mock")
         
@@ -420,7 +431,7 @@ struct PLGrizzlyInterpreter:
                     return PLValue.error("attached database '" + db_alias + "' not found")
             else:
                 # Check if it's a table
-                var schema = self.orc_storage.schema_manager.load_schema()
+                var schema = self.lakehouse.storage.schema_manager.load_schema()
                 var table_schema = schema.get_table(var_name)
                 if table_schema.name != "":
                     var result = self.query_table(var_name)
@@ -510,7 +521,7 @@ struct PLGrizzlyInterpreter:
         # Evaluate using optimized AST evaluator with type checking
         self.ast_evaluator.set_source_code(source)
         # self.ast_evaluator.set_secret_manager(self.secret_manager)  # TODO: Implement this method
-        var result = self.ast_evaluator.evaluate(ast, self.global_env, self.orc_storage)
+        var result = self.ast_evaluator.evaluate(ast, self.global_env, self.lakehouse.storage)
         
         # Record successful execution
         if self.profiler.is_enabled():
@@ -911,7 +922,7 @@ struct PLGrizzlyInterpreter:
         var search_key = value_result.__str__()
         
         # Find suitable index
-        var indexes = self.orc_storage.get_indexes(table_name)
+        var indexes = self.lakehouse.storage.get_indexes(table_name)
         var index_name = ""
         for index in indexes:
             for col in index.columns:
@@ -925,7 +936,7 @@ struct PLGrizzlyInterpreter:
             return PLValue("error", "No suitable index found for column " + column)
         
         # Use index to search
-        var indexed_results = self.orc_storage.search_with_index(table_name, index_name, search_key)
+        var indexed_results = self.lakehouse.storage.search_with_index(table_name, index_name, search_key)
         
         # Convert to PLValue list
         var result_list = List[PLValue]()
@@ -1629,7 +1640,7 @@ struct PLGrizzlyInterpreter:
             row.append(val_result.__str__())  # For now, use string representation
         var data = List[List[String]]()
         data.append(row.copy())
-        var success = self.orc_storage.write_table(table_name, data)
+        var success = self.lakehouse.storage.write_table(table_name, data)
         if success:
             # Invalidate cache for this table
             self.query_cache.invalidate_table(table_name)
@@ -1668,7 +1679,7 @@ struct PLGrizzlyInterpreter:
         var val_result = self.evaluate(val_expr, env)
         
         # Read table, update all rows (simple implementation)
-        var data = self.orc_storage.read_table(table_name)
+        var data = self.lakehouse.storage.read_table(table_name)
         if len(data) == 0:
             return PLValue.error("table not found or empty")
         
@@ -1686,7 +1697,7 @@ struct PLGrizzlyInterpreter:
         for i in range(len(data)):
             data[i][col_idx] = val_result.__str__()
         
-        var success = self.orc_storage.save_table(table_name, data)
+        var success = self.lakehouse.storage.save_table(table_name, data)
         if success:
             # Invalidate cache for this table
             self.query_cache.invalidate_table(table_name)
@@ -1717,7 +1728,7 @@ struct PLGrizzlyInterpreter:
         
         # For now, delete all rows (simple implementation)
         var data = List[List[String]]()
-        var success = self.orc_storage.save_table(table_name, data)
+        var success = self.lakehouse.storage.save_table(table_name, data)
         if success:
             # Invalidate cache for this table
             self.query_cache.invalidate_table(table_name)
@@ -1798,7 +1809,7 @@ struct PLGrizzlyInterpreter:
         var password = String(parts[1])
         
         # Query users table
-        var users_data = self.orc_storage.read_table("users")
+        var users_data = self.lakehouse.storage.read_table("users")
         for row in users_data:
             if len(row) >= 2 and row[0] == username and row[1] == password:
                 self.current_user = username
@@ -2048,7 +2059,7 @@ struct PLGrizzlyInterpreter:
             index_type = String(using_part[6:].strip())
         
         # Create the index
-        var success = self.orc_storage.create_index(String(index_name_str), String(table_name), columns, String(index_type), False)
+        var success = self.lakehouse.storage.create_index(String(index_name_str), String(table_name), columns, String(index_type), False)
         if success:
             return PLValue.string("index '" + index_name_str + "' created on table '" + table_name + "'")
         else:
@@ -2070,7 +2081,7 @@ struct PLGrizzlyInterpreter:
         var table_name = String(parts[1])
         
         # Drop the index
-        var success = self.orc_storage.drop_index(index_name, table_name)
+        var success = self.lakehouse.storage.drop_index(index_name, table_name)
         if success:
             return PLValue.string("index '" + index_name + "' dropped from table '" + table_name + "'")
         else:
@@ -2103,7 +2114,7 @@ struct PLGrizzlyInterpreter:
         # For now, we'll store it as a regular table with metadata
         if result.is_list():
             var data = self._plvalue_to_cache_data(result)
-            var success = self.orc_storage.save_table(view_name, data)
+            var success = self.lakehouse.storage.save_table(view_name, data)
             if success:
                 # Store view metadata (this would need to be extended for full MV support)
                 return PLValue.string("materialized view '" + view_name + "' created successfully")
@@ -2136,7 +2147,7 @@ struct PLGrizzlyInterpreter:
         # Update the materialized view data
         if result.is_list():
             var data = self._plvalue_to_cache_data(result)
-            var success = self.orc_storage.save_table(view_name, data)
+            var success = self.lakehouse.storage.save_table(view_name, data)
             if success:
                 return PLValue.string("materialized view '" + view_name + "' refreshed successfully")
             else:
@@ -2701,7 +2712,7 @@ struct PLGrizzlyInterpreter:
 
     fn show_schema(self) raises -> PLValue:
         """Show database schema information."""
-        var schema = self.orc_storage.schema_manager.load_schema()
+        var schema = self.lakehouse.storage.schema_manager.load_schema()
         var schema_info = Dict[String, PLValue]()
         
         schema_info["database_name"] = PLValue("string", schema.name)
@@ -2712,7 +2723,7 @@ struct PLGrizzlyInterpreter:
 
     fn show_extensions(self) raises -> PLValue:
         """Show installed extensions."""
-        var schema = self.orc_storage.schema_manager.load_schema()
+        var schema = self.lakehouse.storage.schema_manager.load_schema()
         var extensions = schema.installed_extensions.copy()
         
         var result = String("Installed extensions:\n")
@@ -2723,7 +2734,7 @@ struct PLGrizzlyInterpreter:
 
     fn describe_table(self, table_name: String) raises -> PLValue:
         """Describe a specific table's structure."""
-        var schema = self.orc_storage.schema_manager.load_schema()
+        var schema = self.lakehouse.storage.schema_manager.load_schema()
         var table = schema.get_table(table_name)
         
         if table.name == "":
@@ -2827,7 +2838,7 @@ struct PLGrizzlyInterpreter:
 
     fn analyze_table(self, table_name: String) raises -> PLValue:
         """Analyze a table and return statistics."""
-        var schema = self.orc_storage.schema_manager.load_schema()
+        var schema = self.lakehouse.storage.schema_manager.load_schema()
         var table = schema.get_table(table_name)
         
         if table.name == "":

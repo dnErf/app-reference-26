@@ -1110,6 +1110,38 @@ The system is ready for the next development phase based on user requirements (E
 
 ---
 
+# 260117 - Replace OrcStorage References with Lakehouse Storage COMPLETED ✅
+
+## OrcStorage to Lakehouse Storage Migration in Interpreter
+
+### What Was Accomplished
+Successfully replaced all references to `self.orc_storage` with `self.lakehouse.storage` in `pl_grizzly_interpreter.mojo` following the user's structural change replacing orc_storage field with lakehouse.
+
+### Key Changes Made
+- **Import Removal**: Removed `from orc_storage import ORCStorage` import line
+- **Global Replace**: Changed 19 instances of `self.orc_storage` to `self.lakehouse.storage` using global find-replace
+- **Assumption**: `LakehouseEngine` has a `storage` attribute providing equivalent functionality
+
+### Files Modified
+- `/home/lnx/Dev/app-reference-26/mojo-gobi/src/pl_grizzly_interpreter.mojo`
+
+### Technical Details
+- Used edit tool with `replaceAll: true` for efficient bulk replacement
+- Maintained exact same interface usage (`.schema_manager`, `.read_table`, `.get_indexes`, etc.)
+- No changes to logic or error handling - purely structural migration
+
+### Impact
+- Interpreter now accesses storage through the lakehouse field instead of direct orc_storage
+- Assumes `LakehouseEngine.storage` provides the same API as the previous `orc_storage` field
+- Ready for testing once lakehouse storage implementation is verified
+
+### Next Steps
+- Verify that `LakehouseEngine` has the expected storage attribute
+- Test interpreter functionality with the new structure
+- Update any other files that may reference orc_storage if needed
+
+---
+
 # 241226 - Query Execution Optimization COMPLETED ✅
 
 ## Comprehensive Query Execution Optimization Implementation

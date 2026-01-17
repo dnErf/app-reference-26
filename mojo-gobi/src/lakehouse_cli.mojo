@@ -10,18 +10,19 @@ from collections import List
 from enhanced_cli import EnhancedConsole
 from lakehouse_engine import LakehouseEngine
 from profiling_manager import ProfilingManager
-
+from job_scheduler import JobScheduler
+from root_storage import RootStorage, Record
 
 struct LakehouseCLI:
     """CLI commands for lakehouse operations."""
 
     var console: EnhancedConsole
-    var lakehouse: LakehouseEngine
+    var lakehouse: RootStorage
 
     fn __init__(out self, console: EnhancedConsole, db_path: String = ".gobi") raises:
         """Initialize lakehouse CLI with console and database path."""
         self.console = console.copy()
-        self.lakehouse = LakehouseEngine(db_path)
+        self.lakehouse = RootStorage(LakehouseEngine(".@gobi"))
 
     fn handle_timeline_command(mut self, args: List[String]) raises:
         """Handle timeline-related commands."""
@@ -490,7 +491,7 @@ struct LakehouseCLI:
         self.console.print("Stored Procedures", style="bold blue")
         self.console.print("-" * 20)
 
-        var procedures = self.lakehouse.root_storage.list_procedures()
+        var procedures = self.lakehouse.list_procedures()
         if len(procedures) == 0:
             self.console.print_info("No procedures found")
             return
@@ -507,11 +508,11 @@ struct LakehouseCLI:
         """Drop a stored procedure."""
         self.console.print("Dropping procedure: " + name, style="bold blue")
 
-        if not self.lakehouse.root_storage.procedure_exists(name):
+        if not self.lakehouse.procedure_exists(name):
             self.console.print_error("Procedure '" + name + "' does not exist")
             return
 
-        var success = self.lakehouse.root_storage.delete_procedure(name)
+        var success = self.lakehouse.delete_procedure(name)
         if success:
             self.console.print_success("Procedure '" + name + "' dropped successfully")
         else:
@@ -522,7 +523,7 @@ struct LakehouseCLI:
         self.console.print("Stored Triggers", style="bold blue")
         self.console.print("-" * 20)
 
-        var triggers = self.lakehouse.root_storage.list_triggers()
+        var triggers = self.lakehouse.list_triggers()
         if len(triggers) == 0:
             self.console.print_info("No triggers found")
             return
@@ -540,11 +541,11 @@ struct LakehouseCLI:
         """Drop a stored trigger."""
         self.console.print("Dropping trigger: " + name, style="bold blue")
 
-        if not self.lakehouse.root_storage.trigger_exists(name):
+        if not self.lakehouse.trigger_exists(name):
             self.console.print_error("Trigger '" + name + "' does not exist")
             return
 
-        var success = self.lakehouse.root_storage.delete_trigger(name)
+        var success = self.lakehouse.delete_trigger(name)
         if success:
             self.console.print_success("Trigger '" + name + "' dropped successfully")
         else:

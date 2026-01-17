@@ -14,7 +14,7 @@ from index_storage import IndexStorage
 from schema_manager import SchemaManager, DatabaseSchema, Index, Column
 from thread_safe_memory import AtomicInt, SpinLock, ThreadSafeCounter
 
-struct ORCStorage(Movable):
+struct ORCStorage(Copyable, Movable):
     var storage: BlobStorage
     var merkle_tree: MerkleBPlusTree
     var compression: String
@@ -29,7 +29,7 @@ struct ORCStorage(Movable):
     var active_writers: ThreadSafeCounter
     var storage_lock: SpinLock
 
-    fn __init__(out self, var storage: BlobStorage, var schema_manager: SchemaManager, var index_storage: IndexStorage, compression: String = "none", use_dictionary_encoding: Bool = True, row_index_stride: Int = 10000, compression_block_size: Int = 65536, var bloom_filter_columns: List[String] = List[String]()):
+    fn __init__(out self, var storage: BlobStorage, var schema_manager: SchemaManager, var index_storage: IndexStorage, compression: String = "none", use_dictionary_encoding: Bool = True, row_index_stride: Int = 10000, compression_block_size: Int = 65536):
         # Use copy() but ensure no recursive copy loops by avoiding __copyinit__
         self.storage = storage^
         self.merkle_tree = MerkleBPlusTree()
@@ -37,7 +37,6 @@ struct ORCStorage(Movable):
         self.use_dictionary_encoding = use_dictionary_encoding
         self.row_index_stride = row_index_stride
         self.compression_block_size = compression_block_size
-        self.bloom_filter_columns = bloom_filter_columns^
         self.index_storage = index_storage^
         self.schema_manager = schema_manager^
         self.operation_count = ThreadSafeCounter()
@@ -62,6 +61,12 @@ struct ORCStorage(Movable):
         self.active_readers = existing.active_readers^
         self.active_writers = existing.active_writers^
         self.storage_lock = existing.storage_lock^
+
+    fn init_bloom_filter(mut self, var bloom_filter_columns: List[String] = List[String]()):
+        self.bloom_filter_columns = bloom_filter_columns^
+
+    fn set_compression(mut self, var compression: String):
+        self.compression = compression
 
     fn write_table(mut self, table_name: String, data: List[List[String]]) -> Bool:
         """Write table data with integrity verification using PyArrow ORC format."""
@@ -460,7 +465,7 @@ struct ORCStorage(Movable):
 
     fn create_table(mut self, table_name: String, columns: List[Column]) -> Bool:
         """Create a table in the schema."""
-        self.operation_count.increment()
+        _ = self.operation_count.increment()
         return self.schema_manager.create_table(table_name, columns)
 
     fn get_thread_safety_stats(self) -> String:
@@ -537,6 +542,7 @@ fn pack_database_zstd(folder: String, rich_console: PythonObject) raises:
 
     except:
         rich_console.print("[red]Error: Failed to pack database[/red]")
+
 fn test_pyarrow_orc():
     """Test PyArrow ORC functionality."""
     try:

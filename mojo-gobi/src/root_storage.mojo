@@ -8,20 +8,38 @@ Provides generic CRUD operations for entity storage.
 from python import Python, PythonObject
 from collections import List
 from lakehouse_engine import LakehouseEngine, Record
-from schema_manager import TableSchema, Column
+from schema_manager import Column
+from job_scheduler import JobScheduler
+from profiling_manager import ProfilingManager
+from incremental_processor import IncrementalProcessor
+from merkle_timeline import MerkleTimeline
+from procedure_execution_engine import ProcedureExecutionEngine
 
-
-struct RootStorage(Movable):
+struct RootStorage(Movable, Copyable):
     """Generic storage system for entities using LakehouseEngine."""
 
     var engine: LakehouseEngine
     var entities_table: String
+    var procedure_engine: ProcedureExecutionEngine
+    var job_scheduler: JobScheduler
+    var profiler: ProfilingManager
+    var processor: IncrementalProcessor
+    var timeline: MerkleTimeline
+    var tables: Dict[String, Int]
 
-    fn __init__(out self, db_path: String = ".entities") raises:
+    # db_path: String = ".entities" 
+    fn __init__(out self, var engine: LakehouseEngine) raises:
         """Initialize root storage with a dedicated database."""
-        self.engine = LakehouseEngine(db_path)
-        self.entities_table = "entities"
+        self.engine = engine^
+        self.entities_table = "@gobi_entities"
 
+        self.procedure_engine = ProcedureExecutionEngine(self)
+        self.job_scheduler = JobScheduler(self)
+        self.profiler = ProfilingManager()
+        self.processor = IncrementalProcessor()
+        self.timeline = MerkleTimeline()
+        self.tables = Dict[String, Int]()
+        
         # Initialize the entities table if it doesn't exist
         self._ensure_entities_table()
 
@@ -466,3 +484,49 @@ struct RootStorage(Movable):
         """Get current timestamp as string."""
         # Simplified timestamp - in real implementation, use proper datetime
         return "2024-01-01T00:00:00Z"  # Placeholder
+
+    fn generate_performance_report(self) raises -> String:
+        """Generate a comprehensive performance report for the lakehouse engine."""
+        var report = String("=== Lakehouse Engine Performance Report ===\n\n")
+        report += self.profiler.generate_performance_report()
+        return report
+
+    fn get_changes_since(mut self, table_name: String, since: Int64) raises -> String:
+        """Get incremental changes since a watermark."""
+        var changeset = self.processor.get_changes_since(table_name, since)
+        var result = "Changes since " + String(since) + " for " + table_name + ":\n"
+        result += "  Total changes: " + String(changeset.count_changes()) + "\n"
+        result += "  Watermark: " + String(changeset.watermark) + "\n"
+        return result
+
+    fn query_since(mut self, table_name: String, timestamp: Int64, sql: String) raises -> String:
+        """Execute a time-travel query against the lakehouse with schema evolution support."""
+        print("Time-travel query since", String(timestamp) + ":", sql)
+
+        # Get commits and schema version at the specified timestamp
+        var result = self.timeline.query_as_of_with_schema(table_name, timestamp)
+        var commits = result[0].copy()
+        var schema_version = result[1]
+
+        print("Found", len(commits), "commits since timestamp", String(timestamp))
+        print("Using schema version:", String(schema_version))
+
+        # Get the appropriate schema for this timestamp
+        # var historical_schema = self.schema_evolution.get_schema_at_version(schema_version)
+        print("Historical schema lookup disabled (schema_evolution commented out)")
+
+        # In full implementation, this would:
+        # 1. Parse SQL with SINCE clause
+        # 2. Use historical schema for column mapping
+        # 3. Filter data based on timeline state
+        # 4. Execute query against historical data with proper schema
+
+        return "Time-travel query executed: " + sql + " (since " + String(timestamp) + ", schema v" + String(schema_version) + ")"
+
+    fn get_stats(mut self) raises -> String:
+        """Get lakehouse engine statistics."""
+        var stats = "Lakehouse Engine Statistics:\n"
+        stats += "  Tables: " + String(len(self.tables)) + "\n"
+        stats += self.timeline.get_stats()
+        stats += self.processor.get_stats()
+        return stats

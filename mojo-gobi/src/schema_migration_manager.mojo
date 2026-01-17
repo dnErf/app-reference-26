@@ -65,10 +65,10 @@ struct SchemaMigrationManager(Movable):
         var timeline: MerkleTimeline,
         migration_dir: String = "migrations"
     ) raises:
-        self.schema_evolution = schema_evolution ^
-        self.schema_manager = schema_manager ^
-        self.storage = storage ^
-        self.timeline = timeline ^
+        self.schema_evolution = schema_evolution
+        self.schema_manager = schema_manager
+        self.storage = storage
+        self.timeline = timeline
         self.migration_tasks = List[MigrationTask]()
         self.migration_dir = migration_dir
 

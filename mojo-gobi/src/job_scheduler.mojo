@@ -8,10 +8,8 @@ job queue management, execution tracking, and failure handling.
 from collections import Dict, List
 from python import Python, PythonObject
 from cron_evaluator import evaluate_cron, get_next_run_time
-from procedure_execution_engine import ProcedureExecutionEngine
 from root_storage import RootStorage, Record
 from pl_grizzly_environment import Environment
-from orc_storage import ORCStorage
 from ast_evaluator import ASTEvaluator
 from pl_grizzly_values import PLValue
 
@@ -60,20 +58,17 @@ struct JobExecutionResult(Copyable, Movable):
         self.execution_time = execution_time
         self.timestamp = timestamp
 
-struct JobScheduler(Movable):
+struct JobScheduler(Copyable, Movable):
     """Manages scheduled job execution."""
     var jobs: Dict[String, ScheduledJob]
-    var execution_engine: ProcedureExecutionEngine
     var storage: RootStorage
     var is_running: Bool
     var check_interval: Int  # seconds between schedule checks
     var execution_history: List[JobExecutionResult]
 
-    fn __init__(out self, mut storage: RootStorage) raises:
+    fn __init__(out self, storage: RootStorage) raises:
+        self.storage = storage.copy()
         self.jobs = Dict[String, ScheduledJob]()
-        self.execution_engine = ProcedureExecutionEngine()
-        self.execution_engine.set_procedure_storage(storage)
-        self.storage = storage ^
         self.is_running = False
         self.check_interval = 60  # Check every minute
         self.execution_history = List[JobExecutionResult]()

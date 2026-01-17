@@ -544,6 +544,9 @@ struct PLGrizzlyParser:
         self.symbol_table = SymbolTable()
         self.type_checker = TypeChecker()
 
+    fn set_tokens(mut self, var tokens: List[Token]):
+        self.tokens = tokens^
+
     fn parse(mut self) raises -> ASTNode:
         """Parse tokens into optimized AST with semantic analysis."""
         if len(self.tokens) == 0:

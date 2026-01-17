@@ -22,6 +22,9 @@ from root_storage import RootStorage
 from procedure_execution_engine import ProcedureExecutionEngine
 from trigger_execution_engine import TriggerExecutionEngine, TriggerExecutionContext
 from profiling_manager import ProfilingManager
+from lakehouse_engine import LakehouseEngine
+from root_storage import RootStorage, Record
+from job_scheduler import JobScheduler
 
 struct ASTEvaluator:
     var symbol_table: SymbolTable
@@ -40,10 +43,10 @@ struct ASTEvaluator:
     var pyarrow_writer: PyArrowFileWriter  # PyArrow file writer extension
     var type_checker: TypeChecker  # Dynamic type checker
     var memory_manager: MemoryManager  # Advanced memory management
+    var root_storage: RootStorage
     var procedure_storage: RootStorage  # Procedure storage system
-    var procedure_execution_engine: ProcedureExecutionEngine  # Procedure execution engine
+    var procedure_engine: ProcedureExecutionEngine
     var trigger_execution_engine: TriggerExecutionEngine  # Trigger execution engine
-
 
     fn __init__(out self, source_code: String = "") raises:
         self.symbol_table = SymbolTable()
@@ -62,17 +65,13 @@ struct ASTEvaluator:
         self.pyarrow_writer = PyArrowFileWriter()
         self.type_checker = TypeChecker()
         self.memory_manager = MemoryManager()  # Initialize memory manager
-        self.procedure_storage = RootStorage(".dummy")  # Initialize with dummy path
-        self.procedure_execution_engine = ProcedureExecutionEngine()
-        # var dummy_profiler = ProfilingManager()
-        # self.procedure_execution_engine = ProcedureExecutionEngine()
-        # self.procedure_execution_engine.set_procedure_storage(self.procedure_storage ^)
-        # Don't set circular reference to self
-        # self.procedure_execution_engine.set_profiler(dummy_profiler ^)
 
         # Initialize trigger execution engine
         var dummy_profiler = ProfilingManager()
         self.trigger_execution_engine = TriggerExecutionEngine()
+
+        # Automation - minimal
+        self.root_storage = RootStorage(LakehouseEngine(".@gobi"))
 
     fn set_source_code(mut self, source: String):
         """Set the source code for error context."""
@@ -80,12 +79,7 @@ struct ASTEvaluator:
 
     fn set_procedure_storage(mut self, var procedure_storage: RootStorage):
         """Set the procedure storage system."""
-        self.procedure_storage = procedure_storage ^
-
-    fn set_procedure_execution_engine(mut self, var engine: ProcedureExecutionEngine, evaluator: ASTEvaluator):
-        """Set the procedure execution engine."""
-        self.procedure_execution_engine = engine^
-        # self.set_evaluator_pointer()
+        self.procedure_storage = procedure_storage
 
     fn set_trigger_execution_engine(mut self, var engine: TriggerExecutionEngine):
         """Set the trigger execution engine."""
@@ -96,8 +90,6 @@ struct ASTEvaluator:
         # TODO: Set evaluator pointer when trigger execution is enabled
         # self.trigger_execution_engine.set_evaluator(Pointer.address_of(self).raw_pointer)
         pass
-
-
 
     fn intern_string(mut self, s: String) -> String:
         """Intern a string to reduce memory usage for repeated strings."""

@@ -9,7 +9,7 @@ from collections import List, Dict, Optional
 from time import sleep
 
 # Thread-safe integer using spin lock
-struct AtomicInt(Movable):
+struct AtomicInt(Copyable, Movable):
     var value: Int
     var lock: SpinLock
 
@@ -59,7 +59,7 @@ struct AtomicInt(Movable):
         self.store(new_value)
 
 # Spin lock for lightweight synchronization
-struct SpinLock(Movable):
+struct SpinLock(Copyable, Movable):
     var locked: Bool
 
     fn __init__(out self):
@@ -83,7 +83,7 @@ struct SpinLock(Movable):
         self.locked = False
 
 # Thread-safe counter using atomic operations
-struct ThreadSafeCounter(Movable):
+struct ThreadSafeCounter(Copyable, Movable):
     var value: AtomicInt
 
     fn __init__(out self):

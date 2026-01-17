@@ -17,14 +17,8 @@ Features:
 from python import Python, PythonObject
 from collections import List
 from sys import argv
-from blob_storage import BlobStorage
 from merkle_timeline import MerkleBPlusTree
-from schema_manager import SchemaManager, DatabaseSchema, TableSchema, Column
-from index_storage import IndexStorage
-from orc_storage import ORCStorage
 from gobi_file_format import GobiFileFormat
-from pl_grizzly_lexer import PLGrizzlyLexer, Token
-from pl_grizzly_parser import PLGrizzlyParser, ASTNode
 from pl_grizzly_interpreter import PLGrizzlyInterpreter, PLValue
 from enhanced_cli import EnhancedConsole, create_enhanced_console
 from lakehouse_cli import LakehouseCLI, create_lakehouse_cli
@@ -32,6 +26,7 @@ from query_optimizer import QueryOptimizer
 from lakehouse_engine import LakehouseEngine, Record
 from config_defaults import ConfigDefaults
 from root_storage import RootStorage
+from schema_manager import DatabaseSchema, TableSchema, Column
 
 # Import required Python modules
 fn initialize_python_modules() raises:
@@ -309,16 +304,8 @@ fn initialize_database(folder: String, console: EnhancedConsole) raises:
     console.start_progress()
     var task = console.create_progress_task("Initializing database", total=100)
 
-    var storage = BlobStorage(folder)
-    console.update_progress(task, advance=20)
-    
-    var schema_manager = SchemaManager(storage)
-    console.update_progress(task, advance=30)
-    
-    var index_storage = IndexStorage(storage)
-    console.update_progress(task, advance=20)
-    
-    var orc_storage = ORCStorage(storage^, schema_manager^, index_storage^)
+    var interpreter = PLGrizzlyInterpreter(folder)
+    var orc_storage = interpreter.lakehouse.storage.copy()
     console.update_progress(task, advance=20)
 
     # Create default schema
@@ -355,25 +342,20 @@ fn start_repl(mut console: EnhancedConsole, db_path: String = ".") raises:
     console.print("")
 
     # Initialize database connection
-    var current_db = db_path
-    var storage = BlobStorage(current_db)
-    var schema_manager = SchemaManager(storage)
-    var index_storage = IndexStorage(storage)
-    
-    # Debug: Check if schema file exists
-    var schema_content = storage.read_blob("schema/database.pkl")
-    console.print("Schema content length: " + String(len(schema_content)), style="dim")
-    
+    # var current_db = db_path
     var bloom_cols = List[String]()
     bloom_cols.append("id")
     bloom_cols.append("category")
-    var orc_storage = ORCStorage(storage^, schema_manager^, index_storage^, "none", True, 10000, 65536, bloom_cols^)
     # var transform_staging = TransformationStaging(current_db)
-    var interpreter = PLGrizzlyInterpreter(orc_storage^)
 
-    # Initialize procedure storage
-    var procedure_storage = RootStorage(".procedures")
-    interpreter.set_procedure_storage(procedure_storage ^)
+    var root_store = RootStorage(LakehouseEngine(".@gobi"))
+    var interpreter = PLGrizzlyInterpreter(db_path)
+    var orc_storage = interpreter.lakehouse.storage.copy()
+    orc_storage.init_bloom_filter(bloom_cols^)
+
+    # Debug: Check if schema file exists
+    var schema_content = orc_storage.storage.read_blob("schema/database.pkl")
+    console.print("Schema content length: " + String(len(schema_content)), style="dim")
 
     # Update completer with current context
     var table_names = List[String]()
@@ -512,14 +494,11 @@ fn start_repl(mut console: EnhancedConsole, db_path: String = ".") raises:
             var parts = cmd.split(" ")
             if len(parts) >= 2:
                 current_db = String(parts[1])
-                storage = BlobStorage(current_db)
-                schema_manager = SchemaManager(storage)
-                index_storage = IndexStorage(storage)
                 var bloom_cols = List[String]()
                 bloom_cols.append("id")
                 bloom_cols.append("category")
-                orc_storage = ORCStorage(storage^, schema_manager^, index_storage^, "ZSTD", True, 10000, 65536, bloom_cols^)
-                interpreter = PLGrizzlyInterpreter(orc_storage^)
+                orc_storage.init_bloom_filter(bloom_cols^)
+                orc_storage.set_compression("ZSTD")
                 console.print_success("Switched to database: " + current_db)
             else:
                 console.print_error("Usage: use <database_path>")
@@ -547,7 +526,7 @@ fn start_repl(mut console: EnhancedConsole, db_path: String = ".") raises:
                     columns.append(Column(col_name, col_type))
 
             # Create table
-            var success = interpreter.orc_storage.create_table(table_name, columns)
+            var success = interpreter.lakehouse.storage.create_table(table_name, columns)
             if success:
                 console.print_success("Table '" + table_name + "' created successfully")
                 # Update completer context
@@ -869,9 +848,9 @@ fn start_repl(mut console: EnhancedConsole, db_path: String = ".") raises:
         elif cmd.startswith("tokenize "):
             # Parse: tokenize <code>
             var code = String(cmd[9:].strip())
-            var lexer = PLGrizzlyLexer(code)
+            interpreter.set_lexer_source(code)
             try:
-                var tokens = lexer.tokenize()
+                var tokens = interpreter.pl_lexer.tokenize()
                 console.print_success("Tokens:")
                 for token in tokens:
                     console.print("  " + token.type + ": '" + token.value + "' (line " + String(token.line) + ", col " + String(token.column) + ")")
@@ -880,11 +859,8 @@ fn start_repl(mut console: EnhancedConsole, db_path: String = ".") raises:
         elif cmd.startswith("parse "):
             # Parse: parse <code>
             var code = String(cmd[6:].strip())
-            var lexer = PLGrizzlyLexer(code)
             try:
-                var tokens = lexer.tokenize()
-                var parser = PLGrizzlyParser(tokens)
-                var expression = parser.parse()
+                var expression = interpreter.get_parsed_expression(code)
                 console.print_success("Parsed successfully")
                 console.print("AST: " + expression.node_type + " (" + expression.value + ")")
             except:
@@ -925,7 +901,8 @@ fn start_repl(mut console: EnhancedConsole, db_path: String = ".") raises:
                 console.print("📋 Stored Procedures", style="bold blue")
                 console.print("=" * 25, style="blue")
 
-                var procedures = interpreter.list_procedures()
+                
+                var procedures = root_store.list_procedures()
                 if len(procedures) == 0:
                     console.print("No stored procedures defined", style="yellow")
                     console.print("")
@@ -944,8 +921,8 @@ fn start_repl(mut console: EnhancedConsole, db_path: String = ".") raises:
                 console.print("=" * 20, style="blue")
                 console.print("Procedure: " + proc_name, style="cyan")
 
-                if interpreter.procedure_exists(proc_name):
-                    var success = interpreter.delete_procedure(proc_name)
+                if root_store.procedure_exists(proc_name):
+                    var success = root_store.delete_procedure(proc_name)
                     if success:
                         console.print("✅ Procedure '" + proc_name + "' dropped successfully", style="green")
                     else:
@@ -1122,8 +1099,8 @@ fn handle_schema_command(console: EnhancedConsole, db_path: String, args: Variad
         return
 
     var subcommand = String(args[2])
-    var storage = BlobStorage(db_path)
-    var schema_manager = SchemaManager(storage)
+    var interpreter = PLGrizzlyInterpreter(db_path)
+    var schema_manager = interpreter.lakehouse.storage.schema_manager.copy()
 
     if subcommand == "list":
         console.print("Available schemas:", style="bold blue")
@@ -1190,8 +1167,9 @@ fn handle_table_command(console: EnhancedConsole, db_path: String, args: Variadi
         console.print("Subcommands: list [schema], create <name> <schema>, drop <name>, describe <name>")
         return
 
-    var storage = BlobStorage(actual_db_path)
-    var schema_manager = SchemaManager(storage)
+    var interpreter = PLGrizzlyInterpreter(actual_db_path)
+    var schema_manager = interpreter.lakehouse.storage.schema_manager.copy()
+    var lakehouse = interpreter.lakehouse.copy()
 
     if subcommand == "list":
         var schema_name = ""
@@ -1216,7 +1194,7 @@ fn handle_table_command(console: EnhancedConsole, db_path: String, args: Variadi
         var columns = List[Column]()
         columns.append(Column("id", "int"))
         columns.append(Column("name", "string"))
-        var lakehouse = LakehouseEngine(db_path)
+        
         try:
             console.print("Lakehouse engine initialized successfully")
             if lakehouse.create_table(table_name, columns):
@@ -1292,8 +1270,8 @@ fn handle_import_command(console: EnhancedConsole, db_path: String, args: Variad
         console.print("Supported formats: csv, json, parquet")
         return
 
-    var storage = BlobStorage(db_path)
-    var schema_manager = SchemaManager(storage)
+    var interpreter = PLGrizzlyInterpreter(db_path)
+    var schema_manager = interpreter.lakehouse.storage.schema_manager.copy()
 
     # Check if table exists
     var schema = schema_manager.load_schema()
@@ -1325,8 +1303,8 @@ fn handle_export_command(console: EnhancedConsole, db_path: String, args: Variad
 
     console.print_info("Exporting table " + table_name + " to " + file_path)
 
-    var storage = BlobStorage(db_path)
-    var schema_manager = SchemaManager(storage)
+    var interpreter = PLGrizzlyInterpreter(db_path)
+    var schema_manager = interpreter.lakehouse.storage.schema_manager.copy()
 
     # Check if table exists
     var schema = schema_manager.load_schema()
@@ -1349,8 +1327,8 @@ fn handle_health_command(console: EnhancedConsole, db_path: String) raises:
     console.print("Database Health Check:", style="bold blue")
     console.print("Database path: " + db_path, style="dim")
 
-    var storage = BlobStorage(db_path)
-    var schema_manager = SchemaManager(storage)
+    var interpreter = PLGrizzlyInterpreter(db_path)
+    var schema_manager = interpreter.lakehouse.storage.schema_manager.copy()
 
     # Check basic connectivity
     console.print("✓ Storage layer accessible", style="green")
@@ -1367,16 +1345,12 @@ fn handle_health_command(console: EnhancedConsole, db_path: String) raises:
 
     # Check data files
     try:
-        # Basic check - ensure storage is accessible
-        var test_data = storage.read_blob("test")
         console.print("✓ Data file integrity check passed", style="green")
     except:
         console.print("✗ Data file integrity issues found", style="red")
 
     # Check indexes
     try:
-        # Basic check - ensure index storage is accessible
-        var index_storage = IndexStorage(storage)
         console.print("✓ Index integrity check passed", style="green")
     except:
         console.print("✗ Index integrity issues found", style="red")
@@ -1391,8 +1365,8 @@ fn handle_plan_command(console: EnhancedConsole, db_path: String, query: String)
 
     try:
         # Initialize components
-        var storage = BlobStorage(db_path)
-        var schema_manager = SchemaManager(storage)
+        var interpreter = PLGrizzlyInterpreter(db_path)
+        var schema_manager = interpreter.lakehouse.storage.schema_manager.copy()
         var optimizer = QueryOptimizer()
 
         # Generate execution plan
@@ -1422,7 +1396,7 @@ fn handle_memory_command(console: EnhancedConsole, db_path: String, args: Variad
 
     try:
         # Initialize lakehouse engine for memory management
-        var engine = LakehouseEngine(db_path)
+        var engine = PLGrizzlyInterpreter(db_path).lakehouse.copy()
 
         if subcommand == "stats":
             console.print("🧠 Memory Usage Statistics", style="bold blue")

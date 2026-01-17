@@ -14,8 +14,6 @@ from profiling_manager import ProfilingManager
 from query_optimizer import QueryOptimizer
 from schema_evolution_manager import SchemaEvolutionManager, SchemaChange, SchemaVersion
 from schema_migration_manager import SchemaMigrationManager
-from root_storage import RootStorage
-from job_scheduler import JobScheduler
 
 # Table type constants
 alias COW = 0      # Copy-on-Write: Read-optimized
@@ -51,7 +49,7 @@ struct Commit(Movable, Copyable):
         self.merkle_root = 0
 
 # MINIMAL Lakehouse Engine - Central Coordinator
-struct LakehouseEngine(Movable):
+struct LakehouseEngine(Copyable, Movable):
     # Only essential fields to avoid compilation segfault
     var storage: ORCStorage
     var timeline: MerkleTimeline
@@ -62,8 +60,6 @@ struct LakehouseEngine(Movable):
     var tables: Dict[String, Int]  # table_name -> table_type (as Int)
     var profiler: ProfilingManager
     var python_time: PythonObject
-    var root_storage: RootStorage  # Procedure and automation storage
-    var job_scheduler: JobScheduler  # Cron job scheduler
 
     # Commented out complex fields causing segfault
     # var schema_evolution: SchemaEvolutionManager
@@ -83,18 +79,13 @@ struct LakehouseEngine(Movable):
         self.processor = IncrementalProcessor()
         # self.materializer = MaterializationEngine()
         # self.optimizer = QueryOptimizer()
-        self.schema_manager = SchemaManager(BlobStorage(storage_path))
+        self.schema_manager = self.storage.schema_manager.copy()
         
         # Basic state
         self.tables = Dict[String, Int]()
         self.profiler = ProfilingManager()
         self.python_time = Python.import_module("time")
         
-        # Automation - minimal
-        var mut_root = RootStorage(storage_path)
-        self.root_storage = mut_root ^
-        self.job_scheduler = JobScheduler(mut_root)
-
     fn create_table(mut self, name: String, schema: List[Column], table_type: Int = HYBRID) raises -> Bool:
         """Create a new table with the specified schema and type."""
         # Create table in schema manager

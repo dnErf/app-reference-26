@@ -368,7 +368,7 @@ struct PerformanceComparison(Copyable, Movable):
         return max(0.0, min(100.0, score))
 
 # Comprehensive profiling manager
-struct ProfilingManager(Movable):
+struct ProfilingManager(Copyable, Movable):
     var query_profiles: Dict[String, QueryProfile]
     var cache_metrics: CacheMetrics
     var timeline_metrics: TimelineMetrics

@@ -47,14 +47,14 @@ struct ProcedureExecutionContext(Movable):
         self.result = None
 
 # Procedure Execution Engine
-struct ProcedureExecutionEngine(Movable):
+struct ProcedureExecutionEngine(Copyable, Movable):
     var procedure_storage: RootStorage
     var profiler: ProfilingManager
     var active_executions: Dict[String, String]  # execution_id -> status
 
-    fn __init__(out self) raises:
+    fn __init__(out self, procedure_storage: RootStorage) raises:
         # Initialize with defaults - will be set later
-        self.procedure_storage = RootStorage("")
+        self.procedure_storage = procedure_storage.copy()
         self.profiler = ProfilingManager()
         self.active_executions = Dict[String, String]()
 
