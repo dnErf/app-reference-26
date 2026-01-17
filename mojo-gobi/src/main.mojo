@@ -253,7 +253,7 @@ fn print_usage(console: EnhancedConsole) raises:
     console.print("  gobi snapshot [db_path] <subcommand> - Snapshot management")
     console.print("    list                    - List all snapshots")
     console.print("    create <name>           - Create snapshot")
-    console.print("    delete <name>           - Delete snapshot")
+    console.print("    rollback <name>         - Rollback to snapshot")
     console.print("  gobi time-travel [db_path] <table> <timestamp> - Time travel query")
     console.print("  gobi incremental [db_path] <subcommand> - Incremental processing")
     console.print("    status                  - Show incremental status")

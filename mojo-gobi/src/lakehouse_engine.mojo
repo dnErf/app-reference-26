@@ -14,6 +14,10 @@ from profiling_manager import ProfilingManager
 from query_optimizer import QueryOptimizer
 from schema_evolution_manager import SchemaEvolutionManager, SchemaChange, SchemaVersion
 from schema_migration_manager import SchemaMigrationManager
+from timestamp_manager import TimestampManager
+from transaction_context import TransactionContext, DataStore
+from conflict_resolver import ConflictResolver
+from snapshot_manager import SnapshotManager
 
 # Table type constants
 alias COW = 0      # Copy-on-Write: Read-optimized
@@ -61,30 +65,44 @@ struct LakehouseEngine(Copyable, Movable):
     var profiler: ProfilingManager
     var python_time: PythonObject
 
+    # Concurrency control components
+    var ts_manager: TimestampManager
+    var data_store: DataStore
+    var conflict_resolver: ConflictResolver
+    var snapshot_manager: SnapshotManager
+    var active_transactions: List[TransactionContext]
+
     # Commented out complex fields causing segfault
     # var schema_evolution: SchemaEvolutionManager
     # var migration_manager: SchemaMigrationManager
 
     fn __init__(out self, storage_path: String = ".gobi") raises:
         # Minimal initialization to avoid compilation segfault
-        
+
         # Core storage only
         var blob_storage = BlobStorage(storage_path)
         var index_storage = IndexStorage(blob_storage)
         var schema_mgr = SchemaManager(blob_storage)
         self.storage = ORCStorage(blob_storage ^, schema_mgr ^, index_storage ^)
-        
+
         # Basic components
         self.timeline = MerkleTimeline()
         self.processor = IncrementalProcessor()
         # self.materializer = MaterializationEngine()
         # self.optimizer = QueryOptimizer()
         self.schema_manager = self.storage.schema_manager.copy()
-        
+
         # Basic state
         self.tables = Dict[String, Int]()
         self.profiler = ProfilingManager()
         self.python_time = Python.import_module("time")
+
+        # Initialize concurrency control
+        self.ts_manager = TimestampManager()
+        self.data_store = DataStore()
+        self.conflict_resolver = ConflictResolver()
+        self.snapshot_manager = SnapshotManager()
+        self.active_transactions = List[TransactionContext]()
         
     fn create_table(mut self, name: String, schema: List[Column], table_type: Int = HYBRID) raises -> Bool:
         """Create a new table with the specified schema and type."""
@@ -99,36 +117,44 @@ struct LakehouseEngine(Copyable, Movable):
         return True
 
     fn insert(mut self, table_name: String, records: List[Record]) raises -> String:
-        """Insert records into a table and create a timeline commit."""
-        var start_time = Float64(self.python_time.time())
-
+        """Insert records into a table using timestamp-based concurrency control."""
         if not table_name in self.tables:
             print("✗ Table not found:", table_name)
             return ""
 
-        # Convert records to change strings
-        var changes = List[String]()
-        for record in records:
-            var change_str = "INSERT INTO " + table_name + " VALUES ("
-            var first = True
-            for column in record.data:
-                if not first:
-                    change_str += ", "
-                change_str += "'" + String(record.data[column]) + "'"
-                first = False
-            change_str += ")"
-            changes.append(change_str)
+        # Begin transaction
+        var tx = TransactionContext()
+        tx.begin(self.ts_manager)
+        self.active_transactions.append(tx)
 
-        # Create timeline commit with current schema version
-        var current_schema_version = 1  # Placeholder since schema_evolution is disabled
-        var commit_id = self.timeline.commit(table_name, changes, current_schema_version)
-        var commit_time = Float64(self.python_time.time()) - start_time
+        # Simulate writes (in real implementation, would write to storage)
+        for i in range(len(records)):
+            var record_id = table_name + "_record_" + String(i)
+            var record_data = "INSERT: " + String(records[i].data)
+            tx.write(record_id, record_data)
 
-        self.profiler.record_timeline_commit(commit_time)
-        self.profiler.record_function_call("insert")
+        # Commit transaction
+        if tx.commit(self.data_store, self.ts_manager):
+            # Remove from active transactions
+            for i in range(len(self.active_transactions)):
+                if self.active_transactions[i].start_ts == tx.start_ts:
+                    self.active_transactions.erase(i)
+                    break
 
-        print("✓ Inserted", len(records), "records into", table_name, "commit:", commit_id)
-        return commit_id
+            # Create timeline commit for tracking
+            var changes = List[String]()
+            for record in records:
+                changes.append("INSERT " + String(record.data))
+
+            var current_schema_version = 1
+            var commit_id = self.timeline.commit(table_name, changes, current_schema_version)
+
+            self.profiler.record_function_call("insert")
+            print("✓ Inserted", len(records), "records into", table_name, "commit:", commit_id)
+            return commit_id
+        else:
+            print("✗ Transaction aborted due to conflict")
+            return ""
 
     fn upsert(mut self, table_name: String, records: List[Record], key_columns: List[String]) raises -> String:
         """Upsert records into a table with key-based conflict resolution."""
@@ -269,6 +295,45 @@ struct LakehouseEngine(Copyable, Movable):
         """Perform timeline compaction for optimization."""
         self.timeline.compact_commits()
         print("✓ Timeline compaction completed")
+
+    # Concurrency Control Methods
+    fn create_snapshot(mut self, snapshot_id: String) -> Bool:
+        """Create a manual snapshot for rollback."""
+        var timestamp = self.ts_manager.current_timestamp()
+        self.snapshot_manager.create_snapshot(snapshot_id, self.data_store, timestamp)
+        return True
+
+    fn rollback_to_snapshot(mut self, snapshot_id: String) -> Bool:
+        """Rollback to a snapshot."""
+        return self.snapshot_manager.rollback_to(snapshot_id, self.data_store)
+
+    fn list_snapshots(self) -> List[String]:
+        """List available snapshots."""
+        return self.snapshot_manager.list_snapshots()
+
+    fn check_for_conflicts(mut self) -> List[String]:
+        """Check for conflicts in active transactions."""
+        var conflicts = self.conflict_resolver.detect_conflicts(self.active_transactions)
+        var conflict_messages = List[String]()
+
+        for conflict in conflicts:
+            var message = "Conflict detected between transactions " + String(conflict.tx1.start_ts) + " and " + String(conflict.tx2.start_ts)
+            conflict_messages.append(message)
+
+        return conflict_messages
+
+    fn resolve_conflicts(mut self):
+        """Resolve conflicts using first-writer-wins policy."""
+        var conflicts = self.conflict_resolver.detect_conflicts(self.active_transactions)
+        var winners = self.conflict_resolver.resolve_all_conflicts(conflicts)
+
+        # Keep only winning transactions
+        var new_active = List[TransactionContext]()
+        for winner in winners:
+            new_active.append(winner)
+        self.active_transactions = new_active
+
+        print("✓ Resolved", len(conflicts), "conflicts")
 
     fn get_stats(mut self) raises -> String:
         """Get lakehouse engine statistics."""

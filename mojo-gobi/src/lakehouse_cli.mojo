@@ -57,11 +57,11 @@ struct LakehouseCLI:
                 self.console.print_error("snapshot create requires a name")
                 return
             self.create_snapshot(args[1])
-        elif subcommand == "delete":
+        elif subcommand == "rollback":
             if len(args) < 2:
-                self.console.print_error("snapshot delete requires a name")
+                self.console.print_error("snapshot rollback requires a name")
                 return
-            self.delete_snapshot(args[1])
+            self.rollback_to_snapshot(args[1])
         else:
             self.console.print_error("Unknown snapshot subcommand: " + subcommand)
             self.print_snapshot_help()
@@ -251,20 +251,32 @@ struct LakehouseCLI:
         self.console.print("Available Snapshots", style="bold blue")
         self.console.print("-" * 25)
 
-        self.console.print_info("Snapshot listing not yet implemented")
+        # Access engine through root storage
+        var snapshots = self.lakehouse.engine.list_snapshots()
+        if len(snapshots) == 0:
+            self.console.print_info("No snapshots available")
+        else:
+            for snapshot in snapshots:
+                var ts = self.lakehouse.engine.snapshot_manager.get_snapshot_timestamp(snapshot)
+                self.console.print("  " + snapshot + " (created at " + String(ts) + ")")
 
     fn create_snapshot(mut self, name: String) raises:
         """Create a new snapshot."""
         self.console.print("Creating snapshot: " + name, style="bold blue")
 
-        # This would create a named snapshot
-        self.console.print_success("Snapshot '" + name + "' created")
+        if self.lakehouse.engine.create_snapshot(name):
+            self.console.print_success("Snapshot '" + name + "' created")
+        else:
+            self.console.print_error("Failed to create snapshot '" + name + "'")
 
-    fn delete_snapshot(mut self, name: String) raises:
-        """Delete a snapshot."""
-        self.console.print("Deleting snapshot: " + name, style="bold blue")
+    fn rollback_to_snapshot(mut self, name: String) raises:
+        """Rollback to a snapshot."""
+        self.console.print("Rolling back to snapshot: " + name, style="bold blue")
 
-        self.console.print_success("Snapshot '" + name + "' deleted")
+        if self.lakehouse.engine.rollback_to_snapshot(name):
+            self.console.print_success("Rolled back to snapshot '" + name + "'")
+        else:
+            self.console.print_error("Failed to rollback to snapshot '" + name + "'")
 
     fn execute_time_travel_query(mut self, table_name: String, timestamp: Int64, sql: String) raises:
         """Execute a time travel query."""
@@ -562,10 +574,10 @@ struct LakehouseCLI:
 
     fn print_snapshot_help(mut self) raises:
         """Print snapshot command help."""
-        self.console.print("Snapshot Commands:", style="yellow")
+        self.console.print("Snapshot Management:")
         self.console.print("  gobi snapshot list           - List all snapshots")
         self.console.print("  gobi snapshot create <name>  - Create snapshot")
-        self.console.print("  gobi snapshot delete <name>  - Delete snapshot")
+        self.console.print("  gobi snapshot rollback <name> - Rollback to snapshot")
 
     fn print_time_travel_help(mut self) raises:
         """Print time travel command help."""
