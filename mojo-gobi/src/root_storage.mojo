@@ -43,6 +43,17 @@ struct RootStorage(Movable, Copyable):
         # Initialize the entities table if it doesn't exist
         self._ensure_entities_table()
 
+        # Initialize blob storage
+        self._initialize_blob_store()
+
+    fn _initialize_blob_store(mut self) raises:
+        """Initialize blob storage for the lakehouse engine."""
+        try:
+            self.engine.initialize_blob_store(".gobi")
+            print("✓ Blob storage initialized in root storage")
+        except e:
+            print("Warning: Failed to initialize blob storage:", String(e))
+
     fn _ensure_entities_table(mut self) raises:
         """Ensure the entities table exists with correct schema."""
         # Try to create the table - if it already exists, this will be a no-op or handled gracefully

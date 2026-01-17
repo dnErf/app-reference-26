@@ -12,23 +12,43 @@ from blob_storage import BlobStorage
 
 struct Column(Movable, Copyable):
     var name: String
-    var type: String  # e.g., "int", "string", "float"
+    var type: String  # e.g., "int", "string", "float", "blob"
     var nullable: Bool
+    var blob_bucket: String  # S3 bucket for BLOB columns (optional)
+    var blob_compression: String  # Compression for BLOB columns (optional)
 
     fn __init__(out self, name: String, type: String, nullable: Bool = True):
         self.name = name
         self.type = type
         self.nullable = nullable
+        self.blob_bucket = ""
+        self.blob_compression = "none"
+
+    fn __init__(out self, name: String, type: String, blob_bucket: String, blob_compression: String = "none", nullable: Bool = True):
+        """Constructor for BLOB columns."""
+        self.name = name
+        self.type = type
+        self.nullable = nullable
+        self.blob_bucket = blob_bucket
+        self.blob_compression = blob_compression
 
     fn __copyinit__(out self, other: Self):
         self.name = other.name
         self.type = other.type
         self.nullable = other.nullable
+        self.blob_bucket = other.blob_bucket
+        self.blob_compression = other.blob_compression
 
     fn __moveinit__(out self, deinit existing: Self):
         self.name = existing.name^
         self.type = existing.type^
         self.nullable = existing.nullable
+        self.blob_bucket = existing.blob_bucket^
+        self.blob_compression = existing.blob_compression^
+
+    fn is_blob(self) -> Bool:
+        """Check if this is a BLOB column."""
+        return self.type == "blob"
 struct Index(Movable, Copyable):
     var name: String
     var table_name: String

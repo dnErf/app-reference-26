@@ -14,6 +14,8 @@ from profiling_manager import ProfilingManager
 from query_optimizer import QueryOptimizer
 from schema_evolution_manager import SchemaEvolutionManager, SchemaChange, SchemaVersion
 from schema_migration_manager import SchemaMigrationManager
+from seaweed_blob_store import SeaweedBlobStore
+from s3_gateway import S3Gateway
 from timestamp_manager import TimestampManager
 from transaction_context import TransactionContext, DataStore
 from conflict_resolver import ConflictResolver
@@ -72,6 +74,10 @@ struct LakehouseEngine(Copyable, Movable):
     var snapshot_manager: SnapshotManager
     var active_transactions: List[TransactionContext]
 
+    # Blob storage components
+    var blob_store: Optional[SeaweedBlobStore]
+    var s3_gateway: Optional[S3Gateway]
+
     # Commented out complex fields causing segfault
     # var schema_evolution: SchemaEvolutionManager
     # var migration_manager: SchemaMigrationManager
@@ -103,6 +109,8 @@ struct LakehouseEngine(Copyable, Movable):
         self.conflict_resolver = ConflictResolver()
         self.snapshot_manager = SnapshotManager()
         self.active_transactions = List[TransactionContext]()
+        self.blob_store = None
+        self.s3_gateway = None
         
     fn create_table(mut self, name: String, schema: List[Column], table_type: Int = HYBRID) raises -> Bool:
         """Create a new table with the specified schema and type."""
@@ -334,6 +342,65 @@ struct LakehouseEngine(Copyable, Movable):
         self.active_transactions = new_active
 
         print("✓ Resolved", len(conflicts), "conflicts")
+
+    # Blob Storage Methods
+    fn initialize_blob_store(mut self, base_path: String) raises:
+        """Initialize blob storage components."""
+        var blob_storage = BlobStorage(base_path + "/blobs")
+        var index_storage = IndexStorage(blob_storage)
+        var schema_mgr = SchemaManager(blob_storage)
+        var orc_storage = ORCStorage(blob_storage, schema_mgr, index_storage)
+
+        self.blob_store = SeaweedBlobStore(base_path + "/seaweed", orc_storage)
+        self.s3_gateway = S3Gateway(self.blob_store.value())
+
+        print("✓ Blob storage initialized")
+
+    fn create_blob_from_file(mut self, file_path: String) -> String:
+        """Create a blob from a file and return FID."""
+        if not self.blob_store:
+            print("✗ Blob store not initialized")
+            return ""
+
+        # Read file content (simplified)
+        var file_mod = Python.import_module("builtins")
+        try:
+            var fh = file_mod.open(file_path, "rb")
+            var content = fh.read()
+            fh.close()
+
+            var bytes_data = List[UInt8]()
+            for i in range(len(content)):
+                bytes_data.append(content[i].to_int())
+
+            var fid = self.blob_store.value().put(bytes_data, file_path, "application/octet-stream")
+            return fid
+        except e:
+            print("✗ Failed to read file:", String(e))
+            return ""
+
+    fn get_blob_size(mut self, fid: String) -> Int:
+        """Get blob size by FID."""
+        if not self.blob_store:
+            return 0
+
+        var metadata_opt = self.blob_store.value().stat(fid)
+        if metadata_opt:
+            return metadata_opt.value().size
+        return 0
+
+    fn get_blob_content(mut self, fid: String) -> List[UInt8]:
+        """Get blob content by FID."""
+        if not self.blob_store:
+            return List[UInt8]()
+
+        return self.blob_store.value().get(fid)
+
+    fn create_bucket(mut self, bucket_name: String) -> Bool:
+        """Create S3 bucket."""
+        if not self.s3_gateway:
+            return False
+        return self.s3_gateway.value().create_bucket(bucket_name)
 
     fn get_stats(mut self) raises -> String:
         """Get lakehouse engine statistics."""

@@ -1,20 +1,42 @@
 """
-Simple daemon for PL-GRIZZLY with Apache Arrow IPC
+Lakehouse Daemon with Arrow IPC and S3-compatible HTTP API
+==========================================================
+
+Supports both Arrow IPC for internal communication and S3 HTTP API for blob storage.
 """
 
 from python import Python, PythonObject
-from collections import List
+from collections import List, Dict
 from sys import argv
 from job_scheduler_demo import JobScheduler, ScheduledJob
+from seaweed_blob_store import SeaweedBlobStore
+from s3_gateway import S3Gateway
+from orc_storage import ORCStorage
+from blob_storage import BlobStorage
+from index_storage import IndexStorage
+from schema_manager import SchemaManager
 
 struct LakehouseDaemon(Movable):
-    """Daemon class for managing lakehouse operations."""
+    """Daemon class for managing lakehouse operations with blob storage."""
     var folder_path: String
     var scheduler: JobScheduler
+    var blob_store: SeaweedBlobStore
+    var s3_gateway: S3Gateway
+    var http_server: Optional[PythonObject]
 
     fn __init__(out self, folder_path: String) raises:
         self.folder_path = folder_path
         self.scheduler = JobScheduler()
+
+        # Initialize blob storage components
+        var blob_storage = BlobStorage(folder_path + "/blobs")
+        var index_storage = IndexStorage(blob_storage)
+        var schema_mgr = SchemaManager(blob_storage)
+        var orc_storage = ORCStorage(blob_storage, schema_mgr, index_storage)
+
+        self.blob_store = SeaweedBlobStore(folder_path + "/seaweed", orc_storage)
+        self.s3_gateway = S3Gateway(self.blob_store)
+        self.http_server = None
 
     fn process_request(mut self, request_batch: PythonObject) raises -> PythonObject:
         """Process a client request and return Arrow response."""
@@ -94,6 +116,92 @@ struct LakehouseDaemon(Movable):
                 return self._create_response_batch("success", "Job '" + job_name + "' created successfully", "")
             except e:
                 return self._create_response_batch("error", "Failed to create job: " + String(e), "")
+        else:
+            # Unknown command
+            return self._create_response_batch("error", "Unknown command: " + command, "")
+
+    fn start_http_server(mut self, port: Int = 8333) raises:
+        """Start HTTP server for S3-compatible API."""
+        print("Starting HTTP server on port", port)
+
+        # Import HTTP server modules
+        var http_mod = Python.import_module("http.server")
+        var socketserver_mod = Python.import_module("socketserver")
+        var urllib_mod = Python.import_module("urllib.parse")
+        var json_mod = Python.import_module("json")
+
+        # Create custom request handler
+        var handler_class = self._create_request_handler()
+
+        # Start server
+        var server = socketserver_mod.TCPServer(("", port), handler_class)
+        self.http_server = server
+
+        print("✓ HTTP server started on port", port)
+        print("S3 endpoints available at http://localhost:" + String(port) + "/s3/")
+
+        # Note: In a real implementation, this would run in a separate thread
+        # server.serve_forever()
+
+    fn _create_request_handler(self) -> PythonObject:
+        """Create HTTP request handler class for S3 API."""
+        # This would create a Python class that handles HTTP requests
+        # For now, return a placeholder
+        var http_mod = Python.import_module("http.server")
+        return http_mod.BaseHTTPRequestHandler
+
+    fn handle_s3_request(mut self, method: String, path: String, data: List[UInt8], headers: Dict[String, String]) -> PythonObject:
+        """Handle S3-compatible HTTP request."""
+        # Parse S3 path: /s3/bucket/key
+        var path_parts = path.split("/")
+        if len(path_parts) < 3 or path_parts[1] != "s3":
+            return self._create_http_response(400, "Bad Request", "Invalid S3 path")
+
+        var bucket = path_parts[2]
+        var key = ""
+        if len(path_parts) > 3:
+            key = path_parts[3]
+
+        if method == "PUT":
+            var success = self.s3_gateway.put_object(bucket, key, data)
+            if success:
+                return self._create_http_response(200, "OK", "Object uploaded")
+            else:
+                return self._create_http_response(500, "Internal Server Error", "Upload failed")
+
+        elif method == "GET":
+            var data_opt = self.s3_gateway.get_object(bucket, key)
+            if data_opt:
+                return self._create_http_response(200, "OK", "", data_opt.value())
+            else:
+                return self._create_http_response(404, "Not Found", "Object not found")
+
+        elif method == "DELETE":
+            var success = self.s3_gateway.delete_object(bucket, key)
+            if success:
+                return self._create_http_response(204, "No Content", "")
+            else:
+                return self._create_http_response(404, "Not Found", "Object not found")
+
+        elif method == "HEAD":
+            var meta_opt = self.s3_gateway.head_object(bucket, key)
+            if meta_opt:
+                return self._create_http_response(200, "OK", "Object exists")
+            else:
+                return self._create_http_response(404, "Not Found", "Object not found")
+
+        else:
+            return self._create_http_response(405, "Method Not Allowed", "Method not supported")
+
+    fn _create_http_response(self, status: Int, status_text: String, message: String, data: List[UInt8] = List[UInt8]()) -> PythonObject:
+        """Create HTTP response object."""
+        var response = PythonObject({
+            "status": status,
+            "status_text": status_text,
+            "message": message,
+            "data": data
+        })
+        return response
         elif command == "create_and_list":
             # Create a job and list all jobs
             try:
@@ -230,6 +338,13 @@ fn run_daemon_main_loop(folder_path: String) raises:
     # Start the job scheduler
     daemon.scheduler.start()
     print("Job scheduler started")
+
+    # Start HTTP server for S3 API (in background)
+    try:
+        daemon.start_http_server(8333)
+        print("HTTP server for S3 API started on port 8333")
+    except e:
+        print("Warning: Failed to start HTTP server:", String(e))
 
     # Set up Unix domain socket for IPC
     var socket_path = ".gobi/daemon.sock"

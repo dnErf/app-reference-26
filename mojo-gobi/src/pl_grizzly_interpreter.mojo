@@ -24,6 +24,8 @@ from secret_manager import SecretManager
 from semantic_analyzer import SemanticAnalyzer, SemanticAnalysisResult
 
 from blob_storage import BlobStorage
+from seaweed_blob_store import SeaweedBlobStore
+from s3_gateway import S3Gateway
 
 # PL-GRIZZLY Interpreter with JIT capabilities
 # NOTE: ORCStorage and ASTEvaluator re-enabled after compilation fixes
@@ -766,12 +768,49 @@ struct PLGrizzlyInterpreter:
                     new_env.define(String(params[i]), args[i])
             # Evaluate body in new env
             return self.evaluate(String(body), new_env)
-        # For now, only support built-in functions
+        # Built-in functions
         if func_name == "print":
             # Print args
             for arg in args:
                 print(arg.__str__())
             return PLValue("string", "printed")
+        elif func_name == "@BLOB_SIZE":
+            # @BLOB_SIZE(fid) - Get blob size
+            if len(args) != 1:
+                return PLValue("error", "error: @BLOB_SIZE requires 1 argument")
+            var fid = args[0].__str__()
+            var size = self.lakehouse.get_blob_size(fid)
+            return PLValue("int", String(size))
+        elif func_name == "@BLOB_CONTENT":
+            # @BLOB_CONTENT(fid) - Get blob content as bytes
+            if len(args) != 1:
+                return PLValue("error", "error: @BLOB_CONTENT requires 1 argument")
+            var fid = args[0].__str__()
+            var data = self.lakehouse.get_blob_content(fid)
+            # Convert bytes to string representation for PLValue
+            var content_str = ""
+            for byte in data:
+                content_str += String(byte) + ","
+            if len(content_str) > 0:
+                content_str = content_str[:-1]  # Remove last comma
+            return PLValue("bytes", content_str)
+        elif func_name == "@BLOB_FROM_FILE":
+            # @BLOB_FROM_FILE(path) - Create blob from file
+            if len(args) != 1:
+                return PLValue("error", "error: @BLOB_FROM_FILE requires 1 argument")
+            var file_path = args[0].__str__()
+            var fid = self.lakehouse.create_blob_from_file(file_path)
+            if len(fid) > 0:
+                return PLValue("string", fid)
+            return PLValue("error", "error: failed to create blob from file")
+        elif func_name == "@BLOB_FROM_S3":
+            # @BLOB_FROM_S3(bucket, key) - Create blob from S3
+            if len(args) != 2:
+                return PLValue("error", "error: @BLOB_FROM_S3 requires 2 arguments")
+            var bucket = args[0].__str__()
+            var key = args[1].__str__()
+            # For now, this would need S3 gateway access - placeholder
+            return PLValue("error", "error: @BLOB_FROM_S3 not yet implemented")
         else:
             return PLValue("error", "unknown function: " + func_name)
 

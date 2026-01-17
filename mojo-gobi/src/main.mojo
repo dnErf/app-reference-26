@@ -109,6 +109,15 @@ fn main() raises:
         for i in range(2, len(args)):
             sub_args.append(String(args[i]))
         lakehouse_cli.handle_snapshot_command(sub_args)
+    elif command == "blob":
+        var db_path = "."
+        if len(args) >= 3:
+            db_path = String(args[2])
+        var lakehouse_cli = create_lakehouse_cli(console, db_path)
+        var sub_args = List[String]()
+        for i in range(2, len(args)):
+            sub_args.append(String(args[i]))
+        lakehouse_cli.handle_blob_command(sub_args)
     elif command == "time-travel":
         if len(args) < 4:
             console.print_error("time-travel requires table name and timestamp")
@@ -254,6 +263,11 @@ fn print_usage(console: EnhancedConsole) raises:
     console.print("    list                    - List all snapshots")
     console.print("    create <name>           - Create snapshot")
     console.print("    rollback <name>         - Rollback to snapshot")
+    console.print("  gobi blob [db_path] <subcommand> - Blob storage management")
+    console.print("    upload <file>           - Upload file as blob")
+    console.print("    download <fid> <file>   - Download blob to file")
+    console.print("    info <fid>              - Get blob information")
+    console.print("    list                    - List blobs")
     console.print("  gobi time-travel [db_path] <table> <timestamp> - Time travel query")
     console.print("  gobi incremental [db_path] <subcommand> - Incremental processing")
     console.print("    status                  - Show incremental status")

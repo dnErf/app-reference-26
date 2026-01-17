@@ -66,6 +66,88 @@ struct LakehouseCLI:
             self.console.print_error("Unknown snapshot subcommand: " + subcommand)
             self.print_snapshot_help()
 
+    fn handle_blob_command(mut self, args: List[String]) raises:
+        """Handle blob-related commands."""
+        if len(args) < 1:
+            self.print_blob_help()
+            return
+
+        var subcommand = args[0]
+
+        if subcommand == "upload":
+            if len(args) < 2:
+                self.console.print_error("blob upload requires a file path")
+                return
+            self.upload_blob(args[1])
+        elif subcommand == "download":
+            if len(args) < 3:
+                self.console.print_error("blob download requires fid and output path")
+                return
+            self.download_blob(args[1], args[2])
+        elif subcommand == "info":
+            if len(args) < 2:
+                self.console.print_error("blob info requires fid")
+                return
+            self.get_blob_info(args[1])
+        elif subcommand == "list":
+            self.list_blobs()
+        else:
+            self.console.print_error("Unknown blob subcommand: " + subcommand)
+            self.print_blob_help()
+
+    fn upload_blob(mut self, file_path: String) raises:
+        """Upload a file as a blob."""
+        self.console.print("Uploading file: " + file_path, style="bold blue")
+
+        var fid = self.lakehouse.engine.create_blob_from_file(file_path)
+        if len(fid) > 0:
+            self.console.print_success("Blob uploaded with FID: " + fid)
+        else:
+            self.console.print_error("Failed to upload blob")
+
+    fn download_blob(mut self, fid: String, output_path: String) raises:
+        """Download a blob to a file."""
+        self.console.print("Downloading blob: " + fid, style="bold blue")
+
+        var data = self.lakehouse.engine.get_blob_content(fid)
+        if len(data) > 0:
+            # Write to file (simplified)
+            var file_mod = Python.import_module("builtins")
+            try:
+                var fh = file_mod.open(output_path, "wb")
+                var bytes_obj = PythonObject(data)
+                fh.write(bytes_obj)
+                fh.close()
+                self.console.print_success("Blob downloaded to: " + output_path)
+            except e:
+                self.console.print_error("Failed to write file: " + String(e))
+        else:
+            self.console.print_error("Blob not found or empty")
+
+    fn get_blob_info(mut self, fid: String) raises:
+        """Get blob information."""
+        self.console.print("Blob info for: " + fid, style="bold blue")
+
+        var size = self.lakehouse.engine.get_blob_size(fid)
+        if size > 0:
+            self.console.print("Size: " + String(size) + " bytes")
+            self.console.print("FID: " + fid)
+        else:
+            self.console.print_error("Blob not found")
+
+    fn list_blobs(mut self) raises:
+        """List blobs (placeholder - would query metadata table)."""
+        self.console.print("Blob listing not yet implemented", style="yellow")
+        self.console.print("Use SQL queries on seaweed_metadata table for blob metadata")
+
+    fn print_blob_help(mut self) raises:
+        """Print blob command help."""
+        self.console.print("Blob Storage Commands:")
+        self.console.print("  gobi blob upload <file>     - Upload file as blob")
+        self.console.print("  gobi blob download <fid> <file> - Download blob to file")
+        self.console.print("  gobi blob info <fid>        - Get blob information")
+        self.console.print("  gobi blob list             - List blobs")
+
     fn handle_time_travel_command(mut self, args: List[String]) raises:
         """Handle time travel query commands."""
         if len(args) < 2:
