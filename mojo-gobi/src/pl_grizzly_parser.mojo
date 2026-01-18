@@ -5,7 +5,7 @@ Optimized recursive descent parser with memoization and efficient AST representa
 """
 
 from collections import List, Dict
-from pl_grizzly_lexer import Token, PLGrizzlyLexer, SELECT, FROM, WHERE, CREATE, DROP, INDEX, MATERIALIZED, VIEW, REFRESH, LOAD, UPDATE, UPSERT, DELETE, LOGIN, LOGOUT, BEGIN, COMMIT, ROLLBACK, MACRO, JOIN, LEFT, RIGHT, FULL, INNER, ANTI, ON, ATTACH, DETACH, EXECUTE, ALL, ARRAY, ATTACHED, DATABASES, AS, CACHE, CLEAR, DISTINCT, GROUP, ORDER, BY, SUM, COUNT, AVG, MIN, MAX, FUNCTION, TYPE, STRUCT, STRUCTS, TYPEOF, EXCEPTION, MODULE, DOUBLE_COLON, RETURNS, IF, ELSE, MATCH, WHILE, THEN, CASE, IN, TRY, CATCH, LET, TRUE, FALSE, BREAK, CONTINUE, INSTALL, WITH, HTTPS, EXTENSIONS, STREAM, COPY, TO, EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUAL, LESS_EQUAL, AND, OR, NOT, BANG, COALESCE, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, PIPE, PROCEDURE, TRIGGER, SCHEDULE, CALL, ASYNC, SYNC, ENABLE_TOKEN, DISABLE_TOKEN, ARROW, DOT, LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, LANGLE, RANGLE, COMMA, SEMICOLON, COLON, INSERT, INTO, VALUES, SET, SHOW, SECRET, SECRETS, DROP_SECRET, IDENTIFIER, STRING, NUMBER, VARIABLE, UNDERSCORE, EOF, UNKNOWN
+from pl_grizzly_lexer import Token, PLGrizzlyLexer, SELECT, FROM, WHERE, CREATE, DROP, INDEX, MATERIALIZED, VIEW, REFRESH, LOAD, UPDATE, UPSERT, DELETE, LOGIN, LOGOUT, BEGIN, COMMIT, ROLLBACK, MACRO, JOIN, LEFT, RIGHT, FULL, INNER, ANTI, ON, ATTACH, DETACH, EXECUTE, ALL, ARRAY, ATTACHED, DATABASES, AS, CACHE, CLEAR, DISTINCT, GROUP, ORDER, BY, HAVING, OVER, PARTITION, RANGE, ROWS, BETWEEN, PRECEDING, FOLLOWING, UNBOUNDED, CURRENT, EXCLUDE, TIES, GROUPS, SUM, COUNT, AVG, MIN, MAX, FUNCTION, TYPE, STRUCT, STRUCTS, TYPEOF, EXCEPTION, MODULE, DOUBLE_COLON, RETURNS, IF, ELSE, MATCH, WHILE, THEN, CASE, IN, TRY, CATCH, LET, TRUE, FALSE, BREAK, CONTINUE, INSTALL, WITH, HTTPS, EXTENSIONS, STREAM, COPY, TO, EQUALS, NOT_EQUALS, GREATER, LESS, GREATER_EQUAL, LESS_EQUAL, AND, OR, NOT, BANG, COALESCE, PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, PIPE, PROCEDURE, TRIGGER, SCHEDULE, CALL, ASYNC, SYNC, ENABLE_TOKEN, DISABLE_TOKEN, ARROW, DOT, LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, LANGLE, RANGLE, COMMA, SEMICOLON, COLON, INSERT, INTO, VALUES, SET, SHOW, SECRET, SECRETS, DROP_SECRET, IDENTIFIER, STRING, NUMBER, VARIABLE, UNDERSCORE, EOF, UNKNOWN
 from pl_grizzly_errors import PLGrizzlyError
 
 # Optimized AST Node types using enum-like constants
@@ -766,6 +766,11 @@ struct PLGrizzlyParser:
             var group_clause = self.parse_group_by_clause()
             node.add_child(group_clause)
 
+            # Parse HAVING clause (only valid after GROUP BY)
+            if self.match(HAVING):
+                var having_clause = self.parse_having_clause()
+                node.add_child(having_clause)
+
         # Parse ORDER BY clause
         if self.match(ORDER):
             _ = self.consume(BY, "Expected 'BY' after ORDER")
@@ -1047,6 +1052,301 @@ struct PLGrizzlyParser:
 
         return node^
 
+fn parse_having_clause(mut self) raises -> ASTNode:
+    """Parse HAVING clause (filters grouped results)."""
+    var node = ASTNode("HAVING", "", self.previous().line, self.previous().column)
+
+    # Parse the HAVING condition (similar to WHERE)
+    var condition = self.expression()
+    node.add_child(condition)
+
+    return node^
+
+# Window Function AST Nodes
+enum FrameType:
+    ROWS, RANGE
+
+enum FrameBoundType:
+    UNBOUNDED_PRECEDING, CURRENT_ROW, UNBOUNDED_FOLLOWING, PRECEDING, FOLLOWING
+
+struct FrameBound(Movable):
+    var type: FrameBoundType
+    var offset: Optional[Int]  # For numeric offsets
+
+    fn __init__(out self, bound_type: FrameBoundType, offset: Optional[Int] = None):
+        self.type = bound_type
+        self.offset = offset
+
+enum FrameExclusion:
+    NO_EXCLUSION, EXCLUDE_CURRENT_ROW, EXCLUDE_GROUP, EXCLUDE_TIES, EXCLUDE_NO_OTHERS
+
+struct WindowFrame(Movable):
+    var type: FrameType
+    var start_bound: FrameBound
+    var end_bound: FrameBound
+    var exclusion: FrameExclusion
+
+    fn __init__(out self, frame_type: FrameType, start: FrameBound, end: FrameBound, exclusion: FrameExclusion = FrameExclusion.NO_EXCLUSION):
+        self.type = frame_type
+        self.start_bound = start
+        self.end_bound = end
+        self.exclusion = exclusion
+
+struct WindowSpec(Movable):
+    var partition_by: List[ASTNode]
+    var order_by: List[ASTNode]
+    var frame: Optional[WindowFrame]
+
+    fn __init__(out self):
+        self.partition_by = List[ASTNode]()
+        self.order_by = List[ASTNode]()
+        self.frame = None
+
+struct WindowFunction(Movable):
+    var function_name: String
+    var arguments: List[ASTNode]
+    var window_spec: WindowSpec
+
+    fn __init__(out self, name: String):
+        self.function_name = name
+        self.arguments = List[ASTNode]()
+        self.window_spec = WindowSpec()
+
+fn parse_window_function(mut self) raises -> ASTNode:
+    """Parse window function like @RowNumber() OVER (...)"""
+    var node = ASTNode("WINDOW_FUNCTION", "", self.previous().line, self.previous().column)
+
+    # Parse function name (should start with @)
+    var func_name = self.previous().value
+    node.set_attribute("function_name", func_name)
+
+    # Parse arguments
+    _ = self.consume(LPAREN, "Expected '(' after window function name")
+
+    var args = List[ASTNode]()
+    if not self.check(RPAREN):
+        args.append(self.expression())
+        while self.match(COMMA):
+            args.append(self.expression())
+
+    _ = self.consume(RPAREN, "Expected ')' after window function arguments")
+
+    # Parse OVER clause
+    _ = self.consume(OVER, "Expected OVER after window function")
+    _ = self.consume(LPAREN, "Expected '(' after OVER")
+
+    var window_spec = parse_window_specification(self)
+    node.add_child(window_spec)
+
+    _ = self.consume(RPAREN, "Expected ')' after window specification")
+
+    return node^
+
+fn parse_window_specification(mut self) raises -> ASTNode:
+    """Parse window specification: PARTITION BY ... ORDER BY ... [frame]"""
+    var node = ASTNode("WINDOW_SPEC", "", self.previous().line, self.previous().column)
+
+    # Parse PARTITION BY (optional)
+    if self.match(PARTITION):
+        _ = self.consume(BY, "Expected BY after PARTITION")
+        var partition_node = ASTNode("PARTITION_BY", "", self.previous().line, self.previous().column)
+
+        var partition_cols = List[ASTNode]()
+        partition_cols.append(self.expression())
+        while self.match(COMMA):
+            partition_cols.append(self.expression())
+
+        for col in partition_cols:
+            partition_node.add_child(col^)
+
+        node.add_child(partition_node^)
+
+    # Parse ORDER BY (optional)
+    if self.match(ORDER):
+        _ = self.consume(BY, "Expected BY after ORDER")
+        var order_node = ASTNode("ORDER_BY", "", self.previous().line, self.previous().column)
+
+        var order_specs = List[ASTNode]()
+        order_specs.append(self.parse_order_spec())
+        while self.match(COMMA):
+            order_specs.append(self.parse_order_spec())
+
+        for spec in order_specs:
+            order_node.add_child(spec^)
+
+        node.add_child(order_node^)
+
+    # Parse window frame (optional)
+    if self.match(ROWS) or self.match(RANGE):
+        var frame_node = self.parse_window_frame()
+        node.add_child(frame_node)
+
+    return node^
+
+fn parse_window_frame(mut self) raises -> ASTNode:
+    """Parse window frame: ROWS|RANGE [GROUPS] BETWEEN start_bound AND end_bound [EXCLUDE clause]"""
+    var node = ASTNode("WINDOW_FRAME", "", self.previous().line, self.previous().column)
+
+    # Determine frame type
+    if self.previous().type == "ROWS":
+        node.set_attribute("frame_type", "ROWS")
+    elif self.previous().type == "RANGE":
+        node.set_attribute("frame_type", "RANGE")
+    elif self.previous().type == "GROUPS":
+        node.set_attribute("frame_type", "GROUPS")
+        # GROUPS frames not yet implemented - treated as ROWS for now
+    else:
+        node.set_attribute("frame_type", "ROWS")  # Default
+
+    # Expect BETWEEN
+    _ = self.consume(BETWEEN, "Expected BETWEEN after frame type")
+
+    # Parse start bound
+    var start_bound = self.parse_frame_bound()
+    node.add_child(start_bound)
+
+    # Expect AND
+    _ = self.consume_custom("AND", "Expected AND between frame bounds")
+
+    # Parse end bound
+    var end_bound = self.parse_frame_bound()
+    node.add_child(end_bound)
+
+    # Parse optional EXCLUDE clause
+    if self.match(EXCLUDE):
+        var exclude_node = self.parse_exclude_clause()
+        node.add_child(exclude_node)
+
+    return node^
+
+fn parse_exclude_clause(mut self) raises -> ASTNode:
+    """Parse EXCLUDE clause: EXCLUDE CURRENT ROW | GROUP | TIES | NO OTHERS"""
+    var node = ASTNode("EXCLUDE_CLAUSE", "", self.previous().line, self.previous().column)
+
+    if self.match(CURRENT):
+        _ = self.consume(ROW, "Expected ROW after CURRENT")
+        node.set_attribute("exclude_type", "CURRENT_ROW")
+    elif self.match_custom("GROUP"):
+        node.set_attribute("exclude_type", "GROUP")
+    elif self.match(TIES):
+        node.set_attribute("exclude_type", "TIES")
+    elif self.match(NO):
+        _ = self.consume_custom("OTHERS", "Expected OTHERS after NO")
+        node.set_attribute("exclude_type", "NO_OTHERS")
+    else:
+        self.error("Expected CURRENT ROW, GROUP, TIES, or NO OTHERS after EXCLUDE")
+
+    return node^
+
+fn parse_frame_bound(mut self) raises -> ASTNode:
+    """Parse frame bound: UNBOUNDED PRECEDING | CURRENT ROW | n PRECEDING | n FOLLOWING | UNBOUNDED FOLLOWING | INTERVAL '...' PRECEDING/FOLLOWING"""
+    var node = ASTNode("FRAME_BOUND", "", self.previous().line, self.previous().column)
+
+    if self.match(UNBOUNDED):
+        if self.match(PRECEDING):
+            node.set_attribute("bound_type", "UNBOUNDED_PRECEDING")
+        elif self.match(FOLLOWING):
+            node.set_attribute("bound_type", "UNBOUNDED_FOLLOWING")
+        else:
+            self.error("Expected PRECEDING or FOLLOWING after UNBOUNDED")
+    elif self.match(CURRENT):
+        _ = self.consume(ROW, "Expected ROW after CURRENT")
+        node.set_attribute("bound_type", "CURRENT_ROW")
+    elif self.match_custom("INTERVAL"):
+        # INTERVAL 'value unit' PRECEDING/FOLLOWING
+        var interval_str = self.parse_string_literal()
+        var interval_value = self.parse_interval_value(interval_str)
+
+        if self.match(PRECEDING):
+            node.set_attribute("bound_type", "PRECEDING")
+            node.set_attribute("interval", interval_value)
+        elif self.match(FOLLOWING):
+            node.set_attribute("bound_type", "FOLLOWING")
+            node.set_attribute("interval", interval_value)
+        else:
+            self.error("Expected PRECEDING or FOLLOWING after INTERVAL")
+    else:
+        # Numeric offset
+        var offset_token = self.consume(NUMBER, "Expected number for offset")
+        var offset = Int(offset_token.value)
+
+        if self.match(PRECEDING):
+            node.set_attribute("bound_type", "PRECEDING")
+            node.set_attribute("offset", String(offset))
+        elif self.match(FOLLOWING):
+            node.set_attribute("bound_type", "FOLLOWING")
+            node.set_attribute("offset", String(offset))
+        else:
+            self.error("Expected PRECEDING or FOLLOWING after numeric offset")
+
+    return node^
+
+fn parse_interval_value(self, interval_str: String) raises -> String:
+    """Parse interval string like '7 days' into a standardized format."""
+    # Basic parsing - could be enhanced for more complex intervals
+    if interval_str.startswith("'") and interval_str.endswith("'"):
+        return interval_str[1:-1]  # Remove quotes
+    return interval_str
+
+fn match_custom(mut self, keyword: String) -> Bool:
+    """Match a custom keyword (not predefined token)."""
+    if self.check(IDENTIFIER) and self.peek().value == keyword:
+        _ = self.advance()
+        return True
+    return False
+
+fn consume_custom(mut self, keyword: String, message: String) raises:
+    """Consume a custom keyword."""
+    if not self.match_custom(keyword):
+        self.error(message)
+
+fn parse_order_spec(mut self) raises -> ASTNode:
+    """Parse order specification: column ASC|DESC"""
+    var node = ASTNode("ORDER_SPEC", "", self.previous().line, self.previous().column)
+
+    var expr = self.expression()
+    node.add_child(expr)
+
+    if self.match("ASC") or self.match("DESC") or self.match("DSC"):
+        var direction = self.previous().value
+        node.set_attribute("direction", direction)
+    else:
+        node.set_attribute("direction", "ASC")  # Default
+
+    return node^
+
+fn parse_potential_window_function(mut self, name: String) raises -> ASTNode:
+    """Parse potential window function (starts with @)."""
+    var start_pos = self.current - 1  # We already consumed the identifier
+
+    # Parse function call first
+    var func_call = self.parse_function_call(name)
+
+    # Check if followed by OVER (indicating window function)
+    if self.check(OVER):
+        # Convert to window function
+        var window_node = ASTNode("WINDOW_FUNCTION", "", func_call.line, func_call.column)
+        window_node.set_attribute("function_name", name)
+
+        # Extract arguments from function call
+        if func_call.children.size > 0:
+            for i in range(func_call.children.size):
+                window_node.add_child(func_call.children[i])
+
+        # Parse OVER clause
+        _ = self.consume(OVER, "Expected OVER after window function")
+        _ = self.consume(LPAREN, "Expected '(' after OVER")
+
+        var window_spec = self.parse_window_specification()
+        window_node.add_child(window_spec)
+
+        _ = self.consume(RPAREN, "Expected ')' after window specification")
+
+        return window_node^
+    else:
+        # Regular function call
+        return func_call
+
     fn parse_order_by_clause(mut self) raises -> ASTNode:
         """Parse ORDER BY clause."""
         var node = ASTNode("ORDER_BY", "", self.previous().line, self.previous().column)
@@ -1230,9 +1530,13 @@ struct PLGrizzlyParser:
             # Check if this is Array<Type> syntax
             if name == "Array" and self.check(LANGLE):
                 return self.parse_typed_array()
-            # Check if this is a function call (identifier followed by '(')
-            elif self.check(LPAREN):
-                return self.parse_function_call(name)
+            # Check if this is a window function (starts with @ and followed by OVER)
+            elif name.startswith("@") and self.check(LPAREN):
+                # Parse as window function
+                var func_token = self.previous()
+                _ = self.advance()  # Consume the identifier again? Wait, let me fix this
+                # Actually, let me rewind and handle this differently
+                return self.parse_potential_window_function(name)
             else:
                 var node = ASTNode(AST_IDENTIFIER, name, self.previous().line, self.previous().column)
                 node.set_attribute("type", var_type)

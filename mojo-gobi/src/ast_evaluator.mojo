@@ -648,13 +648,17 @@ struct ASTEvaluator:
                             elif child.node_type == "IDENTIFIER":
                                 selected_columns.append(child.value)
                                 # Don't add to expressions for simple identifiers
+                            elif child.node_type == "WINDOW_FUNCTION":
+                                var func_name = child.get_attribute("function_name")
+                                selected_columns.append(func_name)
+                                select_expressions.append(child.copy())
+                                has_select_expressions = True
                             elif child.node_type == "STAR":  # SELECT *
                                 selected_columns = column_names.copy()
                                 # For SELECT *, don't add expressions since we handle columns directly
-                                break
-                            elif child.node_type == "AGGREGATE_FUNCTION":
-                                # For now, just add the function name as column name
-                                selected_columns.append(child.value)
+                            else:
+                                has_select_expressions = True
+                                selected_columns.append(child.node_type + "_" + String(len(selected_columns)))
                                 select_expressions.append(child.copy())
                                 break
                             else:
@@ -768,6 +772,47 @@ struct ASTEvaluator:
                         break
                     elif block_result.type == "continue":
                         continue
+
+        # Apply window functions if present
+        var window_functions = List[ASTNode]()
+        if select_list:
+            for select_item in select_list.value().children:
+                if select_item.node_type == "SELECT_ITEM":
+                    for child in select_item.children:
+                        if child.node_type == "WINDOW_FUNCTION":
+                            window_functions.append(child.copy())
+
+        if len(window_functions) > 0:
+            # Convert result_data to PLValue list for window processing
+            var plvalue_rows = List[PLValue]()
+            for row in result_data:
+                var struct_data = Dict[String, PLValue]()
+                for i in range(len(selected_columns)):
+                    if i < len(row):
+                        struct_data[selected_columns[i]] = PLValue("string", row[i])
+                plvalue_rows.append(PLValue.struct(struct_data))
+
+            # Execute window functions
+            var interpreter = PLGrizzlyInterpreter()
+            plvalue_rows = interpreter.execute_window_functions(plvalue_rows, window_functions, env)
+
+            # Convert back to string data
+            result_data = List[List[String]]()
+            for plvalue_row in plvalue_rows:
+                if plvalue_row.is_struct():
+                    var row_data = List[String]()
+                    var struct_data = plvalue_row.get_struct()
+                    for col in selected_columns:
+                        if col in struct_data:
+                            row_data.append(struct_data[col].__str__())
+                        else:
+                            row_data.append("")
+                    # Add window function results
+                    for window_func in window_functions:
+                        var func_name = window_func.get_attribute("function_name")
+                        if func_name in struct_data:
+                            row_data.append(struct_data[func_name].__str__())
+                    result_data.append(row_data)
 
         # Apply ORDER BY clause if present
         if order_clause:

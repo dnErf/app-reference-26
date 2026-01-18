@@ -14,6 +14,38 @@ from pl_grizzly_lexer import PLGrizzlyLexer, Token
 
 from query_cache import QueryCache
 from ast_evaluator import ASTEvaluator  # Re-enabling ASTEvaluator - compilation issues should be resolved
+
+# Window frame enums
+enum FrameType:
+    ROWS, RANGE, GROUPS
+
+enum FrameExclusion:
+    NO_EXCLUSION, EXCLUDE_CURRENT_ROW, EXCLUDE_GROUP, EXCLUDE_TIES, EXCLUDE_NO_OTHERS
+
+enum FrameBoundType:
+    UNBOUNDED_PRECEDING, CURRENT_ROW, UNBOUNDED_FOLLOWING, PRECEDING, FOLLOWING
+
+struct FrameBound(Movable):
+    var type: FrameBoundType
+    var offset: Optional[Int]  # For numeric offsets
+    var interval: Optional[String]  # For INTERVAL 'value unit' expressions
+
+    fn __init__(out self, bound_type: FrameBoundType, offset: Optional[Int] = None, interval: Optional[String] = None):
+        self.type = bound_type
+        self.offset = offset
+        self.interval = interval
+
+struct WindowFrame(Movable):
+    var type: FrameType
+    var start_bound: FrameBound
+    var end_bound: FrameBound
+    var exclusion: FrameExclusion
+
+    fn __init__(out self, frame_type: FrameType, start: FrameBound, end: FrameBound, exclusion: FrameExclusion = FrameExclusion.NO_EXCLUSION):
+        self.type = frame_type
+        self.start_bound = start
+        self.end_bound = end
+        self.exclusion = exclusion
 from pl_grizzly_values import PLValue, add_op, sub_op, mul_op, div_op, eq_op, neq_op, gt_op, lt_op, gte_op, lte_op
 from pl_grizzly_environment import Environment
 from lakehouse_engine import LakehouseEngine, Record
@@ -1031,31 +1063,33 @@ struct PLGrizzlyInterpreter:
 
     fn eval_select_table_scan(mut self, content: String, env: Environment, plan: QueryPlan) raises -> PLValue:
         """Execute SELECT using table scan (original implementation)."""
-        # Parse (SELECT [DISTINCT] select_list FROM from_clause [JOIN join_table ON on_condition] [WHERE where_clause] [GROUP BY group_clause] [ORDER BY order_clause])
+        # Parse (SELECT [DISTINCT] select_list FROM from_clause [JOIN join_table ON on_condition] [WHERE where_clause] [GROUP BY group_clause] [HAVING having_clause] [ORDER BY order_clause])
         var from_pos = content.find(" FROM ")
         if from_pos == -1:
             return PLValue("error", "SELECT requires FROM clause")
-        
+
         var select_part = content[8:from_pos]  # remove "(SELECT "
         var rest = content[from_pos + 6:]  # remove " FROM "
-        
+
         # Check for DISTINCT
         var distinct = select_part.strip().startswith("DISTINCT ")
         if distinct:
             select_part = String(select_part[9:].strip())  # remove "DISTINCT "
-        
+
         var join_pos = rest.find(" JOIN ")
         var where_pos = rest.find(" WHERE ")
         var group_pos = rest.find(" GROUP BY ")
+        var having_pos = rest.find(" HAVING ")
         var order_pos = rest.find(" ORDER BY ")
-        
+
         var from_clause = ""
         var join_table = ""
         var on_condition = ""
         var where_clause = ""
         var group_clause = ""
+        var having_clause = ""
         var order_clause = ""
-        
+
         # Find the end of FROM clause
         var from_end = len(rest)
         if join_pos != -1:
@@ -1064,52 +1098,45 @@ struct PLGrizzlyInterpreter:
             from_end = where_pos
         elif group_pos != -1:
             from_end = group_pos
+        elif having_pos != -1:
+            from_end = having_pos
         elif order_pos != -1:
             from_end = order_pos
-        
+
         from_clause = rest[:from_end]
-        
-        # Parse JOIN clause
-        if join_pos != -1:
-            var join_rest = rest[join_pos + 6:]
-            var on_pos = join_rest.find(" ON ")
-            if on_pos == -1:
-                return PLValue.error("JOIN requires ON clause")
-            join_table = join_rest[:on_pos]
-            
-            var after_on = join_rest[on_pos + 4:]
-            var join_end = len(after_on)
-            if after_on.find(" WHERE ") != -1:
-                join_end = after_on.find(" WHERE ")
-            elif after_on.find(" GROUP BY ") != -1:
-                join_end = after_on.find(" GROUP BY ")
-            elif after_on.find(" ORDER BY ") != -1:
-                join_end = after_on.find(" ORDER BY ")
-            
-            on_condition = after_on[:join_end]
-            rest = after_on[join_end:]
-        else:
-            rest = rest[from_end:]
-        
+        rest = rest[from_end:]
+
         # Parse remaining clauses
         if rest.find(" WHERE ") == 0:
             rest = rest[7:]
             var where_end = len(rest)
             if rest.find(" GROUP BY ") != -1:
                 where_end = rest.find(" GROUP BY ")
+            elif rest.find(" HAVING ") != -1:
+                where_end = rest.find(" HAVING ")
             elif rest.find(" ORDER BY ") != -1:
                 where_end = rest.find(" ORDER BY ")
             where_clause = rest[:where_end]
             rest = rest[where_end:]
-        
+
         if rest.find(" GROUP BY ") == 0:
             rest = rest[10:]
             var group_end = len(rest)
-            if rest.find(" ORDER BY ") != -1:
+            if rest.find(" HAVING ") != -1:
+                group_end = rest.find(" HAVING ")
+            elif rest.find(" ORDER BY ") != -1:
                 group_end = rest.find(" ORDER BY ")
             group_clause = rest[:group_end]
             rest = rest[group_end:]
-        
+
+        if rest.find(" HAVING ") == 0:
+            rest = rest[8:]
+            var having_end = len(rest)
+            if rest.find(" ORDER BY ") != -1:
+                having_end = rest.find(" ORDER BY ")
+            having_clause = rest[:having_end]
+            rest = rest[having_end:]
+
         if rest.find(" ORDER BY ") == 0:
             rest = rest[10:]
             var order_end = len(rest)
@@ -1182,12 +1209,15 @@ struct PLGrizzlyInterpreter:
             result_list = filtered.copy()
         
         # Check if select_part contains aggregate functions
-        var has_aggregates = select_part.find("SUM(") != -1 or select_part.find("COUNT(") != -1 or select_part.find("AVG(") != -1 or select_part.find("MIN(") != -1 or select_part.find("MAX(") != -1
+        var has_aggregates = select_part.find("@Sum(") != -1 or select_part.find("@Count(") != -1 or select_part.find("@Avg(") != -1 or select_part.find("@Min(") != -1 or select_part.find("@Max(") != -1 or select_part.find("@Stdev(") != -1 or select_part.find("@Variance(") != -1 or select_part.find("@Median(") != -1 or select_part.find("@Percentile(") != -1 or select_part.find("@Mode(") != -1 or select_part.find("@First(") != -1 or select_part.find("@Last(") != -1
         
         # Apply aggregate functions if present (even without GROUP BY)
         if has_aggregates:
             if group_clause != "":
                 result_list = self._apply_group_by(result_list, group_clause, select_part, env).copy()
+                # Apply HAVING clause if present (only valid after GROUP BY)
+                if having_clause != "":
+                    result_list = self._apply_having(result_list, having_clause, select_part, env).copy()
             else:
                 # No GROUP BY, treat entire result as one group
                 var aggregated_result = self._apply_aggregates_to_group(result_list, select_part, env)
@@ -1197,15 +1227,25 @@ struct PLGrizzlyInterpreter:
             # Apply GROUP BY if specified (for non-aggregate queries)
             if group_clause != "":
                 result_list = self._apply_group_by(result_list, group_clause, select_part, env).copy()
+                # Apply HAVING clause if present
+                if having_clause != "":
+                    result_list = self._apply_having(result_list, having_clause, select_part, env).copy()
+            # HAVING without GROUP BY should error (PostgreSQL behavior)
+            elif having_clause != "":
+                return PLValue("error", "HAVING clause requires GROUP BY")
         
         # Apply DISTINCT if specified
         if distinct:
             result_list = self._apply_distinct(result_list).copy()
-        
+
+        # Apply window functions if present
+        # TODO: Parse and execute window functions from AST
+        # For now, window functions are handled in the AST evaluator
+
         # Apply ORDER BY if specified
         if order_clause != "":
             result_list = self._apply_order_by(result_list, order_clause, env).copy()
-        
+
         return PLValue.list(result_list)
 
     fn _apply_distinct(self, result_list: List[PLValue]) raises -> List[PLValue]:
@@ -1252,8 +1292,8 @@ struct PLGrizzlyInterpreter:
         var grouped_results = List[PLValue]()
         for group in groups.values():
             if len(group) > 0:
-                # Check if select_part contains aggregate functions
-                var has_aggregates = select_part.find("SUM(") != -1 or select_part.find("COUNT(") != -1 or select_part.find("AVG(") != -1 or select_part.find("MIN(") != -1 or select_part.find("MAX(") != -1
+                 # Check if select_part contains aggregate functions
+                 var has_aggregates = select_part.find("@Sum(") != -1 or select_part.find("@Count(") != -1 or select_part.find("@Avg(") != -1 or select_part.find("@Min(") != -1 or select_part.find("@Max(") != -1 or select_part.find("@Stdev(") != -1 or select_part.find("@Variance(") != -1 or select_part.find("@Median(") != -1 or select_part.find("@Percentile(") != -1 or select_part.find("@Mode(") != -1 or select_part.find("@First(") != -1 or select_part.find("@Last(") != -1
                 
                 if has_aggregates:
                     var aggregated_row = self._apply_aggregates_to_group(group, select_part, env)
@@ -1263,6 +1303,824 @@ struct PLGrizzlyInterpreter:
                     grouped_results.append(group[0])
         
         return grouped_results^
+
+    fn _apply_having(self, grouped_results: List[PLValue], having_clause: String, select_part: String, env: Environment) raises -> List[PLValue]:
+        """Apply HAVING clause to filter grouped/aggregated results."""
+        var filtered_results = List[PLValue]()
+
+        # Parse column aliases from SELECT clause for HAVING reference
+        var column_aliases = self._parse_select_aliases(select_part)
+
+        for group_result in grouped_results:
+            # Create temporary environment with group result values
+            var temp_env = Environment()
+            if env.parent:
+                temp_env.parent = env.parent
+
+            # Add column values to temp environment
+            if group_result.is_struct():
+                var struct_data = group_result.get_struct()
+                for key in struct_data.keys():
+                    temp_env.define(key, struct_data[key])
+
+            # Also add aliases for HAVING reference
+            for alias in column_aliases.keys():
+                var original_expr = column_aliases[alias]
+                # For aggregates, the result is already computed in group_result
+                if alias in struct_data:
+                    temp_env.define(alias, struct_data[alias])
+
+            # Handle inline aggregate functions in HAVING clause
+            var processed_having = having_clause
+
+            # Replace @ aggregate functions with computed values
+            processed_having = self._resolve_aggregate_functions_in_having(processed_having, grouped_results[0], select_part)
+
+            # Evaluate HAVING condition
+            try:
+                var condition_result = self.evaluate(processed_having, temp_env)
+                if condition_result.is_boolean() and condition_result.get_boolean():
+                    filtered_results.append(group_result)
+            except:
+                # If evaluation fails, skip this group (PostgreSQL behavior)
+                continue
+
+        return filtered_results^
+
+    fn _resolve_aggregate_functions_in_having(self, having_clause: String, group_result: PLValue, select_part: String) raises -> String:
+        """Resolve @ aggregate functions in HAVING clause to their computed values."""
+        var result = having_clause
+
+        # Handle @Sum(column)
+        if result.find("@Sum(") != -1:
+            var start_pos = result.find("@Sum(")
+            var end_pos = result.find(")", start_pos)
+            if end_pos != -1:
+                var func_call = result[start_pos:end_pos + 1]
+                var column = func_call[5:-1]  # Extract column name
+                var value = self._apply_aggregate_sum([group_result], column)
+                result = result.replace(func_call, value.__str__())
+
+        # Handle @Count(column)
+        if result.find("@Count(") != -1:
+            var start_pos = result.find("@Count(")
+            var end_pos = result.find(")", start_pos)
+            if end_pos != -1:
+                var func_call = result[start_pos:end_pos + 1]
+                var column = func_call[7:-1]  # Extract column name
+                var value = self._apply_aggregate_count([group_result], column)
+                result = result.replace(func_call, value.__str__())
+
+        # Handle @Avg(column)
+        if result.find("@Avg(") != -1:
+            var start_pos = result.find("@Avg(")
+            var end_pos = result.find(")", start_pos)
+            if end_pos != -1:
+                var func_call = result[start_pos:end_pos + 1]
+                var column = func_call[5:-1]  # Extract column name
+                var value = self._apply_aggregate_avg([group_result], column)
+                result = result.replace(func_call, value.__str__())
+
+        # Handle @Min(column)
+        if result.find("@Min(") != -1:
+            var start_pos = result.find("@Min(")
+            var end_pos = result.find(")", start_pos)
+            if end_pos != -1:
+                var func_call = result[start_pos:end_pos + 1]
+                var column = func_call[5:-1]  # Extract column name
+                var value = self._apply_aggregate_min([group_result], column)
+                result = result.replace(func_call, value.__str__())
+
+        # Handle @Max(column)
+        if result.find("@Max(") != -1:
+            var start_pos = result.find("@Max(")
+            var end_pos = result.find(")", start_pos)
+            if end_pos != -1:
+                var func_call = result[start_pos:end_pos + 1]
+                var column = func_call[5:-1]  # Extract column name
+                var value = self._apply_aggregate_max([group_result], column)
+                result = result.replace(func_call, value.__str__())
+
+        # Handle @Stdev(column)
+        if result.find("@Stdev(") != -1:
+            var start_pos = result.find("@Stdev(")
+            var end_pos = result.find(")", start_pos)
+            if end_pos != -1:
+                var func_call = result[start_pos:end_pos + 1]
+                var column = func_call[7:-1]  # Extract column name
+                var value = self._apply_aggregate_stdev([group_result], column)
+                result = result.replace(func_call, value.__str__())
+
+        # Handle @Variance(column)
+        if result.find("@Variance(") != -1:
+            var start_pos = result.find("@Variance(")
+            var end_pos = result.find(")", start_pos)
+            if end_pos != -1:
+                var func_call = result[start_pos:end_pos + 1]
+                var column = func_call[10:-1]  # Extract column name
+                var value = self._apply_aggregate_variance([group_result], column)
+                result = result.replace(func_call, value.__str__())
+
+        # Handle @Median(column)
+        if result.find("@Median(") != -1:
+            var start_pos = result.find("@Median(")
+            var end_pos = result.find(")", start_pos)
+            if end_pos != -1:
+                var func_call = result[start_pos:end_pos + 1]
+                var column = func_call[8:-1]  # Extract column name
+                var value = self._apply_aggregate_median([group_result], column)
+                result = result.replace(func_call, value.__str__())
+
+        # Handle @Percentile(column, percentile)
+        if result.find("@Percentile(") != -1:
+            var start_pos = result.find("@Percentile(")
+            var end_pos = result.find(")", start_pos)
+            if end_pos != -1:
+                var func_call = result[start_pos:end_pos + 1]
+                var inner = func_call[12:-1]  # Remove @Percentile( and )
+                var parts = inner.split(",")
+                var column = String(parts[0].strip())
+                var percentile = 0.5  # Default
+                if len(parts) > 1:
+                    percentile = Float64(String(parts[1].strip())) / 100.0
+                var value = self._apply_aggregate_percentile([group_result], column, percentile)
+                result = result.replace(func_call, value.__str__())
+
+        # Handle @Mode(column)
+        if result.find("@Mode(") != -1:
+            var start_pos = result.find("@Mode(")
+            var end_pos = result.find(")", start_pos)
+            if end_pos != -1:
+                var func_call = result[start_pos:end_pos + 1]
+                var column = func_call[6:-1]  # Extract column name
+                var value = self._apply_aggregate_mode([group_result], column)
+                result = result.replace(func_call, value.__str__())
+
+        # Handle @First(column)
+        if result.find("@First(") != -1:
+            var start_pos = result.find("@First(")
+            var end_pos = result.find(")", start_pos)
+            if end_pos != -1:
+                var func_call = result[start_pos:end_pos + 1]
+                var column = func_call[7:-1]  # Extract column name
+                var value = self._apply_aggregate_first([group_result], column)
+                result = result.replace(func_call, value.__str__())
+
+        # Handle @Last(column)
+        if result.find("@Last(") != -1:
+            var start_pos = result.find("@Last(")
+            var end_pos = result.find(")", start_pos)
+            if end_pos != -1:
+                var func_call = result[start_pos:end_pos + 1]
+                var column = func_call[6:-1]  # Extract column name
+                var value = self._apply_aggregate_last([group_result], column)
+                result = result.replace(func_call, value.__str__())
+
+        return result
+
+    fn _parse_select_aliases(self, select_part: String) -> Dict[String, String]:
+        """Parse column aliases from SELECT clause for HAVING reference."""
+        var aliases = Dict[String, String]()
+
+        # Simple parsing: look for "expression AS alias" patterns
+        var parts = select_part.split(",")
+        for part in parts:
+            var trimmed = part.strip()
+            var as_pos = trimmed.find(" AS ")
+            if as_pos == -1:
+                as_pos = trimmed.find(" as ")
+
+            if as_pos != -1:
+                var expression = trimmed[:as_pos].strip()
+                var alias_part = trimmed[as_pos + 4:].strip()
+                aliases[alias_part] = expression
+
+        return aliases^
+
+    # Window Function Implementation
+    fn execute_window_functions(mut self, result_list: List[PLValue], window_functions: List[ASTNode], env: Environment) raises -> List[PLValue]:
+        """Execute window functions and add results to each row."""
+        if len(window_functions) == 0:
+            return result_list
+
+        var enhanced_rows = result_list.copy()
+
+        for window_func in window_functions:
+            var func_name = window_func.get_attribute("function_name")
+            var window_spec = window_func.children[0]  # Window specification
+
+            # Parse window specification with frame support
+            var partition_cols = List[String]()
+            var order_specs = List[Tuple[String, String]]()  # (column, direction)
+            var window_frame: Optional[WindowFrame] = None
+
+            for child in window_spec.children:
+                if child.node_type == "PARTITION_BY":
+                    for partition_child in child.children:
+                        if partition_child.node_type == "IDENTIFIER":
+                            partition_cols.append(partition_child.get_attribute("name"))
+                        # Handle variables and complex expressions
+                elif child.node_type == "ORDER_BY":
+                    for order_child in child.children:
+                        var col_name = ""
+                        var direction = "ASC"
+
+                        if order_child.node_type == "ORDER_SPEC":
+                            if len(order_child.children) > 0:
+                                var col_node = order_child.children[0]
+                                if col_node.node_type == "IDENTIFIER":
+                                    col_name = col_node.get_attribute("name")
+                                direction = order_child.get_attribute("direction")
+                        order_specs.append((col_name, direction))
+                elif child.node_type == "WINDOW_FRAME":
+                    window_frame = self._parse_window_frame_ast(child)
+
+            # Group rows by partition
+            var partitions = self._partition_rows(enhanced_rows, partition_cols)
+
+            # Apply window function to each partition
+            var window_results = List[List[Any]]()
+
+            for partition in partitions:
+                var sorted_partition = self._sort_partition(partition, order_specs)
+                var results = self._execute_window_function_with_frame(func_name, sorted_partition, window_func, window_frame)
+                window_results.append(results)
+
+            # Add window function results to rows
+            var result_index = 0
+            for i in range(len(partitions)):
+                var partition = partitions[i]
+                var partition_results = window_results[i]
+                for j in range(len(partition)):
+                    var row = enhanced_rows[result_index]
+                    if row.is_struct():
+                        var struct_data = row.get_struct()
+                        # Add window function result as new column
+                        struct_data[func_name] = PLValue("number", String(partition_results[j]))
+                        result_index += 1
+
+        return enhanced_rows^
+
+    fn _parse_window_frame_ast(self, frame_node: ASTNode) raises -> WindowFrame:
+        """Parse AST window frame into WindowFrame struct."""
+        var frame_type = FrameType.ROWS
+        var frame_type_str = frame_node.get_attribute("frame_type")
+        if frame_type_str == "RANGE":
+            frame_type = FrameType.RANGE
+        # GROUPS not yet implemented - defaults to ROWS
+
+        var start_bound = self._parse_frame_bound_ast(frame_node.children[0])
+        var end_bound = self._parse_frame_bound_ast(frame_node.children[1])
+
+        # Parse exclusion if present
+        var exclusion = FrameExclusion.NO_EXCLUSION
+        if len(frame_node.children) > 2 and frame_node.children[2].node_type == "EXCLUDE_CLAUSE":
+            exclusion = self._parse_exclude_clause_ast(frame_node.children[2])
+
+        return WindowFrame(frame_type, start_bound, end_bound, exclusion)
+
+    fn _parse_exclude_clause_ast(self, exclude_node: ASTNode) raises -> FrameExclusion:
+        """Parse AST exclude clause into FrameExclusion enum."""
+        var exclude_type = exclude_node.get_attribute("exclude_type")
+
+        if exclude_type == "CURRENT_ROW":
+            return FrameExclusion.EXCLUDE_CURRENT_ROW
+        elif exclude_type == "GROUP":
+            return FrameExclusion.EXCLUDE_GROUP
+        elif exclude_type == "TIES":
+            return FrameExclusion.EXCLUDE_TIES
+        elif exclude_type == "NO_OTHERS":
+            return FrameExclusion.EXCLUDE_NO_OTHERS
+        else:
+            return FrameExclusion.NO_EXCLUSION
+
+    fn _parse_frame_bound_ast(self, bound_node: ASTNode) raises -> FrameBound:
+        """Parse AST frame bound into FrameBound struct."""
+        var bound_type_str = bound_node.get_attribute("bound_type")
+        var offset: Optional[Int] = None
+        var interval: Optional[String] = None
+
+        if bound_type_str == "UNBOUNDED_PRECEDING":
+            return FrameBound(FrameBoundType.UNBOUNDED_PRECEDING, None, None)
+        elif bound_type_str == "CURRENT_ROW":
+            return FrameBound(FrameBoundType.CURRENT_ROW, None, None)
+        elif bound_type_str == "UNBOUNDED_FOLLOWING":
+            return FrameBound(FrameBoundType.UNBOUNDED_FOLLOWING, None, None)
+        elif bound_type_str == "PRECEDING":
+            if bound_node.get_attribute("interval"):
+                interval = bound_node.get_attribute("interval")
+                return FrameBound(FrameBoundType.PRECEDING, None, interval)
+            else:
+                var offset_str = bound_node.get_attribute("offset")
+                offset = Int(offset_str)
+                return FrameBound(FrameBoundType.PRECEDING, offset, None)
+        elif bound_type_str == "FOLLOWING":
+            if bound_node.get_attribute("interval"):
+                interval = bound_node.get_attribute("interval")
+                return FrameBound(FrameBoundType.FOLLOWING, None, interval)
+            else:
+                var offset_str = bound_node.get_attribute("offset")
+                offset = Int(offset_str)
+                return FrameBound(FrameBoundType.FOLLOWING, offset, None)
+        else:
+            return FrameBound(FrameBoundType.UNBOUNDED_PRECEDING, None, None)  # Default
+
+    fn _execute_window_function_with_frame(self, func_name: String, partition: List[PLValue], window_node: ASTNode, frame: Optional[WindowFrame]) raises -> List[Any]:
+        """Execute window function with frame specification."""
+        if not frame:
+            # No frame specified, use unbounded
+            return self._execute_window_function(func_name, partition, window_node)
+
+        # Frame-based execution
+        var results = List[Any]()
+
+        for current_row_idx in range(len(partition)):
+            var frame_start, frame_end = self._calculate_frame_bounds(partition, current_row_idx, frame.value())
+            var frame_data = partition[frame_start:frame_end + 1]
+
+            # Execute function on the frame
+            var exclusion = FrameExclusion.NO_EXCLUSION
+            if frame:
+                exclusion = frame.value().exclusion
+            var frame_result = self._execute_function_on_frame(func_name, frame_data, window_func, exclusion)
+            results.append(frame_result)
+
+        return results^
+
+    fn _partition_rows(self, rows: List[PLValue], partition_cols: List[String]) -> List[List[PLValue]]:
+        """Partition rows based on partition columns."""
+        if len(partition_cols) == 0:
+            # No partitioning - single partition with all rows
+            return List[List[PLValue]](rows.copy())
+
+        var partitions = Dict[String, List[PLValue]]()
+
+        for row in rows:
+            if row.is_struct():
+                var key = ""
+                for col in partition_cols:
+                    if col in row.get_struct():
+                        key += row.get_struct()[col].__str__() + "|"
+                    else:
+                        key += "NULL|"
+
+                if key not in partitions:
+                    partitions[key] = List[PLValue]()
+                partitions[key].append(row)
+
+        var result = List[List[PLValue]]()
+        for partition in partitions.values():
+            result.append(partition.copy())
+
+        return result^
+
+    fn _sort_partition(self, partition: List[PLValue], order_specs: List[Tuple[String, String]]) -> List[PLValue]:
+        """Sort partition according to order specifications."""
+        if len(order_specs) == 0:
+            return partition.copy()
+
+        # Simple sorting - for now just return as-is
+        # TODO: Implement proper sorting with multiple columns and directions
+        return partition.copy()
+
+    fn _execute_window_function(self, func_name: String, partition: List[PLValue], window_node: ASTNode) -> List[Any]:
+        """Execute specific window function on partition."""
+        if func_name == "@RowNumber":
+            return self._window_row_number(partition)
+        elif func_name == "@Rank":
+            return self._window_rank(partition)
+        elif func_name == "@DenseRank":
+            return self._window_dense_rank(partition)
+        elif func_name == "@NTile":
+            # Get n parameter from function arguments
+            var n = 4  # Default
+            if len(window_node.children) > 0:
+                var first_arg = window_node.children[0]
+                if first_arg.node_type == "NUMBER":
+                    n = Int(first_arg.get_attribute("value"))
+            return self._window_ntile(partition, n)
+        elif func_name == "@Sum":
+            var column = "value"  # Default
+            if len(window_node.children) >= 1:
+                column = window_node.children[0].get_attribute("name")
+            return self._window_sum(partition, column)
+        elif func_name == "@Avg":
+            var column = "value"  # Default
+            if len(window_node.children) >= 1:
+                column = window_node.children[0].get_attribute("name")
+            return self._window_avg(partition, column)
+        elif func_name == "@Min":
+            var column = "value"  # Default
+            if len(window_node.children) >= 1:
+                column = window_node.children[0].get_attribute("name")
+            return self._window_min(partition, column)
+        elif func_name == "@Max":
+            var column = "value"  # Default
+            if len(window_node.children) >= 1:
+                column = window_node.children[0].get_attribute("name")
+            return self._window_max(partition, column)
+        elif func_name == "@Count":
+            return self._window_count(partition)
+        elif func_name == "@Lag":
+            var column = "value"  # Default
+            var offset = 1
+            var default_val = PLValue("null", "")
+            # Parse arguments
+            if len(window_node.children) >= 1:
+                column = window_node.children[0].get_attribute("name")
+            if len(window_node.children) >= 2:
+                offset = Int(window_node.children[1].get_attribute("value"))
+            return self._window_lag(partition, column, offset, default_val)
+        elif func_name == "@Lead":
+            var column = "value"  # Default
+            var offset = 1
+            var default_val = PLValue("null", "")
+            # Parse arguments
+            if len(window_node.children) >= 1:
+                column = window_node.children[0].get_attribute("name")
+            if len(window_node.children) >= 2:
+                offset = Int(window_node.children[1].get_attribute("value"))
+            return self._window_lead(partition, column, offset, default_val)
+        elif func_name == "@FirstValue":
+            var column = "value"  # Default
+            if len(window_node.children) >= 1:
+                column = window_node.children[0].get_attribute("name")
+            return self._window_first_value(partition, column)
+        elif func_name == "@LastValue":
+            var column = "value"  # Default
+            if len(window_node.children) >= 1:
+                column = window_node.children[0].get_attribute("name")
+            return self._window_last_value(partition, column)
+        else:
+            # Unknown function - return zeros
+            return [0] * len(partition)
+
+    fn _window_row_number(self, partition: List[PLValue]) -> List[Int]:
+        """Assign sequential row numbers within partition."""
+        var results = List[Int]()
+        for i in range(len(partition)):
+            results.append(i + 1)
+        return results^
+
+    fn _window_rank(self, partition: List[PLValue]) -> List[Int]:
+        """Assign ranks with gaps for ties (simplified implementation)."""
+        # For now, just return row numbers (no tie handling)
+        return self._window_row_number(partition)
+
+    fn _window_dense_rank(self, partition: List[PLValue]) -> List[Int]:
+        """Assign dense ranks without gaps for ties (simplified implementation)."""
+        # For now, just return row numbers (no tie handling)
+        return self._window_row_number(partition)
+
+    fn _window_ntile(self, partition: List[PLValue], buckets: Int) -> List[Int]:
+        """Divide partition into n equal buckets."""
+        var results = List[Int]()
+        var bucket_size = len(partition) // buckets
+        var remainder = len(partition) % buckets
+
+        var current_bucket = 1
+        var count_in_bucket = 0
+
+        for i in range(len(partition)):
+            results.append(current_bucket)
+            count_in_bucket += 1
+
+            # Move to next bucket when appropriate
+            if count_in_bucket >= bucket_size and (current_bucket > buckets - remainder or count_in_bucket >= bucket_size + 1):
+                if current_bucket < buckets:
+                    current_bucket += 1
+                    count_in_bucket = 0
+
+        return results^
+
+    fn _window_lag(self, partition: List[PLValue], column: String, offset: Int, default_val: PLValue) -> List[PLValue]:
+        """Access previous row's value."""
+        var results = List[PLValue]()
+
+        for i in range(len(partition)):
+            if i >= offset:
+                var prev_row = partition[i - offset]
+                if prev_row.is_struct() and column in prev_row.get_struct():
+                    results.append(prev_row.get_struct()[column])
+                else:
+                    results.append(default_val)
+            else:
+                results.append(default_val)
+
+        return results^
+
+    fn _window_lead(self, partition: List[PLValue], column: String, offset: Int, default_val: PLValue) -> List[PLValue]:
+        """Access next row's value."""
+        var results = List[PLValue]()
+
+        for i in range(len(partition)):
+            if i + offset < len(partition):
+                var next_row = partition[i + offset]
+                if next_row.is_struct() and column in next_row.get_struct():
+                    results.append(next_row.get_struct()[column])
+                else:
+                    results.append(default_val)
+            else:
+                results.append(default_val)
+
+        return results^
+
+    fn _window_first_value(self, partition: List[PLValue], column: String) -> List[PLValue]:
+        """Return first value in partition for all rows."""
+        if len(partition) == 0:
+            return List[PLValue]()
+
+        var first_row = partition[0]
+        var first_val = PLValue("null", "")
+
+        if first_row.is_struct() and column in first_row.get_struct():
+            first_val = first_row.get_struct()[column]
+
+        return [first_val] * len(partition)
+
+    fn _window_last_value(self, partition: List[PLValue], column: String) -> List[PLValue]:
+        """Return last value in partition for all rows."""
+        if len(partition) == 0:
+            return List[PLValue]()
+
+        var last_row = partition[len(partition) - 1]
+        var last_val = PLValue("null", "")
+
+        if last_row.is_struct() and column in last_row.get_struct():
+            last_val = last_row.get_struct()[column]
+
+        return [last_val] * len(partition)
+
+    fn _window_sum(self, partition: List[PLValue], column: String) -> List[Float64]:
+        """Calculate running sum for window."""
+        var results = List[Float64]()
+        var running_sum = 0.0
+
+        for row in partition:
+            if row.is_struct() and column in row.get_struct():
+                var val = row.get_struct()[column]
+                if val.type == "number":
+                    try:
+                        var num_val = Float64(val.value)
+                        running_sum += num_val
+                    except:
+                        pass  # Skip invalid numbers
+            results.append(running_sum)
+
+        return results^
+
+    fn _window_avg(self, partition: List[PLValue], column: String) -> List[Float64]:
+        """Calculate running average for window."""
+        var sums = self._window_sum(partition, column)
+        var results = List[Float64]()
+
+        for i in range(len(sums)):
+            var avg = sums[i] / Float64(i + 1)
+            results.append(avg)
+
+        return results^
+
+    fn _window_min(self, partition: List[PLValue], column: String) -> List[Any]:
+        """Calculate running minimum for window."""
+        var results = List[Any]()
+        var current_min: Optional[PLValue] = None
+
+        for row in partition:
+            if row.is_struct() and column in row.get_struct():
+                var val = row.get_struct()[column]
+                if not current_min or self._compare_values(val, current_min.value()) < 0:
+                    current_min = val
+
+            if current_min:
+                results.append(current_min.value())
+            else:
+                results.append(PLValue("null", ""))
+
+        return results
+
+    fn _window_max(self, partition: List[PLValue], column: String) -> List[Any]:
+        """Calculate running maximum for window."""
+        var results = List[Any]()
+        var current_max: Optional[PLValue] = None
+
+        for row in partition:
+            if row.is_struct() and column in row.get_struct():
+                var val = row.get_struct()[column]
+                if not current_max or self._compare_values(val, current_max.value()) > 0:
+                    current_max = val
+
+            if current_max:
+                results.append(current_max.value())
+            else:
+                results.append(PLValue("null", ""))
+
+        return results
+
+    fn _window_count(self, partition: List[PLValue]) -> List[Int]:
+        """Calculate running count for window."""
+        var results = List[Int]()
+
+        for i in range(len(partition)):
+            results.append(i + 1)
+
+        return results^
+
+    fn _calculate_frame_bounds(self, partition: List[PLValue], current_row_idx: Int, frame: WindowFrame) raises -> (Int, Int):
+        """Calculate the start and end indices for a window frame."""
+        var partition_size = len(partition)
+
+        if frame.type == FrameType.ROWS:
+            return self._calculate_rows_frame_bounds(partition, current_row_idx, frame)
+        else:  # RANGE
+            return self._calculate_range_frame_bounds(partition, current_row_idx, frame)
+
+    fn _calculate_rows_frame_bounds(self, partition: List[PLValue], current_row_idx: Int, frame: WindowFrame) raises -> (Int, Int):
+        """Calculate ROWS frame bounds."""
+        var partition_size = len(partition)
+
+        # Calculate start bound
+        var start_idx = 0
+        if frame.start_bound.type == FrameBoundType.UNBOUNDED_PRECEDING:
+            start_idx = 0
+        elif frame.start_bound.type == FrameBoundType.PRECEDING:
+            var offset = frame.start_bound.offset.value()
+            start_idx = max(0, current_row_idx - offset)
+        elif frame.start_bound.type == FrameBoundType.CURRENT_ROW:
+            start_idx = current_row_idx
+        elif frame.start_bound.type == FrameBoundType.FOLLOWING:
+            var offset = frame.start_bound.offset.value()
+            start_idx = min(partition_size - 1, current_row_idx + offset)
+
+        # Calculate end bound
+        var end_idx = partition_size - 1
+        if frame.end_bound.type == FrameBoundType.UNBOUNDED_FOLLOWING:
+            end_idx = partition_size - 1
+        elif frame.end_bound.type == FrameBoundType.FOLLOWING:
+            var offset = frame.end_bound.offset.value()
+            end_idx = min(partition_size - 1, current_row_idx + offset)
+        elif frame.end_bound.type == FrameBoundType.CURRENT_ROW:
+            end_idx = current_row_idx
+        elif frame.end_bound.type == FrameBoundType.PRECEDING:
+            var offset = frame.end_bound.offset.value()
+            end_idx = max(0, current_row_idx - offset)
+
+        return (start_idx, end_idx)
+
+    fn _calculate_range_frame_bounds(self, partition: List[PLValue], current_row_idx: Int, frame: WindowFrame) raises -> (Int, Int):
+        """Calculate RANGE frame bounds based on ORDER BY column values."""
+        # For RANGE frames, we need the ORDER BY column to determine the range
+        # For now, implement basic RANGE logic assuming numeric ORDER BY column
+
+        if len(partition) == 0:
+            return (0, 0)
+
+        var current_row = partition[current_row_idx]
+        if not current_row.is_struct():
+            return self._calculate_rows_frame_bounds(partition, current_row_idx, frame)
+
+        # Get the current row's ORDER BY value (assume first ORDER BY column is numeric)
+        # This is a simplified implementation - real RANGE would need ORDER BY metadata
+        var current_value = 0.0
+        if current_row.get_struct().size > 0:
+            # Try to get a numeric value from the row (simplified)
+            for value in current_row.get_struct().values():
+                if value.type == "number":
+                    current_value = Float64(value.value)
+                    break
+
+        # Calculate range bounds
+        var start_idx = current_row_idx
+        var end_idx = current_row_idx
+
+        # Start bound
+        if frame.start_bound.type == FrameBoundType.UNBOUNDED_PRECEDING:
+            start_idx = 0
+        elif frame.start_bound.type == FrameBoundType.PRECEDING:
+            if frame.start_bound.interval:
+                # Temporal interval (e.g., INTERVAL '7 days')
+                var interval_seconds = self._parse_interval_to_seconds(frame.start_bound.interval.value())
+                var range_start = current_value - Float64(interval_seconds)
+                start_idx = self._find_first_row_gte_value(partition, range_start, current_row_idx, False)
+            elif frame.start_bound.offset:
+                # Numeric offset
+                var range_start = current_value - Float64(frame.start_bound.offset.value())
+                start_idx = self._find_first_row_gte_value(partition, range_start, current_row_idx, False)
+        elif frame.start_bound.type == FrameBoundType.CURRENT_ROW:
+            start_idx = current_row_idx
+
+        # End bound
+        if frame.end_bound.type == FrameBoundType.UNBOUNDED_FOLLOWING:
+            end_idx = len(partition) - 1
+        elif frame.end_bound.type == FrameBoundType.FOLLOWING:
+            if frame.end_bound.interval:
+                # Temporal interval
+                var interval_seconds = self._parse_interval_to_seconds(frame.end_bound.interval.value())
+                var range_end = current_value + Float64(interval_seconds)
+                end_idx = self._find_last_row_lte_value(partition, range_end, current_row_idx, True)
+            elif frame.end_bound.offset:
+                # Numeric offset
+                var range_end = current_value + Float64(frame.end_bound.offset.value())
+                end_idx = self._find_last_row_lte_value(partition, range_end, current_row_idx, True)
+        elif frame.end_bound.type == FrameBoundType.CURRENT_ROW:
+            end_idx = current_row_idx
+
+        return (max(0, start_idx), min(len(partition) - 1, end_idx))
+
+    fn _find_first_row_gte_value(self, partition: List[PLValue], target_value: Float64, start_idx: Int, search_forward: Bool) -> Int:
+        """Find the first row with value >= target_value."""
+        var step = 1 if search_forward else -1
+        var idx = start_idx
+
+        while 0 <= idx < len(partition):
+            var row = partition[idx]
+            if row.is_struct():
+                for value in row.get_struct().values():
+                    if value.type == "number":
+                        var row_value = Float64(value.value)
+                        if row_value >= target_value:
+                            return idx
+                        break
+            idx += step
+
+        return start_idx
+
+    fn _find_last_row_lte_value(self, partition: List[PLValue], target_value: Float64, start_idx: Int, search_forward: Bool) -> Int:
+        """Find the last row with value <= target_value."""
+        var step = 1 if search_forward else -1
+        var idx = start_idx
+        var last_match = start_idx
+
+        while 0 <= idx < len(partition):
+            var row = partition[idx]
+            if row.is_struct():
+                for value in row.get_struct().values():
+                    if value.type == "number":
+                        var row_value = Float64(value.value)
+                        if row_value <= target_value:
+                            last_match = idx
+                        else:
+                            return last_match  # Found first value > target
+                        break
+            idx += step
+
+        return last_match
+
+    fn _parse_interval_to_seconds(self, interval_str: String) -> Int:
+        """Parse interval string like '7 days' into seconds."""
+        # Simple parsing - extract number and unit
+        var parts = interval_str.split(" ")
+        if len(parts) < 2:
+            return 0
+
+        var value_str = parts[0]
+        var unit = parts[1].lower()
+
+        var value: Int = 0
+        try:
+            value = Int(value_str)
+        except:
+            return 0
+
+        # Convert to seconds
+        if unit.startswith("second"):
+            return value
+        elif unit.startswith("minute"):
+            return value * 60
+        elif unit.startswith("hour"):
+            return value * 3600
+        elif unit.startswith("day"):
+            return value * 86400
+        elif unit.startswith("week"):
+            return value * 604800
+        elif unit.startswith("month"):
+            return value * 2592000  # ~30 days
+        elif unit.startswith("year"):
+            return value * 31536000  # 365 days
+        else:
+            return value  # Default to seconds
+
+    fn _compare_values(self, val1: PLValue, val2: PLValue) -> Int:
+        """Compare two PLValues for ordering. Returns -1, 0, or 1."""
+        if val1.type == "number" and val2.type == "number":
+            var num1 = Float64(val1.value)
+            var num2 = Float64(val2.value)
+            if num1 < num2:
+                return -1
+            elif num1 > num2:
+                return 1
+            else:
+                return 0
+        elif val1.type == "string" and val2.type == "string":
+            # Lexicographic comparison
+            if val1.value < val2.value:
+                return -1
+            elif val1.value > val2.value:
+                return 1
+            else:
+                return 0
+        else:
+            # For different types or unsupported comparisons, consider equal
+            return 0
 
     fn _apply_aggregate_sum(self, group: List[PLValue], column: String) raises -> PLValue:
         """Apply SUM aggregate function to a group."""
@@ -1358,6 +2216,202 @@ struct PLGrizzlyInterpreter:
             return max_val.value()
         return PLValue("null", "")
 
+    fn _apply_aggregate_stdev(self, group: List[PLValue], column: String) raises -> PLValue:
+        """Apply STDEV (standard deviation) aggregate function to a group."""
+        var values = List[Float64]()
+
+        # Collect numeric values
+        for row in group:
+            if row.is_struct() and column in row.get_struct():
+                var val = row.get_struct()[column]
+                if val.type == "number":
+                    try:
+                        values.append(Float64(val.value))
+                    except:
+                        pass  # Skip invalid numbers
+
+        if len(values) < 2:
+            return PLValue("number", "0")  # Need at least 2 values for meaningful std dev
+
+        # Calculate mean
+        var sum_val = 0.0
+        for val in values:
+            sum_val += val
+        var mean = sum_val / Float64(len(values))
+
+        # Calculate variance
+        var variance_sum = 0.0
+        for val in values:
+            variance_sum += (val - mean) * (val - mean)
+
+        # Population standard deviation (divide by n)
+        var variance = variance_sum / Float64(len(values))
+        var stdev = variance ** 0.5
+
+        return PLValue("number", String(stdev))
+
+    fn _apply_aggregate_variance(self, group: List[PLValue], column: String) raises -> PLValue:
+        """Apply VARIANCE aggregate function to a group."""
+        var values = List[Float64]()
+
+        # Collect numeric values
+        for row in group:
+            if row.is_struct() and column in row.get_struct():
+                var val = row.get_struct()[column]
+                if val.type == "number":
+                    try:
+                        values.append(Float64(val.value))
+                    except:
+                        pass  # Skip invalid numbers
+
+        if len(values) < 2:
+            return PLValue("number", "0")
+
+        # Calculate mean
+        var sum_val = 0.0
+        for val in values:
+            sum_val += val
+        var mean = sum_val / Float64(len(values))
+
+        # Calculate variance
+        var variance_sum = 0.0
+        for val in values:
+            variance_sum += (val - mean) * (val - mean)
+
+        # Population variance (divide by n)
+        var variance = variance_sum / Float64(len(values))
+
+        return PLValue("number", String(variance))
+
+    fn _apply_aggregate_median(self, group: List[PLValue], column: String) raises -> PLValue:
+        """Apply MEDIAN aggregate function to a group."""
+        var values = List[Float64]()
+
+        # Collect numeric values
+        for row in group:
+            if row.is_struct() and column in row.get_struct():
+                var val = row.get_struct()[column]
+                if val.type == "number":
+                    try:
+                        values.append(Float64(val.value))
+                    except:
+                        pass  # Skip invalid numbers
+
+        if len(values) == 0:
+            return PLValue("null", "")
+
+        # Sort values
+        values.sort()
+
+        var n = len(values)
+        if n % 2 == 1:
+            # Odd number of elements
+            return PLValue("number", String(values[n // 2]))
+        else:
+            # Even number of elements - average of middle two
+            var mid1 = values[n // 2 - 1]
+            var mid2 = values[n // 2]
+            var median = (mid1 + mid2) / 2.0
+            return PLValue("number", String(median))
+
+    fn _apply_aggregate_percentile(self, group: List[PLValue], column: String, percentile: Float64 = 0.5) raises -> PLValue:
+        """Apply PERCENTILE aggregate function to a group (default 50th percentile = median)."""
+        var values = List[Float64]()
+
+        # Collect numeric values
+        for row in group:
+            if row.is_struct() and column in row.get_struct():
+                var val = row.get_struct()[column]
+                if val.type == "number":
+                    try:
+                        values.append(Float64(val.value))
+                    except:
+                        pass  # Skip invalid numbers
+
+        if len(values) == 0:
+            return PLValue("null", "")
+
+        # Sort values
+        values.sort()
+
+        var n = len(values)
+        var index = percentile * Float64(n - 1)
+
+        if index == Float64(Int(index)):
+            # Exact index
+            return PLValue("number", String(values[Int(index)]))
+        else:
+            # Interpolate between values
+            var lower_index = Int(index)
+            var upper_index = lower_index + 1
+            var fraction = index - Float64(lower_index)
+
+            if upper_index >= n:
+                return PLValue("number", String(values[lower_index]))
+
+            var lower_val = values[lower_index]
+            var upper_val = values[upper_index]
+            var interpolated = lower_val + fraction * (upper_val - lower_val)
+
+            return PLValue("number", String(interpolated))
+
+    fn _apply_aggregate_mode(self, group: List[PLValue], column: String) raises -> PLValue:
+        """Apply MODE (most frequent value) aggregate function to a group."""
+        var frequency = Dict[String, Int]()
+
+        # Count frequency of each value
+        for row in group:
+            if row.is_struct() and column in row.get_struct():
+                var val = row.get_struct()[column]
+                var key = val.__str__()
+                if key in frequency:
+                    frequency[key] += 1
+                else:
+                    frequency[key] = 1
+
+        if len(frequency) == 0:
+            return PLValue("null", "")
+
+        # Find the most frequent value
+        var max_freq = 0
+        var mode_value = ""
+
+        for key in frequency.keys():
+            if frequency[key] > max_freq:
+                max_freq = frequency[key]
+                mode_value = key
+
+        # Try to return as the original type if possible
+        if mode_value == "true":
+            return PLValue("boolean", "true")
+        elif mode_value == "false":
+            return PLValue("boolean", "false")
+        elif mode_value.isdigit():
+            return PLValue("number", mode_value)
+        else:
+            return PLValue("string", mode_value)
+
+    fn _apply_aggregate_first(self, group: List[PLValue], column: String) raises -> PLValue:
+        """Apply FIRST aggregate function to a group (first non-null value)."""
+        for row in group:
+            if row.is_struct() and column in row.get_struct():
+                var val = row.get_struct()[column]
+                if val.type != "null":
+                    return val
+
+        return PLValue("null", "")
+
+    fn _apply_aggregate_last(self, group: List[PLValue], column: String) raises -> PLValue:
+        """Apply LAST aggregate function to a group (last non-null value)."""
+        for i in range(len(group) - 1, -1, -1):  # Iterate backwards
+            var row = group[i]
+            if row.is_struct() and column in row.get_struct():
+                var val = row.get_struct()[column]
+                if val.type != "null":
+                    return val
+
+        return PLValue("null", "")
+
     fn _apply_aggregates_to_group(self, group: List[PLValue], select_part: String, env: Environment) raises -> PLValue:
         """Apply aggregate functions to a group and return the result row."""
         var result_struct = Dict[String, PLValue]()
@@ -1368,21 +2422,52 @@ struct PLGrizzlyInterpreter:
             var expr = String(item.strip())
             
             # Check for aggregate functions
-            if expr.startswith("SUM("):
-                var column = expr[4:expr.__len__() - 1]  # Remove SUM( and )
+            if expr.startswith("@Sum("):
+                var column = expr[5:expr.__len__() - 1]  # Remove @Sum( and )
                 result_struct[expr] = self._apply_aggregate_sum(group, column)
-            elif expr.startswith("COUNT("):
-                var column = expr[6:expr.__len__() - 1]  # Remove COUNT( and )
+            elif expr.startswith("@Count("):
+                var column = expr[7:expr.__len__() - 1]  # Remove @Count( and )
                 result_struct[expr] = self._apply_aggregate_count(group, column)
-            elif expr.startswith("AVG("):
-                var column = expr[4:expr.__len__() - 1]  # Remove AVG( and )
+            elif expr.startswith("@Avg("):
+                var column = expr[5:expr.__len__() - 1]  # Remove @Avg( and )
                 result_struct[expr] = self._apply_aggregate_avg(group, column)
-            elif expr.startswith("MIN("):
-                var column = expr[4:expr.__len__() - 1]  # Remove MIN( and )
+            elif expr.startswith("@Min("):
+                var column = expr[5:expr.__len__() - 1]  # Remove @Min( and )
                 result_struct[expr] = self._apply_aggregate_min(group, column)
-            elif expr.startswith("MAX("):
-                var column = expr[4:expr.__len__() - 1]  # Remove MAX( and )
+            elif expr.startswith("@Max("):
+                var column = expr[5:expr.__len__() - 1]  # Remove @Max( and )
                 result_struct[expr] = self._apply_aggregate_max(group, column)
+            elif expr.startswith("@Stdev("):
+                var column = expr[7:expr.__len__() - 1]  # Remove @Stdev( and )
+                result_struct[expr] = self._apply_aggregate_stdev(group, column)
+            elif expr.startswith("@Variance("):
+                var column = expr[10:expr.__len__() - 1]  # Remove @Variance( and )
+                result_struct[expr] = self._apply_aggregate_variance(group, column)
+            elif expr.startswith("@Median("):
+                var column = expr[8:expr.__len__() - 1]  # Remove @Median( and )
+                result_struct[expr] = self._apply_aggregate_median(group, column)
+            elif expr.startswith("@Percentile("):
+                # Parse @Percentile(column, percentile)
+                var inner = expr[12:expr.__len__() - 1]  # Remove @Percentile( and )
+                var parts = inner.split(",")
+                if len(parts) == 2:
+                    var column = String(parts[0].strip())
+                    var percentile_str = String(parts[1].strip())
+                    var percentile = Float64(percentile_str) / 100.0  # Convert percentage to fraction
+                    result_struct[expr] = self._apply_aggregate_percentile(group, column, percentile)
+                else:
+                    # Default to median (50th percentile)
+                    var column = String(inner.strip())
+                    result_struct[expr] = self._apply_aggregate_percentile(group, column, 0.5)
+            elif expr.startswith("@Mode("):
+                var column = expr[6:expr.__len__() - 1]  # Remove @Mode( and )
+                result_struct[expr] = self._apply_aggregate_mode(group, column)
+            elif expr.startswith("@First("):
+                var column = expr[7:expr.__len__() - 1]  # Remove @First( and )
+                result_struct[expr] = self._apply_aggregate_first(group, column)
+            elif expr.startswith("@Last("):
+                var column = expr[6:expr.__len__() - 1]  # Remove @Last( and )
+                result_struct[expr] = self._apply_aggregate_last(group, column)
             else:
                 # Regular column - take from first row
                 if len(group) > 0 and group[0].is_struct():
