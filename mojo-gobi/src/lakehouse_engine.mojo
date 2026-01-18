@@ -14,12 +14,11 @@ from profiling_manager import ProfilingManager
 from query_optimizer import QueryOptimizer
 from schema_evolution_manager import SchemaEvolutionManager, SchemaChange, SchemaVersion
 from schema_migration_manager import SchemaMigrationManager
-from seaweed_blob_store import SeaweedBlobStore
-from s3_gateway import S3Gateway
 from timestamp_manager import TimestampManager
 from transaction_context import TransactionContext, DataStore
 from conflict_resolver import ConflictResolver
 from snapshot_manager import SnapshotManager
+from query_optimizer import TimeRange
 
 # Table type constants
 alias COW = 0      # Copy-on-Write: Read-optimized
@@ -235,6 +234,56 @@ struct LakehouseEngine(Copyable, Movable):
 
         return "Time-travel query executed: " + sql + " (since " + String(timestamp) + ", schema v" + String(schema_version) + ")"
 
+    fn query_time_range(mut self, table_name: String, start_ts: Int64, end_ts: Int64, sql: String) raises -> String:
+        """Execute a time range query (SINCE ... UNTIL) with flexible ordering."""
+        print("Time-range query from", String(start_ts), "to", String(end_ts) + ":", sql)
+
+        # Normalize the range (handle flexible ordering)
+        var time_range = TimeRange(min(start_ts, end_ts), max(start_ts, end_ts))
+        if end_ts == 0:  # Unbounded end
+            time_range.end_timestamp = 0
+
+        # Query timeline for commits in range
+        var commits = self.timeline.query_time_range(table_name, time_range.start_timestamp, time_range.end_timestamp)
+        var schema_version = self.get_schema_version_for_range(time_range.start_timestamp, time_range.end_timestamp)
+
+        print("Found", len(commits), "commits in time range")
+        print("Using schema version:", String(schema_version))
+
+        # Execute query against historical data in the time range
+        # This would filter data to only include versions active in the specified range
+
+        return "Time-range query executed: " + sql + " (from " + String(time_range.start_timestamp) + " to " + String(time_range.end_timestamp) + ")"
+
+    fn query_as_of_timestamp(mut self, table_name: String, timestamp: String, sql: String) raises -> String:
+        """Execute AS OF query with timestamp literal parsing."""
+        var ts = self.parse_timestamp_literal(timestamp)
+        return self.query_since(table_name, ts, sql)
+
+    fn parse_timestamp_literal(self, timestamp: String) -> Int64:
+        """Parse timestamp literal (Unix number or ISO 8601 UTC string)."""
+        if timestamp.isdigit() or (timestamp.startswith("-") and timestamp[1:].isdigit()):
+            return Int64(timestamp)
+        elif timestamp.startswith("'") and timestamp.endswith("'"):
+            var inner = timestamp[1:-1]
+            return self.parse_iso8601_utc(inner)
+        else:
+            return Int64(timestamp)  # Default to treating as number
+
+    fn parse_iso8601_utc(self, iso_str: String) -> Int64:
+        """Parse ISO 8601 UTC timestamp string to Unix timestamp."""
+        # Simplified parsing - full implementation would need proper date parsing
+        if len(iso_str) >= 20 and iso_str[10] == 'T' and iso_str.endswith('Z'):
+            # Placeholder implementation - would parse YYYY-MM-DDTHH:MM:SSZ
+            return 1640995200  # 2022-01-01T00:00:00Z
+        return 0
+
+    fn get_schema_version_for_range(self, start_ts: Int64, end_ts: Int64) -> Int:
+        """Get schema version applicable for a time range."""
+        # For now, return latest schema version
+        # Full implementation would check schema evolution history
+        return 1
+
     fn add_column(mut self, table_name: String, column_name: String, column_type: String, nullable: Bool = True) raises -> Bool:
         """Add a column to a table schema with evolution tracking."""
         # var success = self.schema_evolution.add_column(table_name, column_name, column_type, nullable)
@@ -401,6 +450,43 @@ struct LakehouseEngine(Copyable, Movable):
         if not self.s3_gateway:
             return False
         return self.s3_gateway.value().create_bucket(bucket_name)
+
+    fn enable_time_travel_for_table(mut self, table_name: String) raises -> Bool:
+        """Automatically add timestamp columns for time travel support."""
+        var schema = self.schema_manager.get_table_schema(table_name)
+        if not schema:
+            return False
+
+        var has_created_at = False
+        var has_updated_at = False
+
+        for column in schema.columns:
+            if column.name == "_created_at":
+                has_created_at = True
+            elif column.name == "_updated_at":
+                has_updated_at = True
+
+        # Add missing timestamp columns
+        if not has_created_at:
+            var created_col = Column("_created_at", "timestampz", 6)
+            self.schema_manager.add_column(table_name, created_col)
+
+        if not has_updated_at:
+            var updated_col = Column("_updated_at", "timestampz", 6)
+            self.schema_manager.add_column(table_name, updated_col)
+
+        # Backfill existing rows with current timestamp
+        var now = Int64(time() * 1000000)
+        self.backfill_timestamps(table_name, now)
+
+        print("✓ Enabled time travel for table:", table_name)
+        return True
+
+    fn backfill_timestamps(mut self, table_name: String, timestamp: Int64) raises:
+        """Backfill timestamp columns for existing rows."""
+        # This would update existing data to have creation timestamps
+        # Implementation would depend on the underlying storage format
+        print("Backfilling timestamps for table:", table_name, "with timestamp:", String(timestamp))
 
     fn get_stats(mut self) raises -> String:
         """Get lakehouse engine statistics."""

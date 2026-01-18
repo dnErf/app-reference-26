@@ -12,10 +12,11 @@ from blob_storage import BlobStorage
 
 struct Column(Movable, Copyable):
     var name: String
-    var type: String  # e.g., "int", "string", "float", "blob"
+    var type: String  # e.g., "int", "string", "float", "blob", "timestamp", "timestampz"
     var nullable: Bool
     var blob_bucket: String  # S3 bucket for BLOB columns (optional)
     var blob_compression: String  # Compression for BLOB columns (optional)
+    var timestamp_precision: Int  # Microsecond precision for TIMESTAMP types (optional)
 
     fn __init__(out self, name: String, type: String, nullable: Bool = True):
         self.name = name
@@ -23,6 +24,7 @@ struct Column(Movable, Copyable):
         self.nullable = nullable
         self.blob_bucket = ""
         self.blob_compression = "none"
+        self.timestamp_precision = 6  # Default microsecond precision
 
     fn __init__(out self, name: String, type: String, blob_bucket: String, blob_compression: String = "none", nullable: Bool = True):
         """Constructor for BLOB columns."""
@@ -31,6 +33,16 @@ struct Column(Movable, Copyable):
         self.nullable = nullable
         self.blob_bucket = blob_bucket
         self.blob_compression = blob_compression
+        self.timestamp_precision = 6
+
+    fn __init__(out self, name: String, type: String, timestamp_precision: Int, nullable: Bool = True):
+        """Constructor for TIMESTAMP/TIMESTAMPZ columns."""
+        self.name = name
+        self.type = type
+        self.nullable = nullable
+        self.blob_bucket = ""
+        self.blob_compression = "none"
+        self.timestamp_precision = timestamp_precision
 
     fn __copyinit__(out self, other: Self):
         self.name = other.name
@@ -38,6 +50,7 @@ struct Column(Movable, Copyable):
         self.nullable = other.nullable
         self.blob_bucket = other.blob_bucket
         self.blob_compression = other.blob_compression
+        self.timestamp_precision = other.timestamp_precision
 
     fn __moveinit__(out self, deinit existing: Self):
         self.name = existing.name^
@@ -45,10 +58,19 @@ struct Column(Movable, Copyable):
         self.nullable = existing.nullable
         self.blob_bucket = existing.blob_bucket^
         self.blob_compression = existing.blob_compression^
+        self.timestamp_precision = existing.timestamp_precision
 
     fn is_blob(self) -> Bool:
         """Check if this is a BLOB column."""
         return self.type == "blob"
+
+    fn is_timestamp(self) -> Bool:
+        """Check if this is a TIMESTAMP column."""
+        return self.type == "timestamp" or self.type == "timestampz"
+
+    fn is_timestampz(self) -> Bool:
+        """Check if this is a TIMESTAMPZ (with timezone) column."""
+        return self.type == "timestampz"
 struct Index(Movable, Copyable):
     var name: String
     var table_name: String

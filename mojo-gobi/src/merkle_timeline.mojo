@@ -343,6 +343,23 @@ struct MerkleTimeline(Movable, Copyable):
                 commits.append(raw_commit)
         return commits.copy()
 
+    fn query_time_range(mut self, table: String, start_ts: Int64, end_ts: Int64) -> List[String]:
+        """Query commits within a time range (inclusive of both bounds)."""
+        var commits = List[String]()
+
+        # Handle flexible ordering by normalizing the range
+        var normalized_start = min(start_ts, end_ts)
+        var normalized_end = max(start_ts, end_ts)
+
+        if end_ts == 0:  # Unbounded end
+            normalized_end = 1000000  # Large number for "future"
+
+        var raw_commits = self.commit_tree.range_query(Int(normalized_start), Int(normalized_end))
+        for raw_commit in raw_commits:
+            if raw_commit.find(table) != -1:
+                commits.append(raw_commit)
+        return commits.copy()
+
     fn compact_commits(mut self) raises:
         """Perform universal compaction on commit timeline."""
         if self.commit_tree.compaction_strategy.should_compact(self.commit_tree):

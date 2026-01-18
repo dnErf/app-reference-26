@@ -27,13 +27,43 @@ struct CacheEntry(Movable, Copyable):
         return (current_time - self.timestamp) > max_age_seconds
 
 # Query execution plan structures
+struct TimeRange(Movable):
+    var start_timestamp: Int64
+    var end_timestamp: Int64  # 0 means unbounded
+
+    fn __init__(out self, start: Int64, end: Int64):
+        self.start_timestamp = start
+        self.end_timestamp = end
+
+    fn is_point_in_time(self) -> Bool:
+        return self.start_timestamp == self.end_timestamp
+
+    fn is_unbounded_end(self) -> Bool:
+        return self.end_timestamp == 0
+
+    fn normalize(self):
+        """Ensure start <= end, handling flexible ordering."""
+        if self.start_timestamp > self.end_timestamp and self.end_timestamp != 0:
+            # Swap if specified in wrong order
+            var temp = self.start_timestamp
+            self.start_timestamp = self.end_timestamp
+            self.end_timestamp = temp
+
 struct QueryPlan(Movable):
-    var operation: String  # "scan", "join", "filter", "project", "parallel_scan", "timeline_scan"
+    var access_method: String
     var table_name: String
-    var conditions: Optional[List[String]]
     var cost: Float64
-    var parallel_degree: Int  # Number of parallel threads for parallel operations
-    var timeline_timestamp: Optional[Int64]  # For time-travel queries
+    var selectivity: Float64
+    var estimated_rows: Int
+    var filters: List[String]
+    var sort_order: List[String]
+    var group_by: List[String]
+    var cache_key: String
+    var materialized_view: Optional[String]
+    var parallel_degree: Int
+    var execution_steps: List[String]
+    var timeline_timestamp: Optional[Int64]  # For AS OF queries
+    var time_range: Optional[TimeRange]      # For SINCE/UNTIL queries
     var cache_key: Optional[String]  # For result caching
     var join_type: Optional[String]  # "nested_loop", "hash_join", "merge_join"
     var join_condition: Optional[String]  # Join condition for multi-table queries
@@ -787,11 +817,33 @@ struct QueryOptimizer(Movable):
         var space_pos = after_since.find(" ")
         if space_pos == -1:
             # SINCE at end of query
-            return Int64(after_since.strip())
+            return self.parse_timestamp_string(after_since.strip())
         else:
             # Extract timestamp before next keyword
             var timestamp_str = after_since[:space_pos].strip()
-            return Int64(timestamp_str)
+            return self.parse_timestamp_string(timestamp_str)
+
+    fn parse_timestamp_string(self, ts_str: String) -> Int64:
+        """Parse timestamp string (Unix number or ISO 8601)."""
+        if ts_str.isdigit() or (ts_str.startswith("-") and ts_str[1:].isdigit()):
+            # Unix timestamp
+            return Int64(ts_str)
+        elif ts_str.startswith("'") and ts_str.endswith("'"):
+            # ISO 8601 string
+            var inner = ts_str[1:-1]
+            return self.parse_iso8601_utc(inner)
+        else:
+            return Int64(ts_str)  # Default to treating as number
+
+    fn parse_iso8601_utc(self, iso_str: String) -> Int64:
+        """Parse ISO 8601 UTC timestamp string to Unix timestamp."""
+        # Basic parsing for '2024-01-01T00:00:00Z' format
+        # This is a simplified implementation - would need full date parsing in production
+        if len(iso_str) >= 20 and iso_str[10] == 'T' and iso_str.endswith('Z'):
+            # For now, return a placeholder - full implementation would parse the date
+            # and convert to Unix timestamp
+            return 1640995200  # Placeholder: 2022-01-01T00:00:00Z
+        return 0
 
     fn generate_cache_key(self, query: String, table_name: String, since_timestamp: Int64) -> String:
         """Generate a cache key for query result caching."""

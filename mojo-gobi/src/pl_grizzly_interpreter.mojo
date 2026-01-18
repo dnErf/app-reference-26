@@ -995,17 +995,20 @@ struct PLGrizzlyInterpreter:
 
     fn eval_select_timeline(mut self, content: String, env: Environment, plan: QueryPlan) raises -> PLValue:
         """Execute SELECT using timeline scan for time-travel queries."""
-        if not plan.timeline_timestamp:
-            return PLValue("error", "Timeline scan requires timestamp")
-        
         var table_name = plan.table_name
-        var timestamp = plan.timeline_timestamp.value()
-        
-        # Use lakehouse engine for time-travel query
-        var result_str = self.lakehouse_engine.query_since(table_name, timestamp, content)
-        
-        # Convert result to PLValue
-        return PLValue("string", result_str)
+
+        if plan.timeline_timestamp:
+            # AS OF query
+            var timestamp = plan.timeline_timestamp.value()
+            var result_str = self.lakehouse_engine.query_since(table_name, timestamp, content)
+            return PLValue("string", result_str)
+        elif plan.time_range:
+            # SINCE/UNTIL time range query
+            var time_range = plan.time_range.value()
+            var result_str = self.lakehouse_engine.query_time_range(table_name, time_range.start_timestamp, time_range.end_timestamp, content)
+            return PLValue("string", result_str)
+        else:
+            return PLValue("error", "Timeline scan requires timestamp or time range")
 
     fn eval_select_incremental(mut self, content: String, env: Environment, plan: QueryPlan) raises -> PLValue:
         """Execute SELECT using incremental scan for change-based queries."""

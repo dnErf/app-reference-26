@@ -174,7 +174,7 @@ struct TypeChecker:
         return "unknown"
 
     fn infer_literal_type(self, value: String) -> String:
-        """Enhanced literal type inference."""
+        """Enhanced literal type inference with timestamp support."""
         if value.isdigit():
             return "int"
         elif value.startswith("-") and value[1:].isdigit():
@@ -184,9 +184,20 @@ struct TypeChecker:
         elif value == "true" or value == "false":
             return "boolean"
         elif (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+            var inner = value[1:-1]
+            if self.is_timestamp_literal(inner):
+                return "timestamp"
             return "string"
         else:
             return "string"  # Default to string for complex literals
+
+    fn is_timestamp_literal(self, value: String) -> Bool:
+        """Check if a string represents a timestamp literal."""
+        # Check for ISO 8601 format: 2024-01-01T00:00:00Z
+        if len(value) >= 20 and value[10] == 'T' and value.endswith('Z'):
+            # Basic format validation: YYYY-MM-DDTHH:MM:SSZ
+            return value[4] == '-' and value[7] == '-' and value[13] == ':' and value[16] == ':'
+        return False
 
     fn is_float_literal(self, value: String) -> Bool:
         """Check if a string represents a float literal."""
@@ -916,11 +927,24 @@ struct PLGrizzlyParser:
             var alias_token = self.advance()
             node.set_attribute("alias", alias_token.value)
 
+        # Check for time travel clauses (AS OF, SINCE/UNTIL)
+        if self.match(AS):
+            if self.match("OF"):  # AS OF
+                var time_clause = self.parse_time_travel_clause()
+                node.add_child(time_clause)
+                node.set_attribute("has_time_travel", "true")
+            else:
+                self.error("Expected 'OF' after 'AS'")
+        elif self.check(IDENTIFIER) and self.peek().value == "SINCE":
+            var time_clause = self.parse_time_travel_clause()
+            node.add_child(time_clause)
+            node.set_attribute("has_time_travel", "true")
+
         # Check for WITH SECRET clause
         if self.match(WITH):
             _ = self.consume(SECRET, "Expected SECRET after WITH")
             _ = self.consume(LBRACKET, "Expected '[' after SECRET")
-            
+
             var secrets = List[String]()
             secrets.append(self.consume(IDENTIFIER, "Expected secret name").value)
             while self.match(COMMA):
@@ -1280,6 +1304,54 @@ struct PLGrizzlyParser:
         
         _ = self.consume(RBRACE, "Expected '}' after struct fields")
         return node^
+
+    fn parse_time_travel_clause(mut self) raises -> ASTNode:
+        """Parse time travel clauses: AS OF timestamp or SINCE start UNTIL end."""
+        var node = ASTNode("TIME_TRAVEL_CLAUSE")
+
+        if self.match("AS"):
+            if not self.match("OF"):
+                self.error("Expected 'OF' after 'AS'")
+            node.add_attribute("mode", "AS_OF")
+            var timestamp_node = self.parse_timestamp_value()
+            node.add_child(timestamp_node)
+        elif self.match("SINCE"):
+            node.add_attribute("mode", "SINCE_UNTIL")
+            var start_ts = self.parse_timestamp_value()
+            node.add_child(start_ts)
+
+            if self.match("UNTIL"):
+                var end_ts = self.parse_timestamp_value()
+                node.add_child(end_ts)
+            # If no UNTIL, end timestamp remains unbounded
+        else:
+            self.error("Expected AS OF or SINCE clause")
+
+        return node
+
+    fn parse_timestamp_value(mut self) raises -> ASTNode:
+        """Parse timestamp value (number, string literal, or identifier)."""
+        var node = ASTNode("TIMESTAMP_VALUE")
+
+        if self.current_token.type == "NUMBER":
+            # Unix timestamp number
+            var literal_node = self.parse_number_literal()
+            node.add_child(literal_node)
+            node.add_attribute("format", "unix")
+        elif self.current_token.type == "STRING":
+            # ISO 8601 string
+            var literal_node = self.parse_string_literal()
+            node.add_child(literal_node)
+            node.add_attribute("format", "iso8601")
+        elif self.current_token.type == "IDENTIFIER":
+            # Identifier (could be column reference or function)
+            var ident_node = self.parse_identifier()
+            node.add_child(ident_node)
+            node.add_attribute("format", "identifier")
+        else:
+            self.error("Expected timestamp number, string, or identifier")
+
+        return node
 
     fn parse_struct_literal_content(mut self) raises -> ASTNode:
         """Parse the content of a struct literal (fields only, without outer braces)."""
