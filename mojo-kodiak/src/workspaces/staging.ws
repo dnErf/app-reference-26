@@ -1,1 +1,0 @@
-id=01KEKY4ZBE00050HTVFD76HZ4P;name=staging;description=Staging workspace;created_by=system;created_at=1768048196.9742084;base_version=initial;current_version=initial;status=active;environment=dev;schema_objects=;config_overrides=
